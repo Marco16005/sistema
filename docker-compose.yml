@@ -1,0 +1,296 @@
+# Todo el sistema corre en contenedores: el único requisito de la computadora es Docker.
+# Nada aquí depende de la máquina donde se desarrolló.
+#
+# Este archivo no trae valores por omisión para las claves ni para lo que distingue desarrollo de
+# operación: sin un archivo .env no arranca, y dice qué falta. Para desarrollar: cp .env.desarrollo .env
+# Para operar, el .env lo genera operacion/entorno.sh.
+name: feruga
+
+services:
+  db:
+    # Por su huella: la etiqueta se mueve.
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: feruga
+      POSTGRES_PASSWORD: "${BD_CLAVE:?Falta BD_CLAVE en .env (para desarrollar, cp .env.desarrollo .env)}"
+      POSTGRES_DB: feruga
+      TZ: America/Mexico_City
+      PGTZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:${BD_PUERTO:-54329}:5432"
+    volumes:
+      - datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feruga -d feruga"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Pone la base al día y deja listo el usuario con que la aplicación se conecta. Corre y termina.
+  # Es la única pieza, junto con la consola, que usa las credenciales de administración.
+  migracion:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: admin
+    environment:
+      DATABASE_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db:5432/feruga"
+      WEB_BD_CLAVE: "${WEB_BD_CLAVE:?Falta WEB_BD_CLAVE en .env}"
+      MODO: ${MODO:-}
+      # En operación el migrador no corre a secas: aquí le llega el turno del guion que tiene el
+      # candado de la instalación (levantar, publicar, migrar a mano). En desarrollo no hace falta.
+      OPERACION_TURNO: ${OPERACION_TURNO:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "node db/migrar.ts && node db/rol.ts"
+    restart: "no"
+
+  # La aplicación. Se conecta con un usuario que solo puede lo que puede la aplicación.
+  # Se publica solo en esta máquina: abrirla a la red pide certificado (plan de despliegue).
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: web
+    environment:
+      DATABASE_URL: "postgres://feruga_web:${WEB_BD_CLAVE:?Falta WEB_BD_CLAVE en .env}@db:5432/feruga"
+      # Con esta clave se sella la cookie de cada equipo. Cambiarla deja a todos los equipos fuera.
+      SESION_CLAVE: "${SESION_CLAVE:?Falta SESION_CLAVE en .env}"
+      COOKIE_SEGURA: "${COOKIE_SEGURA:?Falta COOKIE_SEGURA en .env}"
+      NEGOCIO_NOMBRE: ${NEGOCIO_NOMBRE:-Recicladora}
+      # De dónde puede venir una petición que escribe. Dicho aquí, no deducido de la propia petición.
+      ORIGEN: "${ORIGEN:?Falta ORIGEN en .env}"
+      # Solo «desarrollo» deja pasar valores de desarrollo; cualquier otra cosa, o nada, es operación.
+      MODO: ${MODO:-}
+      TZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:${WEB_PUERTO:-3210}:3000"
+    depends_on:
+      migracion:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/salud >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  # La consola de administración: primer arranque, personas y equipos.
+  #   docker compose run --rm consola arranque
+  #   docker compose run --rm consola persona alta "Luis" mostrador
+  consola:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: admin
+    profiles: ["consola"]
+    environment:
+      DATABASE_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db:5432/feruga"
+      MODO: ${MODO:-}
+      TZ: America/Mexico_City
+    depends_on:
+      migracion:
+        condition: service_completed_successfully
+    entrypoint: ["node", "consola/principal.ts"]
+
+  # Un segundo servidor, vacío: ahí se restaura el respaldo para probar que sirve.
+  db_limpia:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    profiles: ["pruebas"]
+    environment:
+      POSTGRES_USER: feruga
+      POSTGRES_PASSWORD: "${BD_CLAVE:?Falta BD_CLAVE en .env}"
+      TZ: America/Mexico_City
+      PGTZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:${BD_LIMPIA_PUERTO:-54330}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feruga"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Un almacenamiento compatible con S3, vacío: ahí van los respaldos de las pruebas. Sus claves
+  # son públicas y solo existen aquí; lo que guarda se pierde al detenerlo.
+  almacen:
+    build:
+      context: docker
+      dockerfile: almacen.Dockerfile
+    profiles: ["pruebas"]
+    environment:
+      MINIO_ROOT_USER: raiz
+      MINIO_ROOT_PASSWORD: raiz-solo-para-pruebas
+    tmpfs:
+      - /datos
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Corre la batería completa dentro de un contenedor: no hace falta tener Node instalado.
+  #   docker compose run --rm pruebas
+  pruebas:
+    build:
+      context: .
+      dockerfile: docker/pruebas.Dockerfile
+    profiles: ["pruebas"]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - modulos:/app/node_modules
+    environment:
+      PG_ADMIN_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db:5432/postgres"
+      PG_RESTAURA_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db_limpia:5432/postgres"
+      PG_PLANTILLA: ${PG_PLANTILLA:-feruga_plantilla}
+      ALMACEN_URL: http://raiz:raiz-solo-para-pruebas@almacen:9000
+      # La batería es desarrollo por definición: usa claves de prueba y bases desechables.
+      MODO: desarrollo
+      TZ: America/Mexico_City
+    depends_on:
+      db:
+        condition: service_healthy
+      db_limpia:
+        condition: service_healthy
+      almacen:
+        condition: service_healthy
+    command: sh -c "npm ci --no-audit --no-fund --silent && npm run tipos && npm test"
+
+  # ── Recorridos: la aplicación completa, con su propia base, vista desde un navegador ──
+  #   docker compose --profile recorrido run --rm recorrido
+  db_recorrido:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    profiles: ["recorrido", "webkit"]
+    environment:
+      POSTGRES_USER: feruga
+      POSTGRES_PASSWORD: recorrido
+      POSTGRES_DB: feruga
+      TZ: America/Mexico_City
+      PGTZ: America/Mexico_City
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feruga -d feruga"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Migra la base de los recorridos y deja una plantilla: cada recorrido arranca de una copia limpia.
+  migracion_recorrido:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: admin
+    profiles: ["recorrido", "webkit"]
+    environment:
+      DATABASE_URL: postgres://feruga:recorrido@db_recorrido:5432/feruga
+      PG_ADMIN_URL: postgres://feruga:recorrido@db_recorrido:5432/postgres
+      PG_PLANTILLA: recorrido_plantilla
+      WEB_BD_CLAVE: recorrido_web
+      MODO: desarrollo
+    depends_on:
+      db_recorrido:
+        condition: service_healthy
+    command: sh -c "node db/plantilla.ts && node db/migrar.ts && node db/rol.ts"
+    restart: "no"
+
+  web_recorrido:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: web
+    profiles: ["recorrido", "webkit"]
+    environment:
+      DATABASE_URL: postgres://feruga_web:recorrido_web@db_recorrido:5432/feruga
+      SESION_CLAVE: una-clave-solo-para-los-recorridos-0123456789
+      # Las dos direcciones desde las que la usan los recorridos: directa, y por el proxy de WebKit.
+      ORIGEN: http://web_recorrido:3000,https://recorrido.test
+      MODO: desarrollo
+      TZ: America/Mexico_City
+    depends_on:
+      migracion_recorrido:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/salud >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  recorrido:
+    build:
+      context: .
+      dockerfile: docker/recorrido.Dockerfile
+    profiles: ["recorrido"]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - modulos_recorrido:/app/node_modules
+    environment:
+      BASE_URL: http://web_recorrido:3000
+      PG_ADMIN_URL: postgres://feruga:recorrido@db_recorrido:5432/postgres
+      PG_PLANTILLA: recorrido_plantilla
+      TZ: America/Mexico_City
+    depends_on:
+      web_recorrido:
+        condition: service_healthy
+    command: sh -c "npm ci --no-audit --no-fund --silent && npx playwright test"
+
+  # Los cruces delicados, otra vez, en WebKit, que es el motor de iOS. Los candados entre pestañas
+  # piden un origen seguro, y WebKit no acepta la bandera con que a Chromium se le dice que trate
+  # como seguro uno sin cifrar. Aquí la aplicación de los recorridos va detrás de un proxy con HTTPS
+  # de verdad, con su propia autoridad, y el navegador confía en ella: no se ignora ningún error.
+  #   docker compose --profile webkit run --rm recorrido_webkit
+  proxy_webkit:
+    image: caddy:2-alpine
+    profiles: ["webkit"]
+    command: caddy reverse-proxy --from https://recorrido.test --to http://web_recorrido:3000 --internal-certs
+    networks:
+      default:
+        aliases: ["recorrido.test"]
+    volumes:
+      - autoridad_webkit:/data
+    depends_on:
+      web_recorrido:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/caddy/pki/authorities/local/root.crt"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  recorrido_webkit:
+    build:
+      context: .
+      dockerfile: docker/recorrido.Dockerfile
+    profiles: ["webkit"]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - modulos_recorrido:/app/node_modules
+      - autoridad_webkit:/autoridad:ro
+    environment:
+      BASE_URL: https://recorrido.test
+      PG_ADMIN_URL: postgres://feruga:recorrido@db_recorrido:5432/postgres
+      PG_PLANTILLA: recorrido_plantilla
+      TZ: America/Mexico_City
+      # Los recorridos que dejan llegar una petición y pierden su respuesta la mandan ellos mismos
+      # (no el navegador): también confían en la autoridad del proxy.
+      NODE_EXTRA_CA_CERTS: /autoridad/caddy/pki/authorities/local/root.crt
+    depends_on:
+      proxy_webkit:
+        condition: service_healthy
+    # La autoridad del proxy entra al almacén de confianza del sistema, que es el que usa WebKit.
+    command: >
+      sh -c "cp /autoridad/caddy/pki/authorities/local/root.crt /usr/local/share/ca-certificates/recorrido-webkit.crt
+      && update-ca-certificates >/dev/null 2>&1
+      && npm ci --no-audit --no-fund --silent
+      && npx playwright test -c playwright.webkit.config.ts"
+
+volumes:
+  datos:
+  modulos:
+  modulos_recorrido:
+  autoridad_webkit:

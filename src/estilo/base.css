@@ -1,0 +1,71 @@
+/* La base: lo que vale para toda pantalla, antes de que ninguna diga nada. Letra, fondo, foco,
+   toque y movimiento. Los valores vienen de valores.css.
+
+   Es una aplicación web que se usa en teléfonos, tabletas y computadoras, a veces con guantes:
+   lo de aquí abajo es lo que hace que no se sienta «una página». Cada renglón dice por qué está. */
+
+*{box-sizing:border-box}
+
+html{
+  scroll-padding-top:calc(var(--barra-fija,0px) + 12px);   /* lo que se trae a la vista no queda debajo de la barra fija */
+  -webkit-tap-highlight-color:transparent;      /* sin el destello gris del navegador al tocar: cada control da su propia respuesta */
+  -webkit-text-size-adjust:100%;text-size-adjust:100%;   /* que el teléfono no infle la letra al girarlo */
+  overscroll-behavior-y:none;                   /* jalar hacia abajo no recarga la página a media captura */
+}
+body{
+  margin:0;background:var(--fondo);color:var(--texto);
+  font-family:var(--letra);font-size:var(--letra-base);line-height:1.4;
+  overscroll-behavior-y:none;
+}
+
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+/* Un campo con letra de menos de 16 px hace que el iPhone acerque la página al tocarlo, y no la regresa. */
+input,select,textarea{font-size:max(16px,1em)}
+button{cursor:pointer}
+button[disabled]{cursor:not-allowed}
+
+/* Lo que se toca: responde sin esperar un segundo toque, y dejar el dedo encima no selecciona su texto. */
+button,a,[role="button"],[role="tab"],[role="switch"]{
+  touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+}
+
+/* La respuesta es inmediata, al apoyar el dedo; lo que el botón hace sigue ocurriendo al soltarlo. */
+button{transition:transform var(--al-toque) ease-out,opacity var(--al-toque) ease-out}
+button:not([disabled]):active{transform:var(--cede)}
+
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px}
+
+/* La página puede recibir el foco cuando una hoja se cierra y lo que la abrió ya no existe; no hace falta dibujarlo. */
+[data-regreso-del-foco]:focus{outline:none}
+
+/* Las cifras no bailan de un renglón a otro. */
+table,.num,.n,.tot,.visor,.digits{font-variant-numeric:tabular-nums}
+
+/* Con el contenido hasta la orilla (viewport-fit=cover), el margen respeta la muesca y la barra del sistema. */
+.wrap{
+  max-width:960px;margin:0 auto;
+  padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));
+  padding-block:max(14px,env(safe-area-inset-top,0px)) calc(40px + env(safe-area-inset-bottom,0px));
+}
+
+/* ── el vidrio ─────────────────────────────────────────────────────────────
+   Solo en las barras, que se quedan en su lugar mientras lo demás pasa por debajo; lo que se lee
+   largo va sobre superficie sólida. Y tiene salida: si el navegador no sabe desenfocar, o el
+   equipo pide menos transparencia, es superficie sólida. Con «más contraste» ya lo es, por sus
+   valores (--vidrio opaco, --desenfoque en nada) y lleva su borde marcado. */
+.vidrio{
+  background:var(--vidrio);-webkit-backdrop-filter:var(--desenfoque);backdrop-filter:var(--desenfoque);
+  border:max(1px,var(--borde-marcado)) solid var(--vidrio-borde);box-shadow:var(--sombra);
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .vidrio{background:var(--superficie)}
+}
+@media (prefers-reduced-transparency:reduce){
+  .vidrio{background:var(--superficie);-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+
+/* Si el equipo pide menos movimiento, nada se desplaza ni cambia de tamaño: queda, cuando mucho, un fundido corto. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;scroll-behavior:auto!important;
+    transition-property:opacity,background-color,color,border-color!important;transition-duration:.12s!important}
+}

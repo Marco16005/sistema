@@ -1,0 +1,3 @@
+# Solo para el ensayo: el dominio no existe en internet, así que el certificado lo emite una
+# autoridad propia de este proxy. El navegador del ensayo confía en ella expresamente.
+local_certs

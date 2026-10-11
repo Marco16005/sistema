@@ -1,0 +1,228 @@
+/* Las pantallas de adentro —mostrador, inventario, precios, cierre, arranque—, en el lenguaje nuevo.
+   El flujo es el que validó el personal del mostrador: una decisión por pantalla. Los valores, la
+   base, las piezas y el comprobante viven en src/estilo/; aquí está lo que esas pantallas comparten.
+   Medidas de patio: todo lo que se toca mide 60 px o más; el texto, 17; los rótulos, 15. */
+:root{
+  /* El radio de lo que va dentro de una tarjeta: un material, una báscula, una tecla, un aviso. */
+  --radio-de-adentro:20px;
+}
+
+.lbl{font-size:var(--letra-chica);font-weight:600;color:var(--texto-2);margin:0 0 var(--espacio-2)}
+.note{color:var(--texto-2);font-size:var(--letra-base);margin:var(--espacio-3) 0 0;line-height:1.4}
+.empty{color:var(--texto-2);font-size:var(--letra-base);padding:var(--espacio-6) var(--espacio-3);text-align:center;margin:0}
+.cargando{color:var(--texto-2);font-size:var(--letra-base);text-align:center;padding:40px var(--espacio-3)}
+
+/* ── el botón de estas pantallas: lleno para lo que sigue; gris para lo que regresa ── */
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-width:var(--toque);min-height:var(--toque);
+  margin-top:var(--espacio-3);padding:var(--espacio-2) var(--espacio-5);
+  background:var(--acento-lleno);color:var(--sobre-acento);border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);
+  font-size:18px;font-weight:600;letter-spacing:-.2px;text-align:center;text-decoration:none}
+.btn[disabled]{opacity:.38}
+.btn.ghostbtn{background:var(--relleno);color:var(--texto)}
+.btn.chico{font-size:var(--letra-base)}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:var(--separacion-de-toque)}
+
+/* ── cuentas abiertas: siempre a la mano, a un lado en pantalla ancha y arriba en angosta ── */
+.app{display:grid;grid-template-columns:264px minmax(0,1fr);gap:var(--espacio-5);align-items:start}
+.main{min-width:0}
+/* Debajo de la barra de las pantallas, que en pantalla ancha se queda fija (src/estilo/sesion.css). */
+.rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--barra-fija) + 10px)}
+/* Hasta diez cuentas no caben a la vez: la lista se desplaza por dentro, y los botones para abrir
+   otra se quedan debajo, siempre a la vista. La cuenta activa se acomoda sola (Mostrador.tsx). */
+.lista{display:flex;flex-direction:column;gap:var(--separacion-de-toque);max-height:max(264px,calc(100dvh - 270px))}
+.grupo{display:grid;gap:var(--separacion-de-toque);align-content:start;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* A cada grupo le cabe siempre una cuenta entera, por lo menos: la activa se tiene que poder ver completa. */
+.grupo:not(.espera){flex:1 1 auto;min-height:72px}
+/* Las que esperan la segunda pesada de un vehículo, aparte de las del mostrador y siempre a la
+   vista: cuando el camión vuelve, su cuenta se encuentra sin recorrer la lista. */
+.grupo.espera{flex:0 1 auto;max-height:172px;padding-top:var(--espacio-2);border-top:1px dashed var(--separador)}
+.rail .lbl.sub{margin:0}
+.cta{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:2px var(--espacio-3);width:100%;min-height:72px;
+  padding:var(--espacio-3) var(--espacio-4);text-align:left;background:var(--superficie);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-de-adentro)}
+.cta b{font-size:var(--letra-base);font-weight:600;letter-spacing:-.2px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cta .tt{font-family:var(--numeros);font-size:19px;font-weight:600}
+.cta small{grid-column:1 / -1;color:var(--texto-2);font-size:var(--letra-chica);line-height:1.3}
+.cta.falta small{color:var(--alerta);font-weight:600}
+.cta .otro{grid-column:1 / -1;color:var(--alerta);font-size:var(--letra-chica);font-weight:600}
+.cta[aria-pressed="true"]{background:var(--acento-lleno);color:var(--sobre-acento)}
+.cta[aria-pressed="true"] small,.cta[aria-pressed="true"] .otro{color:var(--sobre-acento);opacity:.86}
+.nueva{min-height:var(--toque);padding:0 var(--espacio-3);background:var(--tinte-acento);color:var(--acento);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);font-size:var(--letra-base);font-weight:600}
+.nueva[disabled]{opacity:.38}
+.rail .dos{margin-top:var(--espacio-3)}
+.angosto{max-width:720px}
+/* En pantalla angosta las cuentas van en una tira que se queda arriba al desplazarse: «siempre a
+   la vista» también cuando hay que bajar hasta el botón. */
+@media (max-width:860px){
+  .app{grid-template-columns:minmax(0,1fr);gap:var(--espacio-3)}
+  /* Dos renglones: arriba los botones para abrir otra, que no se van con la tira; abajo las cuentas,
+     que se desplazan de lado. */
+  .rail{position:sticky;top:0;z-index:5;display:grid;gap:var(--separacion-de-toque);
+    margin-inline:-16px;padding:var(--espacio-2) 16px;background:var(--fondo);border-bottom:1px solid var(--separador)}
+  .rail .lbl,.rail .note{display:none}
+  .rail .dos{order:-1;margin-top:0}
+  .lista{flex-direction:row;max-height:none;overflow-x:auto;overflow-y:hidden;scroll-padding-inline:4px;scrollbar-width:none}
+  .grupo,.grupo.espera{display:contents}
+  .grupo.espera .cta{border:2px dashed var(--alerta)}
+  .cta,.grupo.espera .cta{flex:0 0 176px;min-height:var(--toque);padding:var(--espacio-2) var(--espacio-3)}
+  .cta small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+
+/* ── dentro de una cuenta: en qué paso voy ────────────────────── */
+.top{display:flex;align-items:center;gap:var(--espacio-3);margin-bottom:var(--espacio-3)}
+.top h2{margin:0;font-size:30px;font-weight:700;letter-spacing:-.5px;line-height:1.1}
+/* Los tres pasos, como un solo control. */
+.pasos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--separacion-de-toque);padding:4px;margin-bottom:var(--espacio-3);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);background:var(--relleno)}
+.pasos button{min-height:var(--toque);padding:0 var(--espacio-2);display:flex;align-items:center;justify-content:center;gap:var(--espacio-2);
+  background:transparent;color:var(--texto-2);border:var(--borde-marcado) solid transparent;border-radius:var(--radio-pildora);
+  font-size:var(--letra-base);font-weight:600}
+.pasos i{display:inline-grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;border:1.5px solid currentColor;
+  font-family:var(--numeros);font-size:var(--letra-base);font-style:normal;font-weight:700}
+/* El paso en que se está va invertido, como la familia elegida: sobre superficie no se distinguía en oscuro. */
+.pasos button[aria-current="step"]{background:var(--texto);color:var(--superficie);border-color:var(--texto)}
+.pasos button[disabled]{opacity:.42}
+@media (max-width:420px){.pasos i{display:none}}
+
+.card{background:var(--superficie);border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-grande);margin-bottom:var(--espacio-3)}
+.card>header{display:flex;justify-content:space-between;align-items:baseline;gap:var(--espacio-3);flex-wrap:wrap;
+  padding:var(--espacio-4) var(--espacio-4) 0}
+.card h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.3px}
+.card>header small{color:var(--texto-2);font-size:var(--letra-chica)}
+.pad{padding:var(--espacio-4)}
+.okmsg{border:1.5px solid var(--bien);color:var(--bien);border-radius:16px;padding:var(--espacio-3) var(--espacio-4);margin-bottom:var(--espacio-3);
+  font-size:var(--letra-base);font-weight:600}
+/* Un aviso es para leerse: va en la letra de todo lo demás, no en la de los rótulos. */
+.flag{padding:var(--espacio-3) var(--espacio-4);border-radius:16px;background:var(--tinte-alerta);
+  border:max(1px,var(--borde-marcado)) solid var(--alerta);color:var(--alerta);
+  font-size:var(--letra-base);margin-top:var(--espacio-3);line-height:1.4}
+.flag b{font-weight:700}
+.flag .btn{margin-top:var(--espacio-3)}
+
+/* ── paso 1: material ─────────────────────────────────────────── */
+.chips{display:flex;gap:var(--separacion-de-toque);flex-wrap:wrap;margin-bottom:var(--espacio-3)}
+.chip{min-width:var(--toque);min-height:var(--toque);padding:0 var(--espacio-4);background:var(--relleno);color:var(--texto);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);font-size:var(--letra-base);font-weight:600}
+.chip[aria-pressed="true"]{background:var(--texto);color:var(--superficie)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(156px,1fr));gap:10px}
+.mat{display:flex;flex-direction:column;justify-content:space-between;gap:var(--espacio-2);min-height:96px;padding:14px;text-align:left;
+  background:var(--relleno);border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-de-adentro)}
+.mat b{display:block;font-size:18px;font-weight:600;letter-spacing:-.3px;line-height:1.15}
+.mat span{display:block;color:var(--texto-2);font-size:var(--letra-base);font-weight:600;font-variant-numeric:tabular-nums}
+.mat[aria-pressed="true"]{background:var(--texto);color:var(--superficie)}
+.mat[aria-pressed="true"] span{color:inherit}
+.mat[disabled]{opacity:.45}
+
+/* ── paso 2: báscula. Se toca la que tiene el material ────────── */
+.que{margin:0 0 var(--espacio-3)}
+.que b{display:block;font-size:24px;font-weight:700;letter-spacing:-.4px;line-height:1.15}
+.que span{color:var(--texto-2);font-size:var(--letra-base)}
+.bas{display:flex;justify-content:space-between;align-items:center;gap:10px 16px;flex-wrap:wrap;width:100%;min-height:92px;
+  margin-bottom:var(--separacion-de-toque);padding:14px 16px;text-align:left;background:var(--relleno);color:var(--texto);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-de-adentro)}
+.bas .quien{flex:1 1 170px;min-width:0}
+.bas .quien b{display:block;font-size:19px;font-weight:600;letter-spacing:-.2px}
+.bas .quien small{display:block;margin-top:3px;font-size:var(--letra-chica);line-height:1.35;color:var(--texto-2)}
+.bas.ojo .quien small{color:var(--alerta);font-weight:600}
+.bas .toca{font-size:var(--letra-base);font-weight:600;color:var(--acento)}
+.manual{margin-top:var(--espacio-3);padding:var(--espacio-3);border-radius:var(--radio-de-adentro);background:var(--relleno)}
+.manual label{display:block;font-size:var(--letra-base);margin-bottom:var(--espacio-2)}
+.mrow{display:flex;gap:var(--separacion-de-toque);flex-wrap:wrap}
+.mrow input{flex:1 1 130px;min-width:0;min-height:var(--toque);padding:8px 12px;text-align:right;
+  font-family:var(--numeros);font-size:20px;background:var(--superficie);border:1px solid var(--borde-control);border-radius:var(--radio-chico)}
+.mrow .btn{flex:1 1 170px;width:auto;margin-top:0}
+
+/* ── lo que se va tecleando: grande, al centro ── */
+.visor{display:flex;flex-direction:column;align-items:center;gap:2px;padding:var(--espacio-2) 0 var(--espacio-3);text-align:center}
+.visor .quien b{display:block;font-size:var(--letra-base);font-weight:600}
+.visor .quien small{display:block;margin-top:2px;font-size:var(--letra-chica);line-height:1.35;color:var(--texto-2)}
+.digits{font-family:var(--numeros);font-weight:700;font-size:clamp(44px,9vw,64px);line-height:1.05;letter-spacing:-1px}
+.digits .ghost{display:none}
+.digits .unit{font-size:.42em;font-weight:600;letter-spacing:0;margin-left:.2em;color:var(--texto-2)}
+.teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:420px;margin:var(--espacio-3) auto 0}
+.teclado button{min-height:68px;background:var(--relleno);border:var(--borde-marcado) solid var(--separador);border-radius:22px;
+  font-family:var(--numeros);font-size:28px;font-weight:600}
+.teclado button.aux{background:transparent;color:var(--texto-2);font-family:inherit;font-size:var(--letra-base)}
+
+/* ── paso 3: la cuenta ────────────────────────────────────────── */
+.ren{display:flex;align-items:center;gap:var(--espacio-2) var(--espacio-3);flex-wrap:wrap;padding:var(--espacio-3) 0;border-bottom:1px solid var(--separador)}
+.ren .rn{flex:1 1 200px;min-width:0}
+.ren .rn b{display:block;font-size:18px;font-weight:600;letter-spacing:-.2px}
+.ren .rn small{display:block;color:var(--texto-2);font-size:var(--letra-chica);font-variant-numeric:tabular-nums}
+.ren .rn small b{display:inline;font-size:inherit}
+.ren .ri{font-family:var(--numeros);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.quitar{min-width:var(--toque);min-height:var(--toque);padding:0 var(--espacio-4);background:var(--relleno);color:var(--texto);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);font-size:var(--letra-base);font-weight:600}
+.prog{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.prog span{padding:3px 10px;border-radius:var(--radio-pildora);border:1.5px solid var(--separador);font-size:var(--letra-base);font-weight:600}
+.prog .hecho{border-color:var(--bien);color:var(--bien)}
+.prog .sigue{border-color:var(--alerta);color:var(--alerta)}
+.pesar{margin:var(--espacio-3) 0 var(--espacio-1)}
+.mas{display:block;width:100%;min-height:var(--toque);margin-top:var(--espacio-3);background:var(--tinte-acento);color:var(--acento);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);font-size:18px;font-weight:600}
+.mas[disabled]{opacity:.38}
+.tot{display:flex;justify-content:space-between;align-items:baseline;gap:var(--espacio-3);padding:6px 0;font-size:var(--letra-base);font-variant-numeric:tabular-nums}
+.tot.first{margin-top:var(--espacio-4)}
+.tot .n{font-family:var(--numeros);font-weight:600}
+.tot.adj{color:var(--texto-2)}
+.tot.big{margin-top:var(--espacio-2);padding-top:var(--espacio-3);border-top:1px solid var(--separador);font-weight:600}
+.tot.big .n{font-size:44px;line-height:1;font-weight:700;letter-spacing:-1px}
+
+/* ── el precio especial, en la cuenta ── */
+/* Cada material de la cuenta, con lo suyo debajo —su segunda pesada, su precio especial—: la raya va al final de todo. */
+.renglon{border-bottom:1px solid var(--separador)}
+.renglon > .ren{border-bottom:0}
+.renglon > .pesar{margin:0 0 var(--espacio-3)}
+.especial{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--separacion-de-toque) var(--espacio-3);
+  margin:0 0 var(--espacio-3);padding:var(--espacio-3) var(--espacio-4);border-radius:16px;
+  background:var(--tinte-acento);border:var(--borde-marcado) solid var(--separador);font-size:var(--letra-base);line-height:1.35}
+.especial span{flex:1 1 220px}
+.queda{margin:var(--espacio-3) 0 0;padding:var(--espacio-3) var(--espacio-4);border-radius:16px;background:var(--relleno);
+  font-size:var(--letra-base);line-height:1.4;text-align:center}
+.queda b{font-variant-numeric:tabular-nums}
+
+/* ── precios y cierre ─────────────────────────────────────────── */
+.pcat{margin:var(--espacio-5) 0 2px;font-size:var(--letra-base);font-weight:700}
+.pricerow,.phead{display:grid;grid-template-columns:1fr 104px 104px;gap:var(--separacion-de-toque);align-items:center}
+.pricerow{padding:var(--espacio-2) 0;border-bottom:1px solid var(--separador)}
+.pricerow .nm{font-size:var(--letra-base);min-width:0}
+.pricerow .nm small{display:block;color:var(--texto-2);font-size:var(--letra-chica);font-variant-numeric:tabular-nums}
+.pricerow input{width:100%;min-height:var(--toque);padding:7px 10px;text-align:right;
+  font-family:var(--numeros);font-size:18px;background:var(--relleno);border:1px solid var(--borde-control);border-radius:var(--radio-chico)}
+.phead{margin-top:var(--espacio-3)}
+.phead span{font-size:var(--letra-chica);font-weight:600;color:var(--texto-2);text-align:right}
+.phead span:first-child{text-align:left}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:var(--espacio-3) 7px;text-align:right;border-bottom:1px solid var(--separador);font-size:var(--letra-base)}
+th{font-size:var(--letra-chica);font-weight:600;color:var(--texto-2)}
+th:first-child,td:first-child{text-align:left}
+td.mn{font-family:var(--numeros)}
+.scroll{overflow-x:auto}
+@media (max-width:420px){.pricerow,.phead{grid-template-columns:1fr 84px 84px}}
+
+/* ── campos, motivos, y el arranque ── */
+.motivos{display:grid;gap:var(--separacion-de-toque);margin-top:var(--espacio-3)}
+.campo{width:100%;min-height:var(--toque);padding:8px 14px;font-size:var(--letra-base);background:var(--superficie);
+  border:1px solid var(--borde-control);border-radius:var(--radio-chico)}
+.origen{display:flex;gap:var(--separacion-de-toque)}
+.origen button{min-width:var(--toque);min-height:var(--toque);padding:0 var(--espacio-3);background:var(--relleno);color:var(--texto);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);font-size:var(--letra-base);font-weight:600}
+.origen button[aria-pressed="true"]{background:var(--texto);color:var(--superficie)}
+.saldorow{display:grid;grid-template-columns:1fr 124px auto;gap:var(--separacion-de-toque);align-items:center;padding:var(--espacio-2) 0;border-bottom:1px solid var(--separador)}
+.saldorow input{width:100%;min-height:var(--toque);padding:7px 10px;text-align:right;
+  font-family:var(--numeros);font-size:18px;background:var(--relleno);border:1px solid var(--borde-control);border-radius:var(--radio-chico)}
+@media (max-width:560px){.saldorow{grid-template-columns:1fr 104px}.saldorow .origen{grid-column:1 / -1}}
+
+/* ── inventario ───────────────────────────────────────────────── */
+.tres{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--separacion-de-toque)}
+.tres .btn{margin-top:0}
+@media (max-width:560px){.tres{grid-template-columns:1fr}}
+/* Cada material del patio es un renglón que se toca entero: separado del de junto, como todo lo que se toca. */
+.exrow{display:flex;align-items:center;justify-content:space-between;gap:var(--espacio-2) var(--espacio-3);width:100%;min-height:var(--toque);
+  margin-top:var(--separacion-de-toque);padding:var(--espacio-2) var(--espacio-4);text-align:left;background:var(--relleno);
+  border:var(--borde-marcado) solid var(--separador);border-radius:16px}
+.exrow .rn{flex:1 1 180px;min-width:0}
+.exrow .rn b{display:block;font-size:18px;font-weight:600;letter-spacing:-.2px}
+.exrow .rn small{display:block;color:var(--texto-2);font-size:var(--letra-chica);font-variant-numeric:tabular-nums}
+.exrow .ri{font-family:var(--numeros);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}

@@ -1,0 +1,71 @@
+/* Las piezas: lo que se repite de una pantalla a otra, con una sola forma de verse. Cada una tiene
+   su componente en src/componentes/base/. Los valores vienen de valores.css; ninguna pregunta en
+   qué modo está: lo que cambia con el modo lo traen los valores. */
+
+/* ── el botón ───────────────────────────────────────────────────────────────
+   Mide lo que todo lo que se toca. Lleno para lo que sigue; gris para lo que regresa o deja las
+   cosas como están; de línea cuando va sobre algo que ya tiene color. Ocupa el ancho de donde
+   está, salvo el corto. El espacio alrededor lo pone quien lo usa. */
+.boton{
+  display:flex;align-items:center;justify-content:center;gap:var(--espacio-2);
+  width:100%;min-width:var(--toque);min-height:var(--toque);margin:0;padding:0 var(--espacio-5);
+  background:var(--acento-lleno);color:var(--sobre-acento);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);
+  font-size:18px;font-weight:600;letter-spacing:-.2px;text-align:center;text-decoration:none;
+}
+a.boton{transition:transform var(--al-toque) ease-out}
+a.boton:active{transform:var(--cede)}
+.boton.tinte{background:var(--tinte-acento);color:var(--acento)}
+.boton.gris{background:var(--relleno);color:var(--texto)}
+.boton.peligro{background:var(--tinte-alerta);color:var(--alerta)}
+.boton.linea{background:transparent;color:var(--texto);border:max(1px,var(--borde-marcado)) solid var(--borde-control)}
+.boton.corto{width:auto}
+.boton[disabled]{opacity:.38}
+
+/* ── el interruptor ─────────────────────────────────────────────────────────
+   Un renglón que se toca entero: un dibujo, el rótulo y, a su lado, la palanca. */
+.ajuste{display:flex;flex-direction:column;align-items:flex-end;gap:var(--espacio-1)}
+.interruptor{
+  position:relative;display:inline-flex;align-items:center;gap:var(--espacio-2);
+  min-width:var(--toque);min-height:var(--toque);padding:0 var(--espacio-3);
+  background:transparent;color:var(--texto);
+  border:max(1px,var(--borde-marcado)) solid var(--borde-control);border-radius:var(--radio-pildora);
+  font-size:var(--letra-chica);font-weight:600;white-space:nowrap;
+}
+.interruptor svg{flex:none;width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.interruptor i{
+  position:relative;flex:none;width:51px;height:31px;border-radius:var(--radio-pildora);
+  background:var(--relleno-fuerte);border:1px solid var(--borde-control);transition:background-color var(--al-toque) ease-out;
+}
+.interruptor i::after{
+  content:"";position:absolute;top:2px;left:2px;width:25px;height:25px;border-radius:50%;
+  background:#fff;border:1px solid var(--borde-control);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s var(--curva-salida);
+}
+.interruptor[aria-checked="true"] i{background:var(--acento-lleno);border-color:var(--acento-lleno)}
+.interruptor[aria-checked="true"] i::after{transform:translateX(20px);border-color:transparent}
+.interruptor[disabled]{opacity:.6}
+.ajuste-aviso{color:var(--alerta);font-weight:600}
+
+/* ── la hoja ───────────────────────────────────────────────────────────────
+   Sube desde abajo en pantallas angostas; en anchas va al centro. Lo que se lee va sobre
+   superficie sólida; detrás, un velo. El diálogo nativo deja inerte lo de atrás, pero no le quita
+   el desplazamiento a la página: se le quita aquí mientras haya una hoja abierta. */
+dialog.hoja{
+  border:var(--borde-marcado) solid var(--separador);padding:0;margin:auto auto 0;width:min(560px,100%);max-width:100%;max-height:min(92dvh,100%);
+  background:var(--superficie);color:var(--texto);box-shadow:var(--sombra);
+  border-radius:var(--radio-grande) var(--radio-grande) 0 0;
+  overflow-y:auto;overscroll-behavior:contain;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+dialog.hoja::backdrop{background:var(--velo)}
+dialog.hoja > .card{border:none;margin:0;background:transparent}
+@media (min-width:640px){
+  dialog.hoja{margin:auto;border-radius:var(--radio-grande)}
+}
+dialog.hoja[open]{animation:hoja-sube var(--hoja-entra) var(--curva-hoja)}
+dialog.hoja[open]::backdrop{animation:velo-entra var(--hoja-sale) ease-out}
+@keyframes hoja-sube{from{transform:translateY(28px);opacity:0}to{transform:none;opacity:1}}
+@keyframes velo-entra{from{opacity:0}to{opacity:1}}
+html:has(dialog.hoja[open]){overflow:hidden}
+/* Al imprimir, ni la hoja ni su velo salen en el papel; no hace falta cerrarla. */
+@media print{dialog.hoja,dialog.hoja::backdrop{display:none}}

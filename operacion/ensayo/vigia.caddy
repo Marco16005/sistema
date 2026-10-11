@@ -1,0 +1,4 @@
+# Solo para el ensayo: un vigilante de mentira, también por HTTPS, que anota los avisos que recibe.
+vigia.test {
+	reverse_proxy vigia:8080
+}

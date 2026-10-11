@@ -1,0 +1,111 @@
+# El ensayo de la operación en esta máquina. Es el mismo Compose de operación, bajo otro nombre de
+# proyecto y con un dominio que no existe en internet; esta capa pone solo lo que aquí no puede ser
+# de verdad: quién emite el certificado, a dónde van los respaldos y a quién se le avisa.
+#   sh operacion/ensayo.sh
+services:
+  proxy:
+    volumes:
+      - ./operacion/ensayo/local.caddy:/etc/caddy/global.d/local.caddy:ro
+      - ./operacion/ensayo/vigia.caddy:/etc/caddy/sitios.d/vigia.caddy:ro
+    networks:
+      default:
+        # Dentro de la red del ensayo, el dominio y el vigilante son el proxy.
+        aliases: ["${DOMINIO}", "vigia.test"]
+
+  # Saca la raíz de la autoridad del proxy a donde la puedan leer los que van a confiar en ella, y
+  # se queda en pie: el ensayo no sigue hasta que la raíz está en su lugar.
+  autoridad:
+    image: caddy:2-alpine
+    user: root
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        until [ -f /data/caddy/pki/authorities/local/root.crt ]; do sleep 0.2; done
+        cp /data/caddy/pki/authorities/local/root.crt /ca/raiz.crt && chmod 644 /ca/raiz.crt
+        exec tail -f /dev/null
+    volumes:
+      - certificados:/data:ro
+      - autoridad:/ca
+    depends_on:
+      proxy:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /ca/raiz.crt"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+    restart: "no"
+
+  comprobacion:
+    volumes:
+      - autoridad:/ca:ro
+
+  respaldo:
+    volumes:
+      - autoridad:/ca:ro
+    depends_on:
+      almacen_listo:
+        condition: service_completed_successfully
+
+  vigia:
+    image: node:24-alpine
+    command: ["node", "/vigia.mjs"]
+    volumes:
+      - ./operacion/ensayo/vigia.mjs:/vigia.mjs:ro
+    restart: "no"
+
+  almacen-ensayo:
+    build:
+      context: docker
+      dockerfile: almacen.Dockerfile
+    environment:
+      MINIO_ROOT_USER: raiz
+      MINIO_ROOT_PASSWORD: raiz-solo-para-el-ensayo
+    # En disco, no en memoria: ahí van también las imágenes de cada publicación del ensayo, que pesan.
+    # Se borra con lo demás al terminar.
+    volumes:
+      - almacen:/datos
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  almacen_listo:
+    build:
+      context: .
+      dockerfile: docker/pruebas.Dockerfile
+    environment:
+      SERVIDOR_USUARIO: "${RCLONE_CONFIG_RESPALDO_ACCESS_KEY_ID}"
+      SERVIDOR_CLAVE: "${RCLONE_CONFIG_RESPALDO_SECRET_ACCESS_KEY}"
+      DIARIO_USUARIO: "${RCLONE_CONFIG_DIARIO_ACCESS_KEY_ID}"
+      DIARIO_CLAVE: "${RCLONE_CONFIG_DIARIO_SECRET_ACCESS_KEY}"
+    volumes:
+      - ./operacion/ensayo/almacen.sh:/almacen.sh:ro
+    command: ["sh", "/almacen.sh"]
+    depends_on:
+      almacen-ensayo:
+        condition: service_healthy
+    restart: "no"
+
+  # El navegador, que confía en la autoridad del proxy de ensayo y en nada más de fuera.
+  recorrido_operacion:
+    build:
+      context: .
+      dockerfile: docker/recorrido.Dockerfile
+    profiles: ["ensayo"]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - modulos_recorrido:/app/node_modules
+      - autoridad:/ca:ro
+    environment:
+      DOMINIO: "${DOMINIO}"
+      PG_ADMIN_URL: "postgres://feruga:${BD_CLAVE}@db:5432/postgres"
+      NODE_EXTRA_CA_CERTS: /ca/raiz.crt
+      TZ: America/Mexico_City
+    command: sh -c "npm ci --no-audit --no-fund --silent && sh operacion/ensayo/confiar.sh && npx playwright test -c playwright.operacion.config.ts"
+
+volumes:
+  almacen:
+  autoridad:

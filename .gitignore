@@ -1,0 +1,16 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.env
+*.log
+test-results/
+playwright-report/
+recorrido/capturas/
+# El candado de la instalación y su carpeta de trabajo: son de la máquina, no de la versión.
+.operacion.candado*
+.operacion.trabajo/
+# Lo que guarda cada publicación lleva claves: no va al repositorio ni a ninguna imagen.
+publicaciones/
+recorrido/papel/*.visto.png
+.DS_Store

@@ -1,0 +1,117 @@
+# Lo que la operación agrega al Compose base. Se usan juntos; el .env de operación lo dice:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.operacion.yml
+#
+# El orden de arranque es una cadena: comprobación → base → migración → aplicación → proxy. Si el
+# entorno no sirve, la comprobación falla y nada de lo que sigue arranca ni se reemplaza. Y cada
+# proceso vuelve a validar el suyo al iniciar: la garantía no depende de este primer paso.
+#
+# En operación nada se construye al levantar, y ninguna imagen va por una etiqueta, que mañana
+# puede apuntar a otra cosa: cada servicio corre con la imagen que dejó la publicación, por su
+# identificador. Por eso aquí `docker compose` a secas no arranca: le faltan las imágenes. Publicar
+# es `sh operacion/publicar.sh`; levantar lo publicado, `sh operacion/levantar.sh`; y para todo lo
+# demás (consola, registros, respaldar a mano), `sh operacion/compose.sh …`, que es `docker compose`
+# sobre lo publicado.
+x-respaldo: &respaldo
+  image: "${IMAGEN_RESPALDO:?Falta IMAGEN_RESPALDO. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+  pull_policy: never
+  environment: &entorno-del-respaldo
+    DATABASE_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db:5432/feruga"
+    MODO: ${MODO:-}
+    TZ: America/Mexico_City
+    # La publicación que corre: cada respaldo la deja dicha en su manifiesto.
+    VERSION: "${VERSION:?Falta VERSION. En operación la pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    RESPALDO_LLAVE_PUBLICA: "${RESPALDO_LLAVE_PUBLICA:?Falta RESPALDO_LLAVE_PUBLICA en .env}"
+    RESPALDO_DESTINO: "${RESPALDO_DESTINO:?Falta RESPALDO_DESTINO en .env}"
+    RESPALDO_HORARIO: "${RESPALDO_HORARIO:?Falta RESPALDO_HORARIO en .env}"
+    RESPALDO_VIGIA_URL: "${RESPALDO_VIGIA_URL:?Falta RESPALDO_VIGIA_URL en .env}"
+    RCLONE_CONFIG_RESPALDO_TYPE: ${RCLONE_CONFIG_RESPALDO_TYPE:-}
+    RCLONE_CONFIG_RESPALDO_PROVIDER: ${RCLONE_CONFIG_RESPALDO_PROVIDER:-}
+    RCLONE_CONFIG_RESPALDO_ENDPOINT: ${RCLONE_CONFIG_RESPALDO_ENDPOINT:-}
+    RCLONE_CONFIG_RESPALDO_REGION: ${RCLONE_CONFIG_RESPALDO_REGION:-}
+    RCLONE_CONFIG_RESPALDO_ACCESS_KEY_ID: ${RCLONE_CONFIG_RESPALDO_ACCESS_KEY_ID:-}
+    RCLONE_CONFIG_RESPALDO_SECRET_ACCESS_KEY: ${RCLONE_CONFIG_RESPALDO_SECRET_ACCESS_KEY:-}
+    # El respaldo diario, que se guarda un año: otro depósito, con su credencial y su vigilante.
+    RESPALDO_DESTINO_DIARIO: "${RESPALDO_DESTINO_DIARIO:?Falta RESPALDO_DESTINO_DIARIO en .env}"
+    RESPALDO_VIGIA_DIARIO_URL: "${RESPALDO_VIGIA_DIARIO_URL:?Falta RESPALDO_VIGIA_DIARIO_URL en .env}"
+    RCLONE_CONFIG_DIARIO_TYPE: ${RCLONE_CONFIG_DIARIO_TYPE:-}
+    RCLONE_CONFIG_DIARIO_PROVIDER: ${RCLONE_CONFIG_DIARIO_PROVIDER:-}
+    RCLONE_CONFIG_DIARIO_ENDPOINT: ${RCLONE_CONFIG_DIARIO_ENDPOINT:-}
+    RCLONE_CONFIG_DIARIO_REGION: ${RCLONE_CONFIG_DIARIO_REGION:-}
+    RCLONE_CONFIG_DIARIO_ACCESS_KEY_ID: ${RCLONE_CONFIG_DIARIO_ACCESS_KEY_ID:-}
+    RCLONE_CONFIG_DIARIO_SECRET_ACCESS_KEY: ${RCLONE_CONFIG_DIARIO_SECRET_ACCESS_KEY:-}
+
+services:
+  # Lo primero: el entorno completo, de todas las piezas. Corre y termina.
+  comprobacion:
+    <<: *respaldo
+    entrypoint: ["node", "operacion/comprobar.ts"]
+    command: ["entorno"]
+    environment:
+      <<: *entorno-del-respaldo
+      WEB_BD_CLAVE: "${WEB_BD_CLAVE:?Falta WEB_BD_CLAVE en .env}"
+      SESION_CLAVE: "${SESION_CLAVE:?Falta SESION_CLAVE en .env}"
+      COOKIE_SEGURA: "${COOKIE_SEGURA:?Falta COOKIE_SEGURA en .env}"
+      ORIGEN: "${ORIGEN:?Falta ORIGEN en .env}"
+      DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
+    restart: "no"
+
+  db:
+    image: "${IMAGEN_DB:?Falta IMAGEN_DB. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    pull_policy: never
+    depends_on:
+      comprobacion:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  migracion:
+    build: !reset null
+    image: "${IMAGEN_ADMIN:?Falta IMAGEN_ADMIN. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    pull_policy: never
+
+  consola:
+    build: !reset null
+    image: "${IMAGEN_ADMIN:?Falta IMAGEN_ADMIN. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    pull_policy: never
+
+  web:
+    build: !reset null
+    image: "${IMAGEN_WEB:?Falta IMAGEN_WEB. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    pull_policy: never
+    environment:
+      # La publicación que contesta. La salud se lo dice solo al comprobador de la instalación.
+      VERSION: "${VERSION:?Falta VERSION. En operación la pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    restart: unless-stopped
+
+  # Toma cada respaldo a su hora. También es la imagen con que se respalda a mano y se restaura:
+  #   docker compose run --rm respaldo ahora
+  #   docker compose run --rm respaldo lista
+  respaldo:
+    <<: *respaldo
+    depends_on:
+      migracion:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    # Al detenerlo termina el respaldo que tenga a medias: se le da tiempo antes de cortarlo.
+    stop_grace_period: 15m
+
+  # Lo único que se publica a la red. Su configuración va dentro de su imagen (docker/proxy.Dockerfile).
+  proxy:
+    image: "${IMAGEN_PROXY:?Falta IMAGEN_PROXY. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
+    pull_policy: never
+    environment:
+      DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
+    ports:
+      - "${PROXY_HTTP:-80}:80"
+      - "${PROXY_HTTPS:-443}:443"
+    volumes:
+      # Los certificados sobreviven a recrear el proxy: pedirlos de más topa con el límite de quien los emite.
+      - certificados:/data
+      - proxy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  certificados:
+  proxy_config:

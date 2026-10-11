@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.env
+docs
+*.log
+publicaciones
+.operacion.candado*
+.operacion.trabajo

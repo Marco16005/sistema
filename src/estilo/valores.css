@@ -1,0 +1,183 @@
+/* Los valores de la interfaz, con nombres del negocio. Las pantallas usan estos y nunca los del
+   paquete (--ios27-*): así el paquete se puede actualizar, o cambiar, en un solo lugar.
+
+   De dónde salen: lo que el paquete trae y sirve tal cual se toma de él (superficies, rellenos,
+   radios, espacios, tiempos). Lo que no alcanza para leerse en el patio va escrito aquí, y se dice
+   por qué. Cada par texto/fondo de cada modo se mide en pruebas/27-estilo.test.ts: cambiar un
+   color aquí sin que se lea hace fallar la batería.
+
+   Tres apariencias: clara y oscura siguen al equipo; «más contraste» la elige quien usa la
+   pantalla, y manda sobre las otras dos. */
+
+:root{
+  color-scheme:light dark;
+
+  /* ── superficies y texto ── */
+  --fondo:var(--ios27-color-bg-grouped-primary);
+  --superficie:var(--ios27-color-bg-grouped-secondary);
+  --superficie-2:var(--ios27-color-bg-grouped-tertiary);
+  --relleno:var(--ios27-color-fill-tertiary);
+  --relleno-fuerte:var(--ios27-color-fill-primary);
+  --texto:var(--ios27-color-label-primary);
+  --texto-2:rgba(60,60,67,.76);            /* propio: el secundario del paquete (al 60 %) no llega a 4.5 a 1 */
+  --texto-3:var(--ios27-color-label-tertiary);   /* solo para lo que no hace falta leer: lo deshabilitado */
+  --separador:var(--ios27-color-separator-nonOpaque);
+  --borde-control:rgba(60,60,67,.58);      /* el borde de lo que se toca tiene que verse: 3 a 1 */
+
+  /* ── el vidrio de las barras, y lo que va detrás de una hoja ── */
+  --vidrio:rgba(255,255,255,.72);
+  --vidrio-borde:rgba(255,255,255,.7);
+  --desenfoque:blur(20px) saturate(180%);
+  --velo:rgba(0,0,0,.28);
+  --sombra:0 8px 32px rgba(0,0,0,.12);
+
+  /* ── el acento: azul, y fijo ── */
+  --acento:#0a66e4;                        /* propio: el azul del paquete (#0088ff) da 3.5 a 1 sobre blanco */
+  --acento-lleno:#0a66e4;                  /* el fondo de un botón lleno */
+  --sobre-acento:#ffffff;
+  --acento-suave:rgba(10,102,228,.08);     /* más tenue que en el prototipo (.13): el azul sobre su tinte daba 4.4 a 1 */
+  --foco:#0a66e4;
+
+  /* ── lo que significa algo ── */
+  --compra:#1a7f45;
+  --venta:#b25a00;
+  --bien:#1a7f45;
+  --alerta:#c4262e;
+  --alerta-llena:#c4262e;
+  --sobre-alerta:#ffffff;
+  --alerta-suave:rgba(196,38,46,.1);
+
+  /* Un tinte va siempre sobre superficie, esté donde esté: puesto directo sobre el fondo gris, el
+     azul sobre su tinte daba 4.2 a 1 y el rojo 4.4. Lo que lleva tinte usa estos dos, no el tinte solo. */
+  --tinte-acento:linear-gradient(var(--acento-suave),var(--acento-suave)) var(--superficie);
+  --tinte-alerta:linear-gradient(var(--alerta-suave),var(--alerta-suave)) var(--superficie);
+
+  /* Con «más contraste» los bordes se marcan. Sin él vale cero: quien lo usa no pregunta en qué modo está. */
+  --borde-marcado:0px;
+
+  /* ── medidas de patio: se toca con guantes ── */
+  --toque:60px;
+  --separacion-de-toque:8px;
+  --letra-base:17px;
+  --letra-chica:15px;                      /* rótulos; nada que haya que leer va más chico */
+  --radio-chico:var(--ios27-radius-md);
+  --radio:var(--ios27-radius-xl);
+  --radio-grande:var(--ios27-radius-xxxl);
+  --radio-pildora:var(--ios27-radius-full);
+  --espacio-1:var(--ios27-space-1);
+  --espacio-2:var(--ios27-space-2);
+  --espacio-3:var(--ios27-space-3);
+  --espacio-4:var(--ios27-space-4);
+  --espacio-5:var(--ios27-space-5);
+  --espacio-6:var(--ios27-space-6);
+
+  /* ── la letra: la del equipo ── */
+  --letra:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --numeros:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,sans-serif;
+
+  /* ── movimiento ── */
+  --cede:scale(.97);                       /* lo que se toca cede un poco al apoyar el dedo */
+  --al-toque:var(--ios27-duration-micro);
+  --hoja-entra:var(--ios27-duration-slow);
+  --hoja-sale:var(--ios27-duration-normal);
+  --curva-hoja:cubic-bezier(.32,.72,0,1);
+  --curva-salida:cubic-bezier(.2,.9,.3,1);
+}
+
+/* Si el equipo pide menos movimiento, nada cambia de tamaño: lo que se toca no cede (base.css quita lo demás). */
+@media (prefers-reduced-motion:reduce){
+  :root{--cede:none}
+}
+
+/* El equipo está en oscuro. Las superficies y los rellenos los cambia el paquete; aquí, lo propio. */
+@media (prefers-color-scheme:dark){
+  :root{
+    --texto-2:rgba(235,235,245,.72);
+    --borde-control:rgba(235,235,245,.5);
+    --vidrio:rgba(40,40,44,.7);
+    --vidrio-borde:rgba(255,255,255,.14);
+    --velo:rgba(0,0,0,.5);
+    --sombra:0 8px 32px rgba(0,0,0,.5);
+    --acento:#6aa7ff;                      /* más claro que en el prototipo (#3d8bff): sobre su tinte no se leía */
+    --acento-lleno:#0a66e4;                /* el botón lleno conserva el azul hondo: la letra blanca sobre el claro daba 3.3 a 1 */
+    --acento-suave:rgba(106,167,255,.16);
+    --foco:#6aa7ff;
+    --compra:#30d158;
+    --venta:#ff9f0a;
+    --bien:#30d158;
+    --alerta:#ff6b6f;
+    --alerta-llena:#c4262e;
+    --alerta-suave:rgba(255,107,111,.16);
+  }
+}
+
+/* «Más contraste, para el sol». Fondo blanco, texto negro, bordes marcados, sin vidrio ni
+   transparencias, sea cual sea el modo del equipo. Todo color va escrito: nada se hereda de arriba. */
+:root[data-contraste="alto"]{
+  color-scheme:light;
+  --fondo:#ffffff;
+  --superficie:#ffffff;
+  --superficie-2:#ffffff;
+  --relleno:#ececf0;
+  --relleno-fuerte:#d2d2d9;
+  --texto:#000000;
+  --texto-2:#1c1c1e;
+  --texto-3:#3a3a3c;
+  --separador:#000000;
+  --borde-control:#000000;
+  --vidrio:#ffffff;
+  --vidrio-borde:#000000;
+  --desenfoque:none;
+  --velo:rgba(0,0,0,.6);
+  --sombra:none;
+  --acento:#0040a8;
+  --acento-lleno:#0040a8;
+  --sobre-acento:#ffffff;
+  --acento-suave:#e8effb;
+  --foco:#000000;
+  --compra:#0b5c2e;
+  --venta:#7a3e00;
+  --bien:#0b5c2e;
+  --alerta:#9b0f17;
+  --alerta-llena:#9b0f17;
+  --sobre-alerta:#ffffff;
+  --alerta-suave:#fbeaea;
+  --borde-marcado:2px;
+}
+
+/* Lo mismo, cuando nadie ha elegido nada en este equipo y el equipo pide más contraste. Quien
+   elige «normal» le gana al equipo: lleva el atributo, y este bloque ya no le toca. (Tiene que
+   decir exactamente lo mismo que el de arriba: lo comprueba pruebas/27-estilo.test.ts.) */
+@media (prefers-contrast:more){
+  :root:not([data-contraste]){
+  color-scheme:light;
+  --fondo:#ffffff;
+  --superficie:#ffffff;
+  --superficie-2:#ffffff;
+  --relleno:#ececf0;
+  --relleno-fuerte:#d2d2d9;
+  --texto:#000000;
+  --texto-2:#1c1c1e;
+  --texto-3:#3a3a3c;
+  --separador:#000000;
+  --borde-control:#000000;
+  --vidrio:#ffffff;
+  --vidrio-borde:#000000;
+  --desenfoque:none;
+  --velo:rgba(0,0,0,.6);
+  --sombra:none;
+  --acento:#0040a8;
+  --acento-lleno:#0040a8;
+  --sobre-acento:#ffffff;
+  --acento-suave:#e8effb;
+  --foco:#000000;
+  --compra:#0b5c2e;
+  --venta:#7a3e00;
+  --bien:#0b5c2e;
+  --alerta:#9b0f17;
+  --alerta-llena:#9b0f17;
+  --sobre-alerta:#ffffff;
+  --alerta-suave:#fbeaea;
+  --borde-marcado:2px;
+}
+}

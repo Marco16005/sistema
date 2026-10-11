@@ -1,0 +1,41 @@
+/* El comprobante, en pantalla y en papel. Es lo único que el cliente se lleva.
+   Esta hoja no hereda nada de las demás: su letra, sus tamaños, sus colores y sus medidas van
+   escritos aquí, para que rediseñar la pantalla no le mueva un renglón al papel. Lo vigila
+   recorrido/papel.spec.ts, que compara cada renglón con su retrato guardado.
+
+   La primera impresión lleva dos copias iguales, la del cliente (.ticket) y la del negocio
+   (.ticket-negocio); la segunda existe solo en el papel. */
+:is(.ticket,.ticket-negocio){
+  --papel:#FFFEF8; --tinta:#1A1A1A; --orilla:#C3CACE;
+  max-width:330px;margin:0 auto;padding:16px 14px;background:var(--papel);color:var(--tinta);border:1px solid var(--orilla);
+  font-family:var(--fuente-num),ui-monospace,monospace;font-size:13px;line-height:1.55;font-weight:400;font-style:normal;
+  font-variant-numeric:tabular-nums;letter-spacing:normal;word-spacing:normal;text-transform:none;text-align:left;text-indent:0}
+:is(.ticket,.ticket-negocio) .c{text-align:center}
+:is(.ticket,.ticket-negocio) .b{font-weight:700}
+:is(.ticket,.ticket-negocio) .g{font-size:15px}
+:is(.ticket,.ticket-negocio) .r{display:flex;justify-content:space-between;gap:10px}
+:is(.ticket,.ticket-negocio) .s{padding-left:12px;opacity:.78}
+:is(.ticket,.ticket-negocio) hr{border:none;border-top:1px dashed var(--tinta);opacity:.45;margin:8px 0}
+.ticket-negocio,.papel .corte{display:none}
+@media (prefers-color-scheme:dark){
+  :is(.ticket,.ticket-negocio){--papel:#E9E6DC;--orilla:#394246}
+}
+/* Con «más contraste» el papel en pantalla es blanco, como todo: elegido en este equipo, o pedido
+   por el equipo sin que nadie haya elegido (las dos reglas dicen lo mismo: pruebas/27-estilo.test.ts). */
+:root[data-contraste="alto"] :is(.ticket,.ticket-negocio){--papel:#FFFFFF;--tinta:#000000;--orilla:#000000}
+@media (prefers-contrast:more){
+  :root:not([data-contraste]) :is(.ticket,.ticket-negocio){--papel:#FFFFFF;--tinta:#000000;--orilla:#000000}
+}
+
+/* Al imprimir sale el comprobante y nada más. Las copias van una debajo de la otra dentro del
+   mismo papel: la del negocio empieza hoja (ahí corta la impresora que corta), y antes lleva una
+   línea punteada para la que no. */
+@media print{
+  body{background:#fff}
+  body *{visibility:hidden}
+  .papel,.papel *{visibility:visible}
+  .papel{position:absolute;left:0;top:0;width:72mm}
+  :is(.ticket,.ticket-negocio){display:block;max-width:none;margin:0;padding:0 2mm;border:none;background:#fff;color:#000}
+  .papel .corte{display:block;border-top:1px dashed #000;margin:4mm 0 0}
+  .ticket-negocio{break-before:page}
+}

@@ -1,0 +1,104 @@
+/* Lo que pinta Sesion.tsx: las pantallas de entrada (dar de alta el equipo, quién atiende, la
+   clave, sin conexión) y, ya adentro, lo de arriba: el día, el contraste, quién atiende y las
+   pantallas a las que se puede ir. */
+
+/* Cuánto ocupa arriba la barra de las pantallas cuando se queda fija: lo que va pegado debajo
+   (las cuentas del mostrador) empieza después. En pantalla angosta no se queda fija, y vale cero. */
+:root{--barra-fija:calc(var(--toque) + 18px)}
+@media (max-width:860px){:root{--barra-fija:0px}}
+
+/* ── las pantallas de entrada ── */
+.entrada{max-width:520px;margin:0 auto;padding-top:2vh}
+.entrada > .ajuste{margin-bottom:var(--espacio-5)}
+.entrada h1{margin:0 0 var(--espacio-1);font-size:34px;font-weight:700;letter-spacing:-.4px;line-height:1.12}
+.entrada .sub{margin:0 0 var(--espacio-5);color:var(--texto-2)}
+.entrada .boton{margin-top:var(--espacio-3)}
+.entrada .teclado{margin-top:var(--espacio-3)}
+.personas{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--espacio-2)}
+.persona{
+  display:flex;align-items:center;gap:var(--espacio-3);min-height:76px;padding:var(--espacio-3) var(--espacio-4);text-align:left;
+  background:var(--superficie);border:max(1px,var(--borde-marcado)) solid var(--separador);border-radius:var(--radio);
+}
+.persona b{display:block;font-size:19px;font-weight:600;line-height:1.2}
+.persona small{display:block;color:var(--texto-2);font-size:var(--letra-chica)}
+.inicial{
+  flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;
+  background:var(--acento-lleno);color:var(--sobre-acento);font-style:normal;font-weight:700;
+}
+.codigo{
+  width:100%;min-height:64px;padding:var(--espacio-2) var(--espacio-3);text-align:center;text-transform:uppercase;
+  font-family:var(--numeros);font-size:24px;letter-spacing:.14em;font-variant-numeric:tabular-nums;
+  background:var(--superficie);border:max(1px,var(--borde-marcado)) solid var(--borde-control);border-radius:var(--radio);
+}
+.puntos{display:flex;justify-content:center;gap:var(--espacio-3);min-height:34px;margin:var(--espacio-2) 0 var(--espacio-3)}
+.puntos i{width:18px;height:18px;border-radius:50%;border:2px solid var(--borde-control)}
+.puntos i.lleno{background:var(--texto);border-color:var(--texto)}
+
+/* ── arriba: el día, el contraste y quién atiende ── */
+.barra{display:flex;align-items:center;flex-wrap:wrap;gap:var(--separacion-de-toque) var(--espacio-3);margin-bottom:var(--espacio-2)}
+.barra .dia{margin-right:auto;font-weight:600}
+.barra .quien{display:flex;align-items:center;gap:var(--espacio-3);min-width:0}
+.ficha{display:flex;align-items:center;gap:var(--espacio-2);min-width:0}
+.ficha > span{min-width:0}
+.ficha b{display:block;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ficha small{display:block;color:var(--texto-2);font-size:var(--letra-chica);line-height:1.2}
+.barra .boton{font-size:var(--letra-base)}
+
+/* ── las pantallas a las que se puede ir ──
+   Una píldora de vidrio que en pantalla ancha se queda arriba al bajar. Cada pantalla es un enlace
+   y mide lo que todo lo que se toca; la pantalla en que se está va llena, con el color de acento.
+   Si no caben —cinco pantallas en un teléfono—, la píldora se desplaza por dentro; la página, no. */
+.pantallas{
+  position:sticky;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:10;
+  display:flex;gap:var(--separacion-de-toque);padding:4px;margin-bottom:var(--espacio-4);border-radius:var(--radio-pildora);
+  overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;
+}
+.pantallas::-webkit-scrollbar{display:none}
+.pantallas a{
+  flex:1 0 auto;display:flex;align-items:center;justify-content:center;min-width:var(--toque);min-height:var(--toque);padding:0 var(--espacio-4);
+  border-radius:var(--radio-pildora);color:var(--texto);font-weight:600;text-decoration:none;white-space:nowrap;
+  transition:transform var(--al-toque) ease-out;
+}
+.pantallas a:active{transform:var(--cede)}
+.pantallas a[aria-current="true"]{background:var(--acento-lleno);color:var(--sobre-acento)}
+/* El aro del foco va por dentro: por fuera lo cortaría la orilla de la píldora. En el enlace de la
+   pantalla actual, por dentro está su relleno de acento —en claro, el mismo azul del aro—: ahí el
+   aro va del color con que se escribe sobre ese relleno. */
+.pantallas a:focus-visible{outline-offset:-3px}
+.pantallas a[aria-current="true"]:focus-visible{outline-color:var(--sobre-acento)}
+@media (hover:hover) and (pointer:fine){
+  .pantallas a:not([aria-current="true"]):hover{background:var(--relleno)}
+}
+
+/* Pantalla angosta: arriba se quedan las cuentas del mostrador, así que esta barra no se queda fija
+   y no hace falta vidrio (nada pasa por debajo). El día va en su propio renglón, y el interruptor
+   se queda con su dibujo y su palanca: el rótulo sigue ahí para quien no ve la pantalla. */
+@media (max-width:860px){
+  .pantallas{position:static;background:var(--superficie);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
+  .pantallas a{padding:0 3px}
+}
+@media (max-width:560px){
+  .barra .dia{flex-basis:100%}
+  .barra .quien{margin-left:auto}
+  .barra .ajuste{align-items:flex-start}
+  .barra .interruptor > span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .ficha small{display:none}
+  .pantallas a{font-size:var(--letra-chica)}
+}
+
+/* ── lo que falta para poder atender ── */
+.falta-dia{
+  margin-bottom:var(--espacio-3);padding:var(--espacio-4);
+  background:var(--tinte-alerta);color:var(--alerta);
+  border:max(1px,var(--borde-marcado)) solid var(--alerta);border-radius:var(--radio);
+}
+.falta-dia b{display:block;margin-bottom:var(--espacio-1);font-size:19px;font-weight:700}
+.falta-dia .boton{margin-top:var(--espacio-3)}
+
+/* ── en mantenimiento, a media tarea: un aviso arriba, que no quita nada de la pantalla ── */
+.en-mantenimiento{
+  margin-bottom:var(--espacio-3);padding:var(--espacio-3) var(--espacio-4);
+  background:var(--tinte-alerta);color:var(--alerta);
+  border:max(1px,var(--borde-marcado)) solid var(--alerta);border-radius:var(--radio);
+}
+.en-mantenimiento b{font-weight:700}

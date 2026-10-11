@@ -1,0 +1,17 @@
+# El proxy: lo único que se publica a la red. Recibe por HTTPS, con un certificado que él mismo
+# pide y renueva, y le pasa todo a la aplicación. Por HTTP solo redirige a HTTPS.
+{
+	# Sin puerto de administración: la configuración es este archivo y nada más.
+	admin off
+	# Aquí entra lo que cambia en un ensayo (certificados de una autoridad propia en vez de una pública).
+	import /etc/caddy/global.d/*.caddy
+}
+
+{$DOMINIO} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy web:3000
+}
+
+# Otros sitios en este mismo proxy. En operación no hay ninguno; el ensayo pone aquí su vigilante de mentira.
+import /etc/caddy/sitios.d/*.caddy
