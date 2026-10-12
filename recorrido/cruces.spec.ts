@@ -104,7 +104,7 @@ test("un precio a medias no se guarda: dice cuál material revisar", async ({ pa
   await expect(page.getByLabel("Precio de compra de Cartón")).toHaveValue("2.10");
 });
 
-test("quien solo consulta ve precios y cierre, y nada más", async ({ page }) => {
+test("quien solo consulta ve inventario, precios, cierre y el panel, y no escribe nada", async ({ page }) => {
   const g = await gente();
   await diaListo(g);
   const ana = await altaDePersona("Ana", "consulta", "3141");
@@ -114,6 +114,7 @@ test("quien solo consulta ve precios y cierre, y nada más", async ({ page }) =>
   await expect(page.getByRole("link", { name: "Mostrador" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Arranque" })).toHaveCount(0);
   await expect(page.getByRole("textbox")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Pantallas" }).getByRole("link")).toHaveText(["Inventario", "Precios", "Cierre", "Panel"]);
   await page.getByRole("link", { name: "Cierre" }).click();
   await expect(page.getByRole("heading", { name: "Kilos del día" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cerrar el día" })).toHaveCount(0);

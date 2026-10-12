@@ -40,12 +40,12 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await expect(aviso(page)).toBeVisible();
     await medir("la clave, con su aviso");
 
-    // Adentro. El responsable, antes del arranque, es quien más pantallas tiene: cinco.
+    // Adentro. El responsable, antes del arranque, es quien más pantallas tiene: seis, con el panel.
     await teclear(page, g.servando.clave);
     await page.getByRole("button", { name: "Entrar", exact: true }).click();
     await expect(page.locator(".barra")).toContainText("Servando");
-    await expect(pantallas(page).getByRole("link")).toHaveCount(5);
-    await medir("la barra del responsable, con cinco pantallas", ARRIBA);
+    await expect(pantallas(page).getByRole("link")).toHaveCount(6);
+    await medir("la barra del responsable, con seis pantallas", ARRIBA);
 
     // Con el día sin abrir, lo que falta para atender lleva su botón.
     await salir(page);

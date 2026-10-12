@@ -1,0 +1,79 @@
+Revisión de control de calidad, UNA sola pasada y corta: EL SERVIDOR DEL PANEL y sus tres pantallas,
+construidos hoy. (El historial, la bitácora y el sembrador los escribiste tú: NO los revises.)
+Proyecto: gestión de una recicladora (Next.js, PostgreSQL, Docker Compose).
+TU COPIA DE TRABAJO: /tmp/feruga-codex-qa12/   (al día con el proyecto, 11 de octubre de 2026)
+EL INFORME: /tmp/feruga-codex-informe-15.md
+
+CÓMO VA ESTA PASADA
+Tu cuota puede cortarse a los pocos minutos. Gasta en pensar y en confirmar con una sonda; no en
+leer de más. Crea el informe al empezar con la lista de los puntos y GUÁRDALO después de cada punto.
+NO TE DETENGAS A PREGUNTAR: ante una duda, decide, anótalo y sigue.
+
+YA ESTÁ PREPARADO — no lo rehagas
+- La copia, sin node_modules. La plantilla feruga_plantilla_codex, con las 29 migraciones.
+- Comandos (ver qa/LEEME.md):
+    sh qa/prueba.sh <archivo de pruebas> ['parte del nombre']
+    sh qa/sql.sh "<SQL>"
+    sh qa/node.sh <programa.ts>          (tus sondas van en qa/)
+- NO corras la batería completa, ni los recorridos del navegador, ni los simulacros: aquí ya se
+  corrieron. Si para confirmar algo hace falta un recorrido, escribe el caso exacto y márcalo
+  «Sin confirmar: para correr aquí».
+
+REGLAS (obligatorias)
+- No modifiques, crees ni borres ningún archivo dentro de /Users/maantora/Desktop/feruga.
+  Trabaja en /tmp/feruga-codex-qa12/ (ahí sí puedes crear sondas tuyas, en qa/). No corrijas el
+  código: di qué está mal y cómo se arregla. No sustituyas su docker-compose.yml. No ejecutes npm ci
+  ni npm install. Una sola corrida a la vez.
+- No toques los contenedores feruga-web-1 y feruga-db-1 ni la base «feruga»: son del usuario.
+- Formato, corto. Por hallazgo:
+    ### [bloqueante | importante | menor] título
+    Dónde: archivo:línea
+    Escenario: los pasos concretos (entradas → resultado malo)
+    Confirmado con: el comando y el renglón de su salida  —o—  «Sin confirmar: hipótesis» / «para correr aquí»
+    Corrección sugerida: una o dos líneas
+  Por punto sin hallazgos: un renglón. Sin introducciones. En español.
+- Importa lo que ve quien dirige el negocio: un número que no cuadra con el cierre, un día que se
+  cuenta dos veces o no se cuenta, algo que ve quien no debe. Lo remoto, en un renglón como «menor».
+
+QUÉ SE CONSTRUYÓ
+- src/servidor/dominio/panel.ts — `panel(bd, { dias: 7 | 30 | 91, hasta? })`: UNA consulta que
+  devuelve totales del periodo y del anterior, el cambio en por ciento, la serie por día (o por
+  semana a 91 días), materiales, personas, horas, inventario valuado con la última lista publicada,
+  y el «control» (mermas, ajustes, precios especiales, reaperturas). Regla: una cuenta es del día de
+  `confirmada_en_jornada`, igual que el cierre (vistas cierre_resumen y cierre_material, 0010_cierre.sql).
+- src/app/api/panel/route.ts — GET, roles responsable y consulta; `?dias=7|30|91`.
+- pruebas/37-panel.test.ts — 14 pruebas (pasan).
+- src/app/panel/page.tsx (el resumen), src/app/panel/dias/page.tsx, src/app/panel/bitacora/page.tsx,
+  src/componentes/panel/ (Graficas.tsx, Secciones.tsx, tipos.ts), src/estilo/panel.css.
+- src/componentes/cierre/Reporte.tsx — las tarjetas del reporte de un día, sacadas de
+  src/app/cierre/page.tsx para compartirlas con «Días». Debe ser una extracción sin cambio de conducta.
+- src/componentes/Sesion.tsx — el enlace «Panel» en la barra (DIRIGEN) y `aria-current` por prefijo.
+
+LOS PUNTOS, en este orden
+1. LOS NÚMEROS DEL PANEL CONTRA EL CIERRE. Busca un caso en que un día de la serie NO diga lo que
+   `resumenDelCierre` de esa jornada (cuentas, pagado, cobrado), o en que la suma de la serie no sea
+   el total del periodo. Piensa en: el vehículo que llega un día y se termina otro; un día reabierto
+   y vuelto a cerrar; una cuenta descartada; dos sucursales no hay (solo la 1).
+2. LAS ORILLAS DEL PERIODO. ¿Un día se cuenta en dos tramos, o en ninguno? El primer y el último
+   día; el periodo anterior; 91 días en 13 semanas; el cambio de horario o un mes de 31 días; «hoy»
+   cuando el servidor y el patio están en zonas distintas (hoy_en usa sucursal.zona).
+3. KILOS E IMPORTES POR MATERIAL. `kgComprado` usa peso_recibido e `importe*` usa el importe del
+   renglón. ¿Cuadran con cierre_material para compras y ventas? ¿Qué pasa con un renglón con
+   descuento en kilos, con precio especial, con tara? ¿La suma de importes por material puede
+   presentarse de modo que alguien la confunda con «pagado» (que va en pesos cerrados)?
+4. EL INVENTARIO VALUADO. La última lista PUBLICADA, no la de hoy sin publicar. Un material con
+   existencia negativa o sin precio. ¿El «valor» puede salir mal redondeado por sumar redondeos?
+   (Es una estimación y la pantalla lo dice; importa que no sea engañosa.)
+5. EL CONTROL. Mermas y ajustes por la fecha de su jornada (o la del asiento si no tienen). ¿Un
+   ajuste de conteo hecho con el día cerrado cae en algún periodo? Los precios especiales: ¿la misma
+   regla que precios_especiales_del_dia (0025)? ¿Uno quitado antes de cobrar cuenta? No debe.
+6. QUIÉN LO VE. Las tres rutas (panel, historial, bitácora) piden responsable o consulta. En las
+   pantallas: ¿algo del panel se le alcanza a pintar al mostrador antes del aviso? ¿La pantalla de
+   «Días» deja a consulta ver un comprobante (GET /api/comprobantes ya lo permitía)? ¿La bitácora
+   enseña algo que consulta no debería saber (claves, códigos de alta, secretos de equipo)?
+7. LA EXTRACCIÓN DEL REPORTE. Compara src/componentes/cierre/Reporte.tsx con lo que tenía
+   src/app/cierre/page.tsx (el proyecto tiene git: en tu copia no, así que compara leyendo). ¿Cambió
+   algún texto, alguna condición, o el orden de lo que se pinta en el cierre?
+8. LA PANTALLA DEL RESUMEN. Se vuelve a pedir al cambiar de periodo, al volver a la pestaña y cada
+   minuto. ¿Puede quedarse a la vista la respuesta de un periodo con el botón de otro marcado (una
+   respuesta vieja que llega después de una nueva)? ¿Qué se ve si una petición falla a media vida?

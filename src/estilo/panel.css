@@ -1,0 +1,85 @@
+/* El panel de quien dirige: indicadores, gráficas y listas. Solo se lee; lo único que se toca son
+   los periodos y «ver más», y miden lo que todo lo que se toca. Los colores de compra y de venta
+   son los mismos del mostrador, y nunca van solos: la compra es siempre la primera barra, y los
+   números están escritos junto a cada dibujo. */
+
+/* ── los indicadores: cuatro cifras grandes ── */
+.indicadores{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--espacio-3);margin-bottom:var(--espacio-3)}
+.indicador{min-width:0;padding:var(--espacio-4);background:var(--superficie);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-grande)}
+.indicador .lbl{margin:0}
+.indicador .cifra{display:block;margin:var(--espacio-1) 0 var(--espacio-2);font-family:var(--numeros);font-size:clamp(26px,5.4vw,34px);font-weight:700;
+  letter-spacing:-.5px;line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.indicador small{display:block;color:var(--texto-2);font-size:var(--letra-chica);line-height:1.35}
+@media (max-width:860px){.indicadores{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:420px){.indicadores{grid-template-columns:minmax(0,1fr)}}
+
+.panel .periodo{margin:0 0 var(--espacio-3)}
+/* Dos tarjetas lado a lado cuando caben; una debajo de otra cuando no. */
+.a-dos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--espacio-3);align-items:start}
+@media (max-width:760px){.a-dos{grid-template-columns:minmax(0,1fr)}}
+
+/* ── las barras: una columna por día o por semana ── */
+.grafica{margin-top:var(--espacio-2)}
+.grafica .tope{display:block;color:var(--texto-2);font-size:var(--letra-chica);font-variant-numeric:tabular-nums}
+.columnas{display:flex;align-items:stretch;gap:2px;height:210px}
+.columnas .col{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
+.columnas .par{flex:1 1 auto;display:flex;align-items:flex-end;justify-content:center;gap:1px;border-bottom:1.5px solid var(--separador)}
+/* Los nombres llevan su lugar por delante: el comprobante también tiene una clase «b», y un color
+   suelto llamado «compra» pintaría lo que no debe. */
+.barrita{flex:1 1 0;min-width:2px;max-width:26px;border-radius:5px 5px 0 0}
+.barrita.compra,.tira .compra{background:var(--compra)}
+.barrita.venta,.tira .venta{background:var(--venta)}
+.barrita.neutra,.tira .neutra{background:var(--texto-2)}
+/* El rótulo va centrado bajo su columna aunque sea más ancho que ella. */
+.columnas .col small{display:block;height:26px;line-height:26px;color:var(--texto-2);font-size:var(--letra-chica);white-space:nowrap}
+.columnas .col small span{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
+.leyenda{display:flex;flex-wrap:wrap;gap:var(--espacio-2) var(--espacio-5);margin:var(--espacio-2) 0 0;font-size:var(--letra-base)}
+.leyenda span{display:inline-flex;align-items:center;gap:var(--espacio-2)}
+.leyenda .barrita{flex:none;width:14px;height:14px;border-radius:4px}
+
+/* Los números del dibujo, para quien los quiere exactos: se abren al tocar. */
+.numeros summary{display:flex;align-items:center;min-height:var(--toque);margin-top:var(--espacio-2);color:var(--acento);
+  font-size:var(--letra-base);font-weight:600;cursor:pointer;list-style:none}
+.numeros summary::-webkit-details-marker{display:none}
+.numeros summary::after{content:"▾";margin-left:var(--espacio-2)}
+.numeros[open] summary::after{content:"▴"}
+
+/* ── un renglón con su tira: qué tanto es, del mayor de la lista ── */
+.mov{padding:var(--espacio-3) 0;border-bottom:1px solid var(--separador)}
+.mov > b{display:block;font-size:18px;font-weight:600;letter-spacing:-.2px}
+.mov small{display:block;color:var(--texto-2);font-size:var(--letra-chica);font-variant-numeric:tabular-nums}
+.mov .tot{padding:0}
+.mov .tot b{font-size:18px;font-weight:600;letter-spacing:-.2px;min-width:0}
+.tira{display:block;height:10px;margin:var(--espacio-2) 0 2px;border-radius:5px;background:var(--relleno);overflow:hidden}
+.tira i{display:block;height:100%;border-radius:5px}
+.panel .tot .n{text-align:right}
+.panel .tot.big.primero{margin-top:0;padding-top:0;border-top:0}
+.panel .tot.big .n{font-size:clamp(26px,5.4vw,34px)}
+
+/* Lo que se dice solo a quien no ve la pantalla: lo que el dibujo de al lado ya enseña. */
+.oculto{position:absolute;width:1px;height:1px;margin:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/* ── las partes del panel: resumen, días, bitácora. Un solo control, como los pasos de una cuenta ── */
+.secciones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--separacion-de-toque);padding:4px;margin-bottom:var(--espacio-4);
+  border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);background:var(--relleno)}
+.secciones a{display:flex;align-items:center;justify-content:center;min-height:var(--toque);padding:0 var(--espacio-2);
+  color:var(--texto-2);border-radius:var(--radio-pildora);font-size:var(--letra-base);font-weight:600;text-decoration:none}
+.secciones a[aria-current="page"]{background:var(--texto);color:var(--superficie)}
+.secciones a:active{transform:var(--cede)}
+
+/* ── los días: cada uno es un renglón que se toca entero, con su dinero a la derecha ── */
+.exrow.dia .dinero{display:grid;gap:2px;text-align:right;white-space:nowrap}
+.exrow.dia .dinero small{color:var(--texto-2);font-size:var(--letra-chica);font-variant-numeric:tabular-nums}
+.exrow.dia .dinero b{font-family:var(--numeros);font-size:var(--letra-base);color:var(--texto)}
+.exrow:first-child{margin-top:0}
+
+/* ── la bitácora: la hora, y quién hizo qué ── */
+.filtros{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--espacio-3)}
+.filtros label{display:block;min-width:0}
+.filtros .btn{grid-column:1 / -1;margin-top:0}
+@media (max-width:560px){.filtros{grid-template-columns:minmax(0,1fr)}}
+.asiento{display:grid;grid-template-columns:64px minmax(0,1fr);gap:var(--espacio-2);padding:var(--espacio-3) 0;border-bottom:1px solid var(--separador);
+  font-size:var(--letra-base);line-height:1.4}
+.asiento b{font-weight:600}
+.asiento .hora{color:var(--texto-2);font-family:var(--numeros);font-variant-numeric:tabular-nums}

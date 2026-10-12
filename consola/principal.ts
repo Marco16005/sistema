@@ -7,6 +7,7 @@ import {
   reactivarCliente, renombrarCliente,
 } from "./acciones.ts";
 import type { PersonaConClave, Rol } from "./acciones.ts";
+import { sembrarDemo } from "./demo.ts";
 
 const USO = `Órdenes:
   arranque [--responsable=Nombre] [--equipo=Nombre]   primer arranque: un responsable y un código de equipo
@@ -21,6 +22,7 @@ const USO = `Órdenes:
   cliente renombrar <nombre|número> <nombre nuevo>
   cliente baja <nombre|número>                         ya no se le puede dar precio especial; su historia se conserva
   cliente reactivar <nombre|número>
+  demo sembrar [--dias=56] [--semilla=1]               SOLO en desarrollo: le da a una base sin movimiento semanas de historia inventada
 
 Si no se da --clave, se genera una y se muestra aquí una sola vez.`;
 
@@ -139,6 +141,15 @@ async function correr(db: pg.Client): Promise<void> {
     if (!resto[0]) salirCon(USO);
     const c = await reactivarCliente(db, resto[0]);
     console.log(`«${c.nombre}» (número ${c.id}) vuelve a estar activo.`);
+    return;
+  }
+  if (orden === "demo" && accion === "sembrar") {
+    const numero = (opcion: string): number | undefined => (opciones.has(opcion) ? Number(opciones.get(opcion)) : undefined);
+    // El sembrador abre sus propias conexiones: cada cosa que siembra va en su transacción.
+    const r = await sembrarDemo({ url: process.env.DATABASE_URL!, dias: numero("dias"), semilla: numero("semilla"), decir: (linea) => console.error(linea) });
+    console.log(`# Demostración sembrada: ${r.dias} días cerrados y ${r.cuentas} cuentas, todo inventado. Hoy quedó abierto y con precios.`);
+    if (r.personas.length > 0) console.log("# Personas que se dieron de alta para la demostración:");
+    for (const p of r.personas) console.log(`  ${p.nombre} (${p.rol})    clave: ${p.clave}`);
     return;
   }
   salirCon(USO);

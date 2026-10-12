@@ -14,6 +14,7 @@ import "../estilo/valores.css";
 import "../estilo/base.css";
 import "../estilo/piezas.css";
 import "../estilo/pantallas.css";
+import "../estilo/panel.css";
 import "../estilo/sesion.css";
 import "../estilo/comprobante.css";
 

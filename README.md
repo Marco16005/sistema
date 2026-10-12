@@ -45,17 +45,35 @@ docker compose run --rm consola equipo lista
 docker compose run --rm consola equipo baja <id>
 ```
 
-Los roles: `responsable` (precios, arranque, autoriza), `mostrador` (atiende, cobra, cierra), `patio`
-(arma cuentas y pesa, no cobra), `consulta` (solo ve), `administracion` (solo ve; su trabajo es esta
-consola). La clave es de 4 a 8 dígitos; de 6 o más para responsables y administración.
+Los roles: `responsable` (precios, arranque, autoriza, ve el panel), `mostrador` (atiende, cobra,
+cierra), `patio` (arma cuentas y pesa, no cobra), `consulta` (solo ve, también el panel),
+`administracion` (solo ve; su trabajo es esta consola). La clave es de 4 a 8 dígitos; de 6 o más
+para responsables y administración.
+
+### Una demostración con historia
+
+Una base recién puesta no tiene qué enseñar: el panel, los días y la bitácora salen vacíos. Para
+verlos con algo, la consola le da a una base **de desarrollo** ocho semanas de historia inventada
+—días abiertos y cerrados, precios que se mueven, compras y ventas—, hecha con las funciones de
+verdad del sistema, y deja hoy abierto y con precios:
+
+```bash
+docker compose run --rm consola demo sembrar >> demo-local.log    # las claves de las personas nuevas quedan en ese archivo
+docker compose run --rm consola demo sembrar --dias=20 --semilla=7
+```
+
+Son datos para demostrar, no del negocio: los precios que pone no son los del patio. Se niega a
+correr fuera de desarrollo (`MODO=desarrollo`) y sobre una base que ya tiene cuentas terminadas. No
+borra nada: usa a las personas que haya y agrega las que falten. Para volver a una demostración
+vacía se borra la base (`docker compose down --volumes`) y se pone a andar otra vez.
 
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 865 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 901 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 187 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 180
+docker compose --profile recorrido run --rm recorrido     # 195 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 188
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
@@ -146,6 +164,21 @@ recorrido/        la aplicación entera, en un navegador
 docs/planes/      los planes de implementación y sus decisiones
 docs/revisiones/  las revisiones de Codex y la respuesta a cada hallazgo
 ```
+
+### El panel de quien dirige
+
+Lo ven el responsable y quien consulta, en `/panel`. Tiene tres partes: el **resumen** (compras,
+ventas y cuentas de los últimos 7 días, 30 días o 3 meses, con sus gráficas, lo que más se movió, lo
+que hay en el patio y lo que conviene vigilar), los **días** (cada día que ha habido, con el reporte
+de su cierre y sus cuentas, cada una con su comprobante) y la **bitácora** (quién hizo qué y
+cuándo, en palabras llanas).
+
+El panel no lleva cuentas propias: todo sale de los comprobantes y del libro de inventario, con la
+regla del cierre —una cuenta es del día en que se asentó—, así que cada día del panel dice lo mismo
+que su cierre (`pruebas/37-panel.test.ts` lo exige). No hay tabla de resumen ni migración: son
+consultas sobre lo que ya se guarda. «Ventas menos compras» no es la ganancia, y la pantalla lo
+dice: la ganancia pide el costo de lo vendido, que es de la etapa de caja. Las gráficas son cajas
+dibujadas con CSS, sin biblioteca. El detalle está en `docs/planes/2026-10-11-lado-administrativo.md`.
 
 ## Las reglas que sostiene la base
 
@@ -489,8 +522,10 @@ Faltan, en este orden:
    por Codex). Están hechos el entorno estricto, la migración con ventana, la restauración, el
    respaldo y el proxy con HTTPS (ensayado en local); faltan publicar una versión, la guía del
    servidor, la revisión de Codex del bloque y el servidor real.
-3. Lectura de básculas, tabletas, trabajo sin conexión, caja y crédito. Dar de alta personas y
-   materiales desde la pantalla (hoy: consola y migración).
+3. **Lo que falta del lado administrativo** (`docs/planes/2026-10-11-lado-administrativo.md`): dar de
+   alta personas, equipos y materiales desde la pantalla (hoy: consola y migración), los clientes,
+   sacar los reportes a papel y a archivo, y la historia de precios.
+4. Lectura de básculas, tabletas, trabajo sin conexión, caja —con ella, la ganancia de verdad— y crédito.
 
 **Corregir el inventario no corrige el dinero.** Si se pagó de más o de menos, eso se arregla fuera
 del sistema mientras no exista la caja.

@@ -51,6 +51,8 @@ export function useSesion(): Contexto {
 
 export const ARMAN: readonly Rol[] = ["responsable", "mostrador", "patio"];
 export const COBRAN: readonly Rol[] = ["responsable", "mostrador"];
+/** Quien ve el dinero de todos los días: el panel y lo que cuelga de él. */
+export const DIRIGEN: readonly Rol[] = ["responsable", "consulta"];
 
 type Estado = "cargando" | "sin-equipo" | "sin-persona" | "adentro" | "sin-servidor" | "mantenimiento";
 
@@ -289,6 +291,7 @@ function Barra({ persona, dia, alSalir }: { persona: Persona; dia: Dia; alSalir:
   const pantallas: Array<[string, string]> = [];
   if (ARMAN.includes(persona.rol)) pantallas.push(["/mostrador", "Mostrador"]);
   pantallas.push(["/inventario", "Inventario"], ["/precios", "Precios"], ["/cierre", "Cierre"]);
+  if (DIRIGEN.includes(persona.rol)) pantallas.push(["/panel", "Panel"]);
   if (persona.rol === "responsable" && !dia.arranqueTerminado) pantallas.push(["/arranque", "Arranque"]);
 
   return (
@@ -306,7 +309,7 @@ function Barra({ persona, dia, alSalir }: { persona: Persona; dia: Dia; alSalir:
       </header>
       <nav className="pantallas vidrio" aria-label="Pantallas">
         {pantallas.map(([ruta, nombre]) => (
-          <Link key={ruta} href={ruta} aria-current={donde === ruta ? "true" : "false"}>{nombre}</Link>
+          <Link key={ruta} href={ruta} aria-current={donde === ruta || donde.startsWith(`${ruta}/`) ? "true" : "false"}>{nombre}</Link>
         ))}
       </nav>
     </>

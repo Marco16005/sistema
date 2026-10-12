@@ -14,3 +14,5 @@ recorrido/capturas/
 publicaciones/
 recorrido/papel/*.visto.png
 .DS_Store
+# Una copia de la base de demostración, de antes de sembrarla: lleva huellas de claves.
+*.dump

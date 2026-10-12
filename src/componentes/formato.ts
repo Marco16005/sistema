@@ -33,6 +33,17 @@ export function fechaCorta(aaaammdd: string): string {
   const [, mes, dia] = aaaammdd.split("-");
   return `${Number(dia)} de ${MESES[Number(mes) - 1]}`;
 }
+const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+/** 2026-10-01 → jueves 1 de octubre */
+export function fechaConDia(aaaammdd: string): string {
+  const [anio, mes, dia] = aaaammdd.split("-").map(Number);
+  return `${DIAS[new Date(Date.UTC(anio!, mes! - 1, dia!)).getUTCDay()]} ${fechaCorta(aaaammdd)}`;
+}
+/** 2026-10-01 → 1 oct: para el pie de una gráfica, donde no cabe más. */
+export function diaCorto(aaaammdd: string): string {
+  const [, mes, dia] = aaaammdd.split("-");
+  return `${Number(dia)} ${MESES[Number(mes) - 1]!.slice(0, 3)}`;
+}
 /** 2026-10-01 → 01/10/2026 */
 export function fechaDeTicket(aaaammdd: string): string {
   const [anio, mes, dia] = aaaammdd.split("-");
