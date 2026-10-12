@@ -159,9 +159,9 @@ Se corrió dos veces completo: antes de la revisión de Codex (941, 201 y 194) y
 lo que encontró (los números de arriba).
 
 El recorrido de la respuesta atrasada en precios se comprobó quitando la guardia: sin ella falla
-(«Del 14 de julio…» bajo el botón de 30 días) y con ella pasa. **No se repitieron los dos
-simulacros** (operación y publicación): nada de esto toca los guiones de operación, pero el de
-operación sí recorre pantallas y no se ha comprobado con el panel.
+(«Del 14 de julio…» bajo el botón de 30 días) y con ella pasa. **Los dos simulacros** (operación y
+publicación), que no se corrían desde antes del panel, se repitieron al final sobre el guardado
+`9cfe434`, y pasaron los dos.
 
 Lo que encontró la revisión de Codex y lo que se hizo con ello está en
 `docs/revisiones/2026-10-12-codex-revision-del-lado-administrativo.md`.
