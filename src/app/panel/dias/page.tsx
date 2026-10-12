@@ -59,8 +59,11 @@ export default function PantallaDeLosDias() {
 
   /** Qué día se está viendo: el detalle de otro, si llega tarde, ya no se pinta. */
   const viendo = useRef<string | null>(null);
+  /** El último comprobante que se pidió: si llega cuando ya se está viendo otra cosa, no se pinta. */
+  const pedido = useRef(0);
   const abrir = (dia: DiaDelHistorial): void => {
     viendo.current = dia.jornada;
+    pedido.current++;
     setElegido(dia);
     setDetalle(null);
     setComprobante(null);
@@ -70,12 +73,13 @@ export default function PantallaDeLosDias() {
       .then((r) => { if (viendo.current === dia.jornada) setDetalle(r); })
       .catch((e: Error) => { if (viendo.current === dia.jornada) setAviso(e.message); });
   };
-  const volver = (): void => { viendo.current = null; setElegido(null); setDetalle(null); setComprobante(null); setAviso(""); };
+  const volver = (): void => { viendo.current = null; pedido.current++; setElegido(null); setDetalle(null); setComprobante(null); setAviso(""); };
   const verComprobante = (folio: string): void => {
+    const este = ++pedido.current;
     setAviso("");
     pedir<{ comprobante: Comprobante; negocio: string }>("GET", `/api/comprobantes?folio=${folio}`)
-      .then((r) => { setComprobante(r); window.scrollTo(0, 0); })
-      .catch((e: Error) => setAviso(e.message));
+      .then((r) => { if (este === pedido.current) { setComprobante(r); window.scrollTo(0, 0); } })
+      .catch((e: Error) => { if (este === pedido.current) setAviso(e.message); });
   };
 
   if (!dirige) return <SoloQuienDirige />;

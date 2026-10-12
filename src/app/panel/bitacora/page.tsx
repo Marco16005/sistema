@@ -47,7 +47,15 @@ export default function PantallaDeLaBitacora() {
       })
       .catch((e: Error) => { if (esta === ultima.current) setAviso(e.message); });
   }, [quien, dia]);
-  useEffect(() => { if (dirige) traer(null); }, [dirige, traer]);
+  // Al llegar y cada vez que cambia lo que se busca: lo de la búsqueda anterior se quita antes de
+  // pedir, para que nunca quede a la vista —ni se pida «lo anterior» de ello— bajo otra búsqueda.
+  useEffect(() => {
+    if (!dirige) return;
+    setAsientos(null);
+    setHayMas(false);
+    setAviso("");
+    traer(null);
+  }, [dirige, traer]);
   useEffect(() => {
     if (dirige) pedir<{ personas: Array<{ id: string; nombre: string }> }>("GET", "/api/personas").then((r) => setPersonas(r.personas)).catch(() => setPersonas([]));
   }, [dirige]);

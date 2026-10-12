@@ -18,6 +18,35 @@ test("comoCsv protege fórmulas solo en columnas de texto y conserva números ne
     '\uFEFFTexto,Número\r\n\'=SUMA(A1),-57\r\n\'-Juan,+2\r\n\'+Luis,\r\n\'@Ana,\r\n\'\tJuan,\r\n"\'\rJuan",\r\n');
 });
 
+// Un mismo archivo lo abren programas que no lo leen igual: donde la lista se separa con punto y
+// coma (o con tabulador), lo que aquí es UNA celda allá son dos, y la segunda puede empezar como
+// fórmula. Por eso, en lo que escribió una persona, la fórmula se desarma donde sea que pudiera
+// quedar al principio de una celda, no solo al principio de la nuestra.
+const celdaDeTexto = (texto: string): string => comoCsv({ encabezados: ["Texto"], filas: [[texto]], deTexto: [0] }).slice("\uFEFFTexto\r\n".length, -2);
+
+test("comoCsv desarma la fórmula que quedaría al principio de una celda en un programa que separa con punto y coma, tabulador o renglón", () => {
+  assert.equal(celdaDeTexto("x;=1+1"), "x;'=1+1");
+  assert.equal(celdaDeTexto("x; =1+1"), "x; '=1+1");
+  assert.equal(celdaDeTexto("x\t@SUMA(A1)"), "x\t'@SUMA(A1)");
+  assert.equal(celdaDeTexto("uno\n=2+2"), '"uno\n\'=2+2"');
+  assert.equal(celdaDeTexto('a,"b";-cmd'), '"a,""b"";\'-cmd"');
+  assert.equal(celdaDeTexto("Pérez, +52 55"), '"Pérez, \'+52 55"');
+});
+
+test("comoCsv también desarma la fórmula escondida tras espacios, y la escrita con signos de ancho completo", () => {
+  assert.equal(celdaDeTexto("  =SUMA(A1)"), "'  =SUMA(A1)");
+  assert.equal(celdaDeTexto("\u00a0-Juan"), "'\u00a0-Juan");
+  assert.equal(celdaDeTexto("＝1+1"), "'＝1+1");
+  assert.equal(celdaDeTexto("x;＋1"), "x;'＋1");
+});
+
+test("comoCsv no toca lo que no es fórmula: un guion o un signo en medio de un nombre, ni las columnas que no son de texto", () => {
+  for (const nombre of ["Ana-María", "Juan Pérez; el de la esquina", "Taller 5+", "correo@ejemplo.com", "Camioneta roja, la grande"]) {
+    assert.equal(comoCsv({ encabezados: ["Texto"], filas: [[nombre]], deTexto: [0] }).includes("'"), false, nombre);
+  }
+  assert.equal(comoCsv({ encabezados: ["Número"], filas: [["-57"], ["2;=1"]], deTexto: [] }), "\uFEFFNúmero\r\n-57\r\n2;=1\r\n");
+});
+
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { abrirJornada, conBase, escenario, material, una, urlApp } from "./apoyo.ts";

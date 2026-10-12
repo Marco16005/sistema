@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { altaDePersona, baseNueva, cerrarElDia, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, impresiones, loQueNoMide } from "./apoyo.ts";
+import { altaDePersona, aviso, baseNueva, cerrarElDia, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, impresiones, loQueNoMide } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -52,6 +52,15 @@ async function tresDias(g: Gente): Promise<{ antier: string; ayer: string; hoy: 
   });
 }
 
+/**
+ * Entra, y espera a que la aplicación termine de llevar a esa persona a su pantalla: pedir otra
+ * dirección antes de eso interrumpe ese viaje, y a veces gana él.
+ */
+async function adentro(page: Page, persona: Gente["servando"]): Promise<void> {
+  await entrar(page, persona);
+  await page.waitForURL((u) => u.pathname !== "/");
+}
+
 const indicador = (page: Page, nombre: string) => page.locator(".indicador").filter({ has: page.getByText(nombre, { exact: true }) });
 const tarjeta = (page: Page, titulo: string) => page.locator(".card").filter({ has: page.getByRole("heading", { name: titulo, exact: true }) });
 
@@ -59,7 +68,7 @@ test("quien dirige ve el resumen de la semana: lo comprado, lo vendido, día por
   const g = await gente();
   const dias = await tresDias(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.getByRole("navigation", { name: "Pantallas" }).getByRole("link", { name: "Panel" }).click();
   await expect(page.getByRole("heading", { name: "Resumen" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Panel" })).toHaveAttribute("aria-current", "true");
@@ -117,7 +126,7 @@ test("si la respuesta de un periodo llega cuando ya se eligió otro, no se queda
   const g = await gente();
   await tresDias(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel");
   await expect(indicador(page, "Compras")).toContainText("$348");
   // La de 30 días tarda; la de 7, no: llega primero la que se pidió después.
@@ -138,7 +147,7 @@ test("los días: cada uno con lo que dejó asentado y sus cuentas, y de cada cue
   const dias = await tresDias(g);
   await contarImpresiones(page);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel");
   await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Días" }).click();
   await expect(page.getByRole("heading", { name: "Días" })).toBeVisible();
@@ -156,7 +165,8 @@ test("los días: cada uno con lo que dejó asentado y sus cuentas, y de cada cue
 
   // Antier: el mismo reporte de su cierre, y sus dos cuentas.
   await renglones.nth(2).click();
-  await expect(page.getByRole("heading", { name: new RegExp(fechaCorta(dias.antier) + "$") })).toBeVisible();
+  // El título del día (más abajo hay otro encabezado que también termina con la fecha).
+  await expect(page.locator(".top h2")).toHaveText(new RegExp(fechaCorta(dias.antier) + "$"));
   await expect(tarjeta(page, "Dinero del día")).toContainText("A pagar por compras$210");
   await expect(tarjeta(page, "Dinero del día")).toContainText("A cobrar por ventas$100");
   await expect(page.getByRole("heading", { name: `Kilos del ${fechaCorta(dias.antier)}` })).toBeVisible();
@@ -183,7 +193,7 @@ test("la bitácora dice en palabras llanas quién hizo qué, y se puede buscar p
   const g = await gente();
   await tresDias(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/bitacora");
   await expect(page.getByRole("heading", { name: "Bitácora" })).toBeVisible();
   const asientos = page.locator(".asiento");
@@ -247,7 +257,7 @@ test("la historia de precios: qué materiales cambiaron y cuánto, y de cada uno
   const g = await gente();
   const dias = await preciosQueSeMueven(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel");
   await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Precios" }).click();
   await expect(page.getByRole("heading", { name: "Historia de precios" })).toBeVisible();
@@ -302,7 +312,7 @@ test("si la historia de un periodo llega cuando ya se eligió otro, no se queda 
   const g = await gente();
   const dias = await preciosQueSeMueven(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/precios");
   await expect(page.locator(".exrow.material")).toHaveCount(5);
   // La de 3 meses tarda; la de 30 días, no: llega primero la que se pidió después.
@@ -358,7 +368,7 @@ test("los clientes: a quién se le da precio especial, cuánto se le ha comprado
   const hoy = await conConsola(async (db) => (await db.query("SELECT to_char(hoy_en(1::smallint), 'YYYY-MM-DD') AS f")).rows[0].f as string);
   await contarImpresiones(page);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel");
   await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Clientes" }).click();
   await expect(page.getByRole("heading", { name: "Clientes" })).toBeVisible();
@@ -424,7 +434,7 @@ test("sin clientes, la pantalla lo dice y explica de dónde salen", async ({ pag
   const g = await gente();
   await tresDias(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/clientes");
   await expect(page.getByText("Todavía no hay clientes: se dan de alta al darles su primer precio especial, en el mostrador.")).toBeVisible();
   await expect(page.locator(".indicador, .exrow")).toHaveCount(0);
@@ -434,7 +444,7 @@ test("los reportes: se elige de qué días y se baja cada hoja como archivo para
   const g = await gente();
   const dias = await tresDias(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel");
   await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Reportes" }).click();
   await expect(page.getByRole("heading", { name: "Reportes" })).toBeVisible();
@@ -486,7 +496,7 @@ test("imprimir una pantalla del panel: sale ella sola, sin la barra ni lo que se
   await tresDias(g);
   await contarImpresiones(page);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel");
   await expect(indicador(page, "Compras")).toContainText("$348");
   await page.getByRole("button", { name: "Imprimir" }).click();
@@ -517,12 +527,98 @@ test("imprimir una pantalla del panel: sale ella sola, sin la barra ni lo que se
   await expect(page.locator('nav[aria-label="Pantallas"]')).toBeHidden();
 });
 
+// ── lo que encontró la revisión de Codex del 12 de octubre ─────────────────
+
+/** Detiene las peticiones a esa dirección hasta que se suelten; `con` dice qué contestar (por omisión, lo de verdad). */
+async function detener(page: Page, direccion: RegExp, con?: { estado: number; mensaje: string }): Promise<() => void> {
+  let soltar: () => void = () => {};
+  const detenida = new Promise<void>((listo) => { soltar = listo; });
+  await page.route(direccion, async (ruta) => {
+    await detenida;
+    if (con) await ruta.fulfill({ status: con.estado, contentType: "application/json", body: JSON.stringify({ error: { codigo: "INTERNO", mensaje: con.mensaje } }) });
+    else await ruta.fallback();
+  });
+  return soltar;
+}
+
+test("en la bitácora, al cambiar lo que se busca deja de verse lo anterior: mientras llega lo nuevo no hay nada que confundir, y si falla, tampoco", async ({ page }) => {
+  const g = await gente();
+  await tresDias(g);
+  await darDeAltaEquipo(page);
+  await adentro(page, g.servando);
+  await page.goto("/panel/bitacora");
+  await expect(page.locator(".asiento").filter({ hasText: "Servando publicó los precios" })).toHaveCount(3);
+
+  // Lo de Luis tarda, y al final falla: lo de todos no se queda a la vista bajo «Luis».
+  const soltar = await detener(page, /\/api\/bitacora\?persona=/, { estado: 500, mensaje: "Algo falló de nuestro lado. Intenta de nuevo." });
+  await page.getByLabel("Quién").selectOption({ label: "Luis" });
+  await expect(page.locator(".asiento")).toHaveCount(0);
+  await expect(page.getByText("Un momento…")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ver lo anterior" })).toHaveCount(0);
+  soltar();
+  await expect(aviso(page)).toContainText("Algo falló de nuestro lado");
+  await expect(page.locator(".asiento")).toHaveCount(0);
+
+  // Y al quitar la búsqueda vuelve lo de todos.
+  await page.getByRole("button", { name: "Ver todo" }).click();
+  await expect(page.locator(".asiento").filter({ hasText: "Servando publicó los precios" })).toHaveCount(3);
+  await expect(aviso(page)).toHaveCount(0);
+});
+
+test("en los días, un comprobante que llega tarde no tapa el día que ya se está viendo", async ({ page }) => {
+  const g = await gente();
+  const dias = await tresDias(g);
+  await darDeAltaEquipo(page);
+  await adentro(page, g.servando);
+  await page.goto("/panel/dias");
+  await page.locator(".exrow.dia").nth(2).click();
+  await expect(tarjeta(page, "Cuentas del día").locator(".exrow")).toHaveCount(2);
+
+  // Se pide el comprobante de antier, que tarda; mientras, se vuelve y se abre ayer.
+  const soltar = await detener(page, /\/api\/comprobantes\?folio=/);
+  const lento = page.waitForResponse((r) => r.url().includes("/api/comprobantes?folio="));
+  await tarjeta(page, "Cuentas del día").locator(".exrow").nth(0).click();
+  await page.getByRole("button", { name: "‹ Días" }).click();
+  await page.locator(".exrow.dia").nth(1).click();
+  await expect(page.locator(".top h2")).toHaveText(new RegExp(fechaCorta(dias.ayer) + "$"));
+  soltar();
+  await lento;
+  await page.waitForTimeout(300);
+  await expect(page.locator(".ticket")).toHaveCount(0);
+  await expect(page.locator(".top h2")).toHaveText(new RegExp(fechaCorta(dias.ayer) + "$"));
+  await expect(tarjeta(page, "Cuentas del día").locator(".exrow")).toHaveCount(1);
+});
+
+test("en los clientes, un comprobante que llega tarde no tapa la ficha del cliente que ya se está viendo", async ({ page }) => {
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  await clientesDeHoy(g);
+  await darDeAltaEquipo(page);
+  await adentro(page, g.servando);
+  await page.goto("/panel/clientes");
+  await cliente(page, "Don Chuy").click();
+  await expect(tarjeta(page, "Sus cuentas").locator(".exrow")).toHaveCount(2);
+
+  const soltar = await detener(page, /\/api\/comprobantes\?folio=/);
+  const lento = page.waitForResponse((r) => r.url().includes("/api/comprobantes?folio="));
+  await tarjeta(page, "Sus cuentas").locator(".exrow").nth(0).click();
+  await page.getByRole("button", { name: "‹ Clientes" }).click();
+  await cliente(page, "Doña Lupe").click();
+  await expect(page.getByRole("heading", { name: "Doña Lupe", exact: true })).toBeVisible();
+  soltar();
+  await lento;
+  await page.waitForTimeout(300);
+  await expect(page.locator(".ticket")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Doña Lupe", exact: true })).toBeVisible();
+  await expect(tarjeta(page, "Sus cuentas").locator(".exrow")).toHaveCount(1);
+});
+
 test("el panel es de quien dirige y de quien consulta: al mostrador no se le ofrece, y si escribe la dirección, tampoco", async ({ page }) => {
   const g = await gente();
   await tresDias(g);
   const ana = await altaDePersona("Ana", "consulta", "3141");
   await darDeAltaEquipo(page);
-  await entrar(page, g.luis);
+  await adentro(page, g.luis);
   await expect(page.getByRole("link", { name: "Panel" })).toHaveCount(0);
   for (const camino of ["/panel", "/panel/dias", "/panel/precios", "/panel/clientes", "/panel/bitacora", "/panel/reportes"]) {
     await page.goto(camino);
@@ -530,7 +626,7 @@ test("el panel es de quien dirige y de quien consulta: al mostrador no se le ofr
     await expect(page.locator(".indicador, .exrow, .asiento")).toHaveCount(0);
   }
   await page.getByRole("button", { name: "Salir", exact: true }).click();
-  await entrar(page, ana);
+  await adentro(page, ana);
   await page.getByRole("link", { name: "Panel" }).click();
   await expect(indicador(page, "Compras")).toContainText("$348");
 });
@@ -542,7 +638,7 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await tresDias(g);
     await contarImpresiones(page);
     await darDeAltaEquipo(page);
-    await entrar(page, g.servando);
+    await adentro(page, g.servando);
     const medir = async (donde: string, raices = "body"): Promise<void> => {
       await page.evaluate(() => window.scrollTo(0, 0));
       expect(await loQueNoMide(page, raices), donde).toEqual([]);
@@ -593,7 +689,7 @@ test("capturas del panel", async ({ page }) => {
   const g = await gente();
   await tresDias(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   for (const [nombre, ancho, alto, esquema] of [["", 1180, 820, "light"], ["-telefono", 390, 800, "light"], ["-oscuro", 1180, 820, "dark"]] as const) {
     await page.setViewportSize({ width: ancho, height: alto });
     await page.emulateMedia({ colorScheme: esquema });
@@ -625,7 +721,7 @@ test("capturas de los clientes", async ({ page }) => {
   await diaListo(g, [["Cartón", "500"]]);
   await clientesDeHoy(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   for (const [nombre, ancho, alto, esquema] of [["", 1180, 820, "light"], ["-telefono", 390, 800, "light"], ["-oscuro", 1180, 820, "dark"]] as const) {
     await page.setViewportSize({ width: ancho, height: alto });
     await page.emulateMedia({ colorScheme: esquema });
@@ -651,7 +747,7 @@ test("capturas del panel con ocho semanas de demostración", async ({ page }) =>
   base.pathname = "/feruga";
   await sembrarDemo({ url: base.toString() });
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   for (const [nombre, ancho, alto, esquema] of [["", 1180, 820, "light"], ["-telefono", 390, 800, "light"], ["-oscuro", 1180, 820, "dark"]] as const) {
     await page.setViewportSize({ width: ancho, height: alto });
     await page.emulateMedia({ colorScheme: esquema });

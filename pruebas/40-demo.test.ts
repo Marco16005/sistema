@@ -168,7 +168,8 @@ test('C.7 rechaza fuera de desarrollo, parámetros inválidos y segunda corrida 
     assert.deepEqual(await filas(db), antes);
     await sembrarDemo({ url: urlDe(base), dias: 9 });
     const sembrada = await filas(db);
-    await assert.rejects(sembrarDemo({ url: urlDe(base), dias: 9 }), /la demostración ya tiene movimiento/);
+    // Y dice qué hacer: una siembra que se interrumpió no se retoma, se empieza con otra base.
+    await assert.rejects(sembrarDemo({ url: urlDe(base), dias: 9 }), /la demostración ya tiene movimiento.*interrumpió.*base nueva/);
     assert.deepEqual(await filas(db), sembrada);
   });
 }));

@@ -149,11 +149,14 @@ repositorio); con ella se vuelve a como estaba.
 **El 12 de octubre de 2026**, con la historia de precios, los clientes, los reportes e imprimir ya
 integrados:
 
-- tipos y **941 pruebas** (eran 901; las 40 nuevas son 16 de la historia de precios, 12 de los
-  clientes y 12 de exportar), sin fallas;
-- **201 recorridos en Chromium** y **194 en WebKit** (eran 195 y 188; los 6 nuevos son los de
-  precios, clientes, reportes e imprimir; las medidas de patio, en tres tamaños, ahora recorren las
-  seis partes del panel), sin fallas.
+- tipos y **944 pruebas** (eran 901; las 43 nuevas son 16 de la historia de precios, 12 de los
+  clientes y 15 de exportar), sin fallas;
+- **204 recorridos en Chromium** y **197 en WebKit** (eran 195 y 188; los 9 nuevos son los de
+  precios, clientes, reportes, imprimir y los tres de la revisión de Codex; las medidas de patio,
+  en tres tamaños, ahora recorren las seis partes del panel), sin fallas.
+
+Se corrió dos veces completo: antes de la revisión de Codex (941, 201 y 194) y después de corregir
+lo que encontró (los números de arriba).
 
 El recorrido de la respuesta atrasada en precios se comprobó quitando la guardia: sin ella falla
 («Del 14 de julio…» bajo el botón de 30 días) y con ella pasa. **No se repitieron los dos
@@ -195,12 +198,26 @@ Lo que las corridas atraparon antes de darlo por bueno:
 ## Lo que sigue, en orden
 
 El usuario aprobó este orden el 12 de octubre. Lo primero —historia de precios, clientes y sacar
-reportes— quedó hecho ese día.
+reportes— quedó hecho ese día. **Las dos que siguen se detuvieron antes de empezar, porque cada una
+toca una decisión del diseño original que le toca al usuario**, y la tercera pide decisiones del
+negocio:
 
-1. **Personas y equipos desde la pantalla.** Hoy se dan de alta y de baja por la consola. Es lo
-   que le toca al rol de administración, que todavía no tiene pantalla propia. Es lo primero que
-   escribe en la base desde el lado administrativo: pide pensar quién puede dar de alta a quién.
-2. **Catálogo desde la pantalla:** agregar un material, cambiarle el nombre, darlo de baja.
+1. **Personas y equipos desde la pantalla.** Hoy se dan de alta y de baja por la consola, y no por
+   descuido: la especificación lo decidió así (10.4 y la tabla de decisiones: «Personas y equipos
+   se dan de alta y de baja desde una consola con otras credenciales. La aplicación no puede
+   hacerlo»). La razón es de seguridad: si alguien se mete a la aplicación, no puede fabricarse un
+   responsable. Ponerlo en pantalla es cambiar esa decisión. Lo que se propone: desde la pantalla,
+   solo el responsable que autoriza y con su clave otra vez, dar de alta y de baja a personas de
+   mostrador, patio y consulta, cambiarles la clave, y dar de alta y de baja equipos; los
+   responsables y la facultad de autorizar siguen siendo de la consola. Pide una migración.
+2. **Catálogo desde la pantalla:** agregar un material, darlo de baja, reactivarlo, marcarlo como
+   frecuente. El rol de la aplicación ya puede escribir en `material` y cada cambio queda en la
+   bitácora (0011), pero sin ninguna regla en la base: habría que ponerlas ahí (quién, y que no se
+   dé de baja lo que tiene existencia), como todo lo demás que escribe. **Cambiarle el nombre a un
+   material es aparte**: el comprobante se rearma del libro y toma el nombre de hoy, así que
+   renombrar «Fierro» a «Cobre» cambiaría lo que dicen los comprobantes viejos. Lo que se propone:
+   que desde la pantalla no se renombre (se da de baja y se crea otro), o guardar el nombre en cada
+   renglón al cobrar, como ya se hace con el cliente.
 3. **Resultado y caja** (etapa posterior de la especificación): conteo del cajón y corte, gastos,
    costo promedio y, con eso, la ganancia de verdad. Es lo único de esta lista que cambia el modelo
    de datos, y pide decisiones del negocio.

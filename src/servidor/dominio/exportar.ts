@@ -13,11 +13,30 @@ export interface Tabla {
   deTexto: number[];
 }
 
+// Con qué empieza una fórmula en una hoja de cálculo, también escrita en ancho completo.
+const SIGNOS = "=+\\-@＝＋－＠";
+// Una celda de texto que empieza con uno de esos signos —aunque lleve espacios por delante—, o con
+// tabulador o retorno, que algunos programas se comen antes de leerla.
+const AL_PRINCIPIO = new RegExp(`^(?:[\\t\\r]|\\s*[${SIGNOS}])`);
+// El mismo archivo no lo leen igual todos los programas: donde las listas se separan con punto y
+// coma (o con tabulador), o donde no se respetan las comillas, lo que aquí es una celda allá son
+// dos, y la segunda empezaría con lo que sigue al separador.
+const TRAS_SEPARADOR = new RegExp(`([,;\\t\\r\\n]\\s*)(?=[${SIGNOS}])`, "g");
+
+/**
+ * Lo que escribió una persona (un nombre, una etiqueta), sin nada que una hoja de cálculo pueda
+ * ejecutar como fórmula: lleva un apóstrofo delante de cada signo que quedaría al principio de una
+ * celda, en este archivo o leído con otro separador.
+ */
+function sinFormulas(texto: string): string {
+  const s = texto.replace(TRAS_SEPARADOR, "$1'");
+  return AL_PRINCIPIO.test(s) ? "'" + s : s;
+}
+
 /** La tabla como texto CSV, lista para que Excel la abra con sus acentos. */
 export function comoCsv(tabla: Tabla): string {
   const celda = (valor: string | null, texto: boolean): string => {
-    let s = valor ?? "";
-    if (texto && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    const s = texto ? sinFormulas(valor ?? "") : valor ?? "";
     return /[,"\r\n]/.test(s) ? '"' + s.replaceAll('"', '""') + '"' : s;
   };
   const encabezado = tabla.encabezados.map((s) => celda(s, false)).join(",");

@@ -64,16 +64,17 @@ docker compose run --rm consola demo sembrar --dias=20 --semilla=7
 
 Son datos para demostrar, no del negocio: los precios que pone no son los del patio. Se niega a
 correr fuera de desarrollo (`MODO=desarrollo`) y sobre una base que ya tiene cuentas terminadas. No
-borra nada: usa a las personas que haya y agrega las que falten. Para volver a una demostración
-vacía se borra la base (`docker compose down --volumes`) y se pone a andar otra vez.
+borra nada: usa a las personas que haya y agrega las que falten. Si se interrumpe a la mitad, no se
+retoma: la base queda con lo que alcanzó a sembrar y hay que empezar con otra. Para volver a una
+demostración vacía se borra la base (`docker compose down --volumes`) y se pone a andar otra vez.
 
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 941 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 944 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 201 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 194
+docker compose --profile recorrido run --rm recorrido     # 204 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 197
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con

@@ -126,7 +126,7 @@ export async function sembrarDemo(o: {
       EXISTS (SELECT 1 FROM jornada WHERE cerrada_en IS NOT NULL) AS cerrada,
       hoy_en(1::smallint)::text AS hoy, clock_timestamp() AS ahora,
       (SELECT zona FROM sucursal WHERE id = 1) AS zona`);
-    if (estado.movimiento) throw new Error('la demostración ya tiene movimiento');
+    if (estado.movimiento) throw new Error('la demostración ya tiene movimiento: solo se siembra sobre una base sin cuentas. Si es una siembra que se interrumpió, no se retoma: hay que empezar con una base nueva');
     if (estado.jornadas > 1 || estado.cerrada) throw new Error('La demostración requiere ninguna jornada o una sola jornada abierta');
     const columnas = await columnasDelTiempo(db);
     const { rows: fechas } = await db.query(`SELECT d::date::text AS fecha, extract(dow FROM d)::int AS semana,

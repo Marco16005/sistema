@@ -43,7 +43,44 @@ Corrección sugerida: sembrar en una base desechable y entregarla solo al termin
 
 ## Respuesta
 
-PENDIENTE-DE-ESCRIBIR
+Los tres hallazgos venían «sin confirmar: para correr aquí». Se escribió el recorrido de cada uno
+antes de tocar el código, y **los tres fallaron como Codex dijo**; después se corrigieron.
+
+1. **Un comprobante atrasado sustituye lo que ya se está viendo** (días y clientes) — *cierto,
+   corregido*. La ficha sí descartaba la respuesta atrasada; el comprobante, no. Ahora cada pantalla
+   lleva la cuenta del último comprobante que pidió, y abrir otro día (u otro cliente) o volver a
+   la lista deja sin efecto el que venga en camino. Recorridos: «en los días, un comprobante que
+   llega tarde…» y «en los clientes, un comprobante que llega tarde…».
+2. **La bitácora conserva filas de otra búsqueda y puede mezclarlas al pedir lo anterior** —
+   *cierto, corregido*. Al cambiar lo que se busca, lo que había se quita antes de pedir: mientras
+   llega lo nuevo se ve «Un momento…», no hay botón de «Ver lo anterior» que mezcle, y si la
+   búsqueda falla queda el aviso solo, no las filas de antes bajo otro nombre. Recorrido: «en la
+   bitácora, al cambiar lo que se busca deja de verse lo anterior…».
+3. **Una siembra interrumpida deja la demostración a medias y bloquea el reintento** — *cierto; se
+   dejó como está y ahora lo dice*. El sembrador es una herramienta de desarrollo: hacerlo atómico
+   pediría sembrar en una base aparte y entregarla al final. No se hizo. Lo que cambió: el rechazo
+   ya no dice solo «ya tiene movimiento», dice que una siembra interrumpida no se retoma y que hay
+   que empezar con una base nueva (`pruebas/40-demo`, C.7). El README ya decía cómo volver a una
+   base vacía.
+
+El «menor» del punto 7 (una escritura normal que se cuele mientras se siembra) no se atendió: es
+una base de desarrollo, sin nadie más escribiendo.
+
+Del punto 9 (la extracción del reporte) Codex no pudo comparar contra la versión anterior porque su
+copia no tiene Git. Aquí sí se puede: el cierre conserva sus recorridos de antes (`dos-jornadas`,
+`reabrir-el-dia`, `papel`), que pasaron sin cambios después de la extracción.
+
+### Aparte: fórmulas en los archivos para Excel
+
+No lo encontró esta pasada (exportar lo escribió Codex y quedó fuera de su propia revisión), sino la
+revisión automática de seguridad del guardado `a1b61a8`: la protección contra fórmulas miraba solo
+el primer carácter de la celda. Un mismo archivo lo leen distinto varios programas: donde las listas
+se separan con punto y coma, un nombre como `x;=1+1` —que aquí es una celda— allá son dos, y la
+segunda empieza con `=`. Ahora, en las columnas con texto escrito por una persona, se desarma la
+fórmula en cualquier lugar donde pudiera quedar al principio de una celda: tras coma, punto y coma,
+tabulador o renglón; escondida tras espacios; o escrita con signos de ancho completo. Tres pruebas
+nuevas en `pruebas/43-exportar` (dos se vieron fallar; la tercera comprueba que no se toca lo que
+no es fórmula: «Ana-María», «correo@ejemplo.com»).
 
 ## El encargo
 
