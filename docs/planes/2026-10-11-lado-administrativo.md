@@ -1,14 +1,16 @@
 # El lado administrativo: panel, días y bitácora
 
-> **Estado (11 de octubre de 2026):** hechas las tres primeras pantallas —el resumen con sus
-> gráficas, los días que ha habido y la bitácora a la vista— y el sembrador de la demostración.
-> Se construyó repartido: el servidor del historial y el de la bitácora los escribió Codex
-> (`gpt-6-astra`, esfuerzo alto) en su copia, con las pruebas primero, y se integraron después de
-> leerlos; el sembrador lo empezó Codex y se le acabó la cuota a medias: lo terminó Claude. El
-> servidor del panel, las tres pantallas, sus recorridos y la integración, Claude. Los informes de
-> Codex están en `docs/revisiones/2026-10-11-codex-construccion-*.md`.
-> **Falta la pasada de revisión de Codex** sobre el panel y el sembrador: el encargo está escrito
-> y no se pudo lanzar porque su cuota se agotó. Lo que sigue está al final, en orden.
+> **Estado (12 de octubre de 2026):** hechas seis partes del panel —el resumen con sus gráficas, los
+> días que ha habido, la historia de precios, los clientes, la bitácora y sacar reportes (archivos
+> para Excel e imprimir)— y el sembrador de la demostración.
+> Se construye repartido con Codex (`gpt-6-astra`, esfuerzo alto): él escribe el servidor de cada
+> parte en su copia, con las pruebas primero, y aquí se lee, se integra y se le pone la pantalla y
+> su recorrido. Suyos son el historial, la bitácora, la historia de precios, los clientes y exportar;
+> el sembrador lo empezó y se le acabó la cuota a medias. Sus informes están en
+> `docs/revisiones/*-codex-construccion-*.md`.
+> El usuario aprobó el 12 de octubre el orden de «Lo que sigue» y que se guarde en Git al cerrar
+> cada cosa. La revisión de Codex sobre lo que no escribió él está en
+> `docs/revisiones/2026-10-12-codex-revision-del-lado-administrativo.md`.
 
 ## Lo que pidió el usuario
 
@@ -43,9 +45,22 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
     especiales y las veces que se reabrió un día.
 - **Días** — cada día que ha habido, con sus cuentas y lo que sumaron; al tocar uno, el mismo
   reporte de su cierre y sus cuentas una por una, cada una con su comprobante (sin reimprimir).
+- **Precios** (12 de octubre) — la historia de precios, por 30 días, 3 meses o 1 año: cuántas listas
+  se publicaron, qué materiales cambiaron, la compra que más subió y la que más bajó; cada material
+  con una rayita de su precio de compra, lo que vale hoy y cuánto varió; y al tocarlo, su gráfica
+  de escalones (compra y venta) y sus cambios uno por uno, con su flecha.
+- **Clientes** (12 de octubre) — a quién se le da precio especial: cuántos hay, sus cuentas, y lo que
+  sus precios movieron respecto de la lista, en compras y en ventas; cada cliente con lo que se le
+  ha comprado y vendido; y al tocarlo, su ficha: sus precios especiales uno por uno (a cuánto, a
+  cuánto estaba la lista, quién lo autorizó), los materiales y sus cuentas, cada una con su comprobante.
 - **Bitácora** — quién hizo qué y cuándo, en palabras llanas («Luis cerró el día», «Servando
   aplicó un precio especial de $2.60 por kilo de Cartón a Don Chuy»), con búsqueda por persona y
   por día.
+
+- **Reportes** (12 de octubre) — se elige de qué día a qué día (con cuatro atajos) y se baja como
+  archivo para Excel: los días, las cuentas, los materiales de cada cuenta o los precios. Y el
+  resumen, cada día, los precios y la ficha de un cliente llevan un botón «Imprimir», que saca en
+  una hoja normal lo que se está viendo.
 
 ### Decisiones
 
@@ -67,6 +82,30 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
    detalle. Una prueba lee las migraciones y falla si alguien anota una acción nueva sin frase.
 6. **Lo que hizo «nadie» lo hizo quien administra.** Un asiento sin persona viene de la consola o
    de publicar una versión; la pantalla dice «Quien administra».
+7. **La historia de precios sale de las listas publicadas y nada más.** Una lista abierta y sin
+   publicar no existe para la historia; un día sin lista sigue valiendo lo último publicado, así
+   que no es un cambio. La fecha de un precio es la de su jornada, no la hora en que se publicó.
+8. **El precio se dibuja en escalones, y la escala no empieza en cero.** Un precio vale lo mismo
+   hasta el día en que cambia: una línea inclinada entre dos días diría que fue subiendo, y no.
+   Y un precio se mueve por centavos: desde cero no se vería. Por eso la gráfica escribe los dos
+   extremos de su escala y lo dice abajo. Es un SVG a mano, sin biblioteca.
+9. **Contra qué se compara un precio lo decide el servidor** (`base`, `variacion`, `veces`): lo
+   que valía al empezar el periodo o, si entonces no tenía, el primero que tuvo. La pantalla no
+   hace cuentas.
+
+10. **Un cliente es alguien con precio especial, y la pantalla lo dice.** Una cuenta queda a nombre
+    de un cliente solo mientras lleva precio especial (así lo guarda la base desde la migración
+    0025); las demás traen, cuando mucho, un nombre escrito a mano. Por eso «Clientes» no es «todo
+    lo que se le ha comprado a cada persona»: es lo que se le ha comprado y vendido con precio
+    especial. Llevar a todos los clientes pide que el mostrador elija cliente en cada cuenta: es un
+    cambio de flujo y de modelo, y es decisión del negocio.
+11. **Los archivos son CSV, sin ninguna biblioteca.** Excel y Números los abren; llevan la marca
+    que Excel pide para leer los acentos, y en las columnas con texto escrito por una persona (un
+    nombre, una etiqueta) lo que empieza como fórmula sale con un apóstrofo por delante, para que
+    no se ejecute. Hasta 366 días por archivo.
+12. **Lo que va al papel es lo que se está viendo.** Imprimir no arma un reporte aparte: la misma
+    pantalla sale sin la barra ni lo que se toca, en claro aunque esté en oscuro, y con sus barras
+    pintadas. El comprobante tiene su propio papel y nunca está a la vista junto con el panel.
 
 ### El sembrador de la demostración (`consola/demo.ts`)
 
@@ -98,10 +137,33 @@ repositorio); con ella se vuelve a como estaba.
 | Los días | `src/servidor/dominio/historial.ts`, `src/app/api/historial/`, `src/app/panel/dias/page.tsx` |
 | El reporte de un día, compartido con el cierre | `src/componentes/cierre/Reporte.tsx` |
 | La bitácora | `src/servidor/dominio/bitacora.ts`, `src/app/api/bitacora/`, `src/app/panel/bitacora/page.tsx` |
+| La historia de precios | `src/servidor/dominio/historia-de-precios.ts`, `src/app/api/precios/historia/`, `src/app/panel/precios/page.tsx`; la gráfica, `Escalones` en `src/componentes/panel/Graficas.tsx` |
 | El estilo | `src/estilo/panel.css` |
-| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`; `recorrido/panel.spec.ts` |
+| Los clientes | `src/servidor/dominio/clientes.ts`, `src/app/api/clientes/resumen/` y `[cliente]/`, `src/app/panel/clientes/page.tsx` |
+| Sacar reportes | `src/servidor/dominio/exportar.ts`, `src/app/api/exportar/`, `src/app/panel/reportes/page.tsx` |
+| Imprimir | `src/componentes/panel/Imprimir.tsx`; `.imprimible`, al final de `src/estilo/panel.css` |
+| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`; `recorrido/panel.spec.ts` |
 
 ## Verificado
+
+**El 12 de octubre de 2026**, con la historia de precios, los clientes, los reportes e imprimir ya
+integrados:
+
+- tipos y **941 pruebas** (eran 901; las 40 nuevas son 16 de la historia de precios, 12 de los
+  clientes y 12 de exportar), sin fallas;
+- **201 recorridos en Chromium** y **194 en WebKit** (eran 195 y 188; los 6 nuevos son los de
+  precios, clientes, reportes e imprimir; las medidas de patio, en tres tamaños, ahora recorren las
+  seis partes del panel), sin fallas.
+
+El recorrido de la respuesta atrasada en precios se comprobó quitando la guardia: sin ella falla
+(«Del 14 de julio…» bajo el botón de 30 días) y con ella pasa. **No se repitieron los dos
+simulacros** (operación y publicación): nada de esto toca los guiones de operación, pero el de
+operación sí recorre pantallas y no se ha comprobado con el panel.
+
+Lo que encontró la revisión de Codex y lo que se hizo con ello está en
+`docs/revisiones/2026-10-12-codex-revision-del-lado-administrativo.md`.
+
+### El 11 de octubre
 
 El 11 de octubre de 2026, con todo lo de arriba ya integrado:
 
@@ -132,25 +194,25 @@ Lo que las corridas atraparon antes de darlo por bueno:
 
 ## Lo que sigue, en orden
 
-Primero lo que se ve —el usuario pidió paneles y gráficas—, después lo que hoy se hace por consola.
-El orden es una propuesta: lo decide el usuario.
+El usuario aprobó este orden el 12 de octubre. Lo primero —historia de precios, clientes y sacar
+reportes— quedó hecho ese día.
 
-1. **Historia de precios:** cómo se ha movido el precio de compra y de venta de cada material, en
-   una gráfica. Los datos ya están (una lista por día).
-2. **Clientes:** la lista, lo que se le ha comprado y vendido a cada uno y sus precios especiales.
-3. **Sacar los reportes:** imprimir el resumen y el día, y bajarlos como archivo para Excel.
-4. **Personas y equipos desde la pantalla.** Hoy se dan de alta y de baja por la consola. Es lo
-   que le toca al rol de administración, que todavía no tiene pantalla propia.
-5. **Catálogo desde la pantalla:** agregar un material, cambiarle el nombre, darlo de baja.
-6. **Resultado y caja** (etapa posterior de la especificación): conteo del cajón y corte, gastos,
+1. **Personas y equipos desde la pantalla.** Hoy se dan de alta y de baja por la consola. Es lo
+   que le toca al rol de administración, que todavía no tiene pantalla propia. Es lo primero que
+   escribe en la base desde el lado administrativo: pide pensar quién puede dar de alta a quién.
+2. **Catálogo desde la pantalla:** agregar un material, cambiarle el nombre, darlo de baja.
+3. **Resultado y caja** (etapa posterior de la especificación): conteo del cajón y corte, gastos,
    costo promedio y, con eso, la ganancia de verdad. Es lo único de esta lista que cambia el modelo
    de datos, y pide decisiones del negocio.
 
 ## Lo que no se hizo
 
-- Elegir un periodo cualquiera (de tal día a tal día): hay tres, y todos terminan hoy.
+- Elegir un periodo cualquiera en el resumen (de tal día a tal día): hay tres, y todos terminan
+  hoy. En los reportes sí se elige.
 - Comparar contra el mismo periodo del año pasado.
-- **La revisión de Codex** sobre el servidor del panel, las tres pantallas y el sembrador. Va una
-  sola pasada; el encargo ya está escrito.
+- Llevar a todos los clientes, no solo a los de precio especial (decisión 10).
+- Anotar en la bitácora quién bajó qué archivo.
+- En papel sale lo que está a la vista: una lista que en pantalla enseña seis renglones y deja
+  pedir los demás, se imprime con los que tenga abiertos.
 - La prueba de las mermas, los conteos y los precios especiales del sembrador (C.8) no se vio
   fallar antes de tener el código: Codex dejó las dos cosas a medias y se repararon juntas.

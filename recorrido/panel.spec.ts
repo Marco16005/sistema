@@ -1,9 +1,11 @@
-// El panel de quien dirige: el resumen con sus gráficas, los días que ha habido y la bitácora.
+// El panel de quien dirige: el resumen con sus gráficas, los días que ha habido, la historia de
+// precios, los clientes, la bitácora y sacar reportes.
 // Con tres días de movimiento: antier, ayer y hoy.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { altaDePersona, baseNueva, cerrarElDia, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide } from "./apoyo.ts";
+import { altaDePersona, baseNueva, cerrarElDia, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, impresiones, loQueNoMide } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -18,9 +20,9 @@ const fechaCorta = (f: string): string => `${Number(f.slice(8))} de ${MESES[Numb
  *   ayer   — Luis compra 10 kg de PET ($75);
  *   hoy    — Servando compra 30 kg de Cartón ($63). Hoy sigue abierto.
  * Cada día se hace «hoy» y después se recorre la fecha de su jornada, que ya quedó cerrada.
- * Devuelve las tres fechas, AAAA-MM-DD.
+ * Devuelve las tres fechas y la de hace seis días (el primero de los últimos siete), AAAA-MM-DD.
  */
-async function tresDias(g: Gente): Promise<{ antier: string; ayer: string; hoy: string }> {
+async function tresDias(g: Gente): Promise<{ antier: string; ayer: string; hoy: string; semana: string }> {
   await diaListo(g, [["Cartón", "500"]]);
   return conConsola(async (db) => {
     const cuenta = async (tipo: "compra" | "venta", quien: string, material: string, kg: string): Promise<void> => {
@@ -209,6 +211,312 @@ test("la bitácora dice en palabras llanas quién hizo qué, y se puede buscar p
   await expect(page.locator(".asiento").filter({ hasText: "Servando publicó los precios" })).toHaveCount(3);
 });
 
+/**
+ * Tres días con lista publicada, sin ninguna cuenta:
+ *   antier — la del arranque: Cartón a 2.10 y 2.50, PET a 7.50 y 8.90, y tres materiales más;
+ *   ayer   — el Cartón sube a 2.30 y 2.80, y el PET se queda sin precio;
+ *   hoy    — el Cartón baja a 2.20 de compra; la venta sigue en 2.80. Hoy sigue abierto.
+ * Devuelve las tres fechas y el primer día de los últimos treinta.
+ */
+async function preciosQueSeMueven(g: Gente): Promise<{ antier: string; ayer: string; hoy: string; hace29: string }> {
+  await diaListo(g);
+  return conConsola(async (db) => {
+    const otroDia = async (cambios: Array<[string, string, string] | [string]>): Promise<void> => {
+      await cerrarElDia(db, g.luis.id);
+      await db.query("ALTER TABLE jornada DISABLE TRIGGER USER");
+      await db.query("UPDATE jornada SET fecha = fecha - 1");
+      await db.query("ALTER TABLE jornada ENABLE TRIGGER USER");
+      await db.query("SELECT abrir_jornada_de_hoy($1)", [g.luis.id]);
+      for (const [material, compra, venta] of cambios) {
+        if (compra === undefined) await db.query("SELECT quitar_precio((SELECT id FROM material WHERE nombre = $1), $2)", [material, g.servando.id]);
+        else await db.query("SELECT fijar_precio((SELECT id FROM material WHERE nombre = $1), $2, $3, $4)", [material, compra, venta, g.servando.id]);
+      }
+      await db.query("SELECT publicar_lista_de_hoy($1)", [g.servando.id]);
+    };
+    await otroDia([["Cartón", "2.3", "2.8"], ["PET"]]);
+    await otroDia([["Cartón", "2.2", "2.8"]]);
+    return (await db.query(
+      "SELECT to_char(h - 2, 'YYYY-MM-DD') AS antier, to_char(h - 1, 'YYYY-MM-DD') AS ayer, to_char(h, 'YYYY-MM-DD') AS hoy, to_char(h - 29, 'YYYY-MM-DD') AS hace29 FROM (SELECT hoy_en(1::smallint) AS h) x",
+    )).rows[0];
+  });
+}
+
+const material = (page: Page, nombre: string) => page.locator(".exrow.material").filter({ has: page.getByText(nombre, { exact: true }) });
+
+test("la historia de precios: qué materiales cambiaron y cuánto, y de cada uno sus cambios día por día", async ({ page }) => {
+  const g = await gente();
+  const dias = await preciosQueSeMueven(g);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  await page.goto("/panel");
+  await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Precios" }).click();
+  await expect(page.getByRole("heading", { name: "Historia de precios" })).toBeVisible();
+  // En la barra de arriba sigue siendo el panel, no la lista de precios de hoy.
+  const barra = page.getByRole("navigation", { name: "Pantallas" });
+  await expect(barra.getByRole("link", { name: "Panel" })).toHaveAttribute("aria-current", "true");
+  await expect(barra.getByRole("link", { name: "Precios" })).toHaveAttribute("aria-current", "false");
+  await expect(page.locator(".periodo")).toHaveText(`Del ${fechaCorta(dias.hace29)} al ${fechaCorta(dias.hoy)} · 3 listas publicadas`);
+
+  await expect(indicador(page, "Listas publicadas").locator(".cifra")).toHaveText("3");
+  await expect(indicador(page, "Cambiaron de precio").locator(".cifra")).toHaveText("2 de 5");
+  await expect(indicador(page, "La compra que más subió").locator(".cifra")).toHaveText("▲ 4.8 %");
+  await expect(indicador(page, "La compra que más subió")).toContainText("Cartón: de $2.10 a $2.20");
+  await expect(indicador(page, "La compra que más bajó").locator(".cifra")).toHaveText("Ninguna");
+
+  // Cada material: cuántas veces cambió, su rayita y lo que vale hoy.
+  await expect(page.locator(".exrow.material")).toHaveCount(5);
+  await expect(material(page, "Cartón")).toContainText("Cambió 2 veces");
+  await expect(material(page, "Cartón").locator(".dinero small").nth(0)).toHaveText("Compra $2.20▲subió 4.8 %");
+  await expect(material(page, "Cartón").locator(".dinero small").nth(1)).toHaveText("Venta $2.80▲subió 12 %");
+  await expect(material(page, "Cartón").locator("svg path")).toHaveCount(1);
+  await expect(material(page, "PET")).toContainText("Cambió una vez");
+  await expect(material(page, "PET")).toContainText("Hoy no tiene precio");
+  await expect(material(page, "Aluminio bote")).toContainText("No cambió");
+  await expect(material(page, "Aluminio bote").locator(".dinero")).toHaveText("Compra $28.00Venta $33.00");
+
+  // El Cartón, cambio por cambio: del más reciente al más viejo, con su flecha donde se movió.
+  await material(page, "Cartón").click();
+  await expect(page.getByRole("heading", { name: "Cartón", exact: true })).toBeVisible();
+  await expect(indicador(page, "Compra, por kilo").locator(".cifra")).toHaveText("$2.20");
+  await expect(indicador(page, "Compra, por kilo")).toContainText("4.8 % en el periodo: empezó en $2.10");
+  await expect(indicador(page, "Venta, por kilo")).toContainText("12 % en el periodo: empezó en $2.50");
+  const grafica = tarjeta(page, "Precio por kilo");
+  await expect(grafica.locator("svg path")).toHaveCount(2);
+  await expect(grafica.locator(".tope").first()).toHaveText("$2.80");
+  await expect(grafica.locator(".tope").last()).toHaveText("$2.10");
+  const cambios = tarjeta(page, "Cada cambio").locator("tbody tr");
+  await expect(cambios).toHaveCount(3);
+  await expect(cambios.nth(0).locator("td")).toHaveText([new RegExp(fechaCorta(dias.hoy) + "$"), "$2.20 ▼ bajó", "$2.80"]);
+  await expect(cambios.nth(1).locator("td")).toHaveText([new RegExp(fechaCorta(dias.ayer) + "$"), "$2.30 ▲ subió", "$2.80 ▲ subió"]);
+  await expect(cambios.nth(2).locator("td")).toHaveText([new RegExp(fechaCorta(dias.antier) + "$"), "$2.10", "$2.50"]);
+
+  // De vuelta, y el PET: se quedó sin precio ayer.
+  await page.getByRole("button", { name: "‹ Precios" }).click();
+  await material(page, "PET").click();
+  await expect(indicador(page, "Compra, por kilo").locator(".cifra")).toHaveText("Sin precio");
+  await expect(tarjeta(page, "Cada cambio").locator("tbody tr").nth(0)).toContainText("Se quedó sin precio");
+  await expect(tarjeta(page, "Cada cambio").locator("tbody tr").nth(1)).toContainText("$7.50");
+});
+
+test("si la historia de un periodo llega cuando ya se eligió otro, no se queda a la vista la que ya no se pidió", async ({ page }) => {
+  const g = await gente();
+  const dias = await preciosQueSeMueven(g);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  await page.goto("/panel/precios");
+  await expect(page.locator(".exrow.material")).toHaveCount(5);
+  // La de 3 meses tarda; la de 30 días, no: llega primero la que se pidió después.
+  await page.route(/\/api\/precios\/historia\?dias=91$/, async (ruta) => { await new Promise((listo) => setTimeout(listo, 1200)); await ruta.fallback(); });
+  const periodo = page.getByRole("group", { name: "Periodo" });
+  const lenta = page.waitForResponse((r) => r.url().endsWith("dias=91"));
+  await periodo.getByRole("button", { name: "3 meses" }).click();
+  await periodo.getByRole("button", { name: "30 días" }).click();
+  await lenta;
+  await page.waitForTimeout(300);
+  await expect(periodo.getByRole("button", { name: "30 días" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".periodo")).toHaveText(`Del ${fechaCorta(dias.hace29)} al ${fechaCorta(dias.hoy)} · 3 listas publicadas`);
+});
+
+/**
+ * Hoy, con el día ya abierto y con precios: tres cuentas con precio especial y una sin él.
+ *   Don Chuy  — una compra de 100 kg de Cartón a 50 centavos más ($260: $50.00 de más que la lista)
+ *               y una venta de 40 kg a 10 centavos menos ($96: $4.00 de menos);
+ *   Doña Lupe — una compra de 10 kg de PET a un peso más ($85: $10.00 de más);
+ *   y una compra de 30 kg de Cartón a precio de lista, que no queda a nombre de nadie.
+ * Atiende Luis y autoriza Servando, desde un equipo dado de alta para eso.
+ */
+async function clientesDeHoy(g: Gente): Promise<void> {
+  await conConsola(async (db) => {
+    const huella = createHash("sha256").update(randomUUID()).digest("hex");
+    const codigo = (await db.query("SELECT crear_codigo_alta('Oficina') AS c")).rows[0].c;
+    await db.query("SELECT canjear_codigo($1, $2)", [codigo, huella]);
+    const cuenta = async (tipo: "compra" | "venta", material: string, kg: string, especial?: [cliente: string, diferencia: string]): Promise<void> => {
+      const [id, linea] = [randomUUID(), randomUUID()];
+      await db.query("SELECT abrir_cuenta($1, $2, NULL, $3)", [id, tipo, g.luis.id]);
+      await db.query("SELECT agregar_material($1, $2, (SELECT id FROM material WHERE nombre = $3), 2::smallint, $4, $5, $6)", [id, linea, material, randomUUID(), kg, g.luis.id]);
+      if (especial) {
+        const ya = (await db.query("SELECT id FROM cliente WHERE nombre = $1", [especial[0]])).rows[0]?.id ?? null;
+        await db.query("SELECT dar_precio_especial($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10)", [
+          randomUUID(), id, linea, ya, ya === null ? especial[0] : null, especial[1], g.servando.id, g.servando.clave, huella, g.luis.id,
+        ]);
+      }
+      await db.query("SELECT confirmar_cuenta($1, $2, (SELECT revision FROM operacion WHERE id = $1))", [id, g.luis.id]);
+    };
+    await cuenta("compra", "Cartón", "100", ["Don Chuy", "0.5"]);
+    await cuenta("venta", "Cartón", "40", ["Don Chuy", "-0.1"]);
+    await cuenta("compra", "PET", "10", ["Doña Lupe", "1"]);
+    await cuenta("compra", "Cartón", "30");
+  });
+}
+
+const cliente = (page: Page, nombre: string) => page.locator(".exrow.cliente").filter({ has: page.getByText(nombre, { exact: true }) });
+
+test("los clientes: a quién se le da precio especial, cuánto se le ha comprado y vendido, y cuánto movieron sus precios respecto de la lista", async ({ page }) => {
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  await clientesDeHoy(g);
+  const hoy = await conConsola(async (db) => (await db.query("SELECT to_char(hoy_en(1::smallint), 'YYYY-MM-DD') AS f")).rows[0].f as string);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  await page.goto("/panel");
+  await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Clientes" }).click();
+  await expect(page.getByRole("heading", { name: "Clientes" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Pantallas" }).getByRole("link", { name: "Panel" })).toHaveAttribute("aria-current", "true");
+
+  // Lo de todos: la cuenta a precio de lista no es de nadie, y no suma aquí.
+  await expect(indicador(page, "Clientes").locator(".cifra")).toHaveText("2");
+  await expect(indicador(page, "Cuentas a su nombre").locator(".cifra")).toHaveText("3");
+  await expect(indicador(page, "Sus precios en compras")).toContainText("$60.00");
+  await expect(indicador(page, "Sus precios en compras")).toContainText("Se pagó de más que con la lista");
+  await expect(indicador(page, "Sus precios en ventas")).toContainText("$4.00");
+  await expect(indicador(page, "Sus precios en ventas")).toContainText("Se cobró de menos que con la lista");
+
+  await expect(page.locator(".exrow.cliente")).toHaveCount(2);
+  await expect(cliente(page, "Don Chuy")).toContainText(`2 cuentas · la última, el ${fechaCorta(hoy)}`);
+  await expect(cliente(page, "Don Chuy").locator(".dinero")).toHaveText("Compras $260Ventas $96");
+  await expect(cliente(page, "Doña Lupe")).toContainText("1 cuenta ·");
+  await expect(cliente(page, "Doña Lupe").locator(".dinero")).toHaveText("Compras $85Ventas $0");
+
+  // Don Chuy: lo que se le compró y vendió, sus precios uno por uno, y sus cuentas.
+  await cliente(page, "Don Chuy").click();
+  await expect(page.getByRole("heading", { name: "Don Chuy", exact: true })).toBeVisible();
+  await expect(indicador(page, "Se le compró")).toContainText("$260");
+  await expect(indicador(page, "Se le compró")).toContainText("1 cuenta · 100 kg");
+  await expect(indicador(page, "Se le vendió")).toContainText("$96");
+  await expect(indicador(page, "Se le vendió")).toContainText("1 cuenta · 40 kg");
+  await expect(indicador(page, "Sus precios en compras")).toContainText("$50.00");
+  await expect(indicador(page, "Sus precios en compras")).toContainText("Se le pagó de más que con la lista");
+  await expect(indicador(page, "Sus precios en ventas")).toContainText("Se le cobró de menos que con la lista");
+  const precios = tarjeta(page, "Sus precios especiales").locator(".mov");
+  await expect(precios).toHaveCount(2);
+  // Lo más reciente primero: la venta, a menos que la lista.
+  await expect(precios.nth(0)).toContainText("Cartón$4.00 de menos");
+  await expect(precios.nth(0)).toContainText(`Venta 2 · ${fechaCorta(hoy)} · 40 kg`);
+  await expect(precios.nth(0)).toContainText("A $2.40 por kilo; en la lista estaba a $2.50");
+  await expect(precios.nth(0)).toContainText("Lo autorizó Servando");
+  await expect(precios.nth(1)).toContainText("Cartón$50.00 de más");
+  await expect(precios.nth(1)).toContainText("A $2.60 por kilo; en la lista estaba a $2.10");
+  const movido = tarjeta(page, "Lo que se le compró y vendió").locator(".mov");
+  await expect(movido).toHaveCount(1);
+  await expect(movido).toContainText("Se le compró 100 kg · $260.00");
+  await expect(movido).toContainText("Se le vendió 40 kg · $96.00");
+
+  // De cada cuenta, su comprobante, sin poder reimprimirlo desde aquí.
+  const cuentas = tarjeta(page, "Sus cuentas").locator(".exrow");
+  await expect(cuentas).toHaveCount(2);
+  await expect(cuentas.nth(1)).toContainText("Compra ·");
+  await expect(cuentas.nth(1)).toContainText("Folio 1 · 1 material · atendió Luis");
+  await cuentas.nth(1).click();
+  await expect(page.locator(".ticket")).toContainText("A PAGAR$260");
+  await expect(page.getByRole("button", { name: /imprimir/i })).toHaveCount(0);
+  await page.getByRole("button", { name: "Listo" }).click();
+  await expect(tarjeta(page, "Sus cuentas")).toBeVisible();
+  await page.getByRole("button", { name: "‹ Clientes" }).click();
+  await expect(page.locator(".exrow.cliente")).toHaveCount(2);
+
+  // A Doña Lupe solo se le ha comprado: de lo que no hay, no se pone renglón.
+  await cliente(page, "Doña Lupe").click();
+  await expect(tarjeta(page, "Lo que se le compró y vendió").locator(".mov")).toHaveText("PETSe le compró 10 kg · $85.00");
+});
+
+test("sin clientes, la pantalla lo dice y explica de dónde salen", async ({ page }) => {
+  const g = await gente();
+  await tresDias(g);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  await page.goto("/panel/clientes");
+  await expect(page.getByText("Todavía no hay clientes: se dan de alta al darles su primer precio especial, en el mostrador.")).toBeVisible();
+  await expect(page.locator(".indicador, .exrow")).toHaveCount(0);
+});
+
+test("los reportes: se elige de qué días y se baja cada hoja como archivo para Excel, con lo que quedó asentado", async ({ page }) => {
+  const g = await gente();
+  const dias = await tresDias(g);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  await page.goto("/panel");
+  await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Reportes" }).click();
+  await expect(page.getByRole("heading", { name: "Reportes" })).toBeVisible();
+  // Al llegar, lo que va del mes; con un toque, otro periodo.
+  await expect(page.getByLabel("Desde")).toHaveValue(`${dias.hoy.slice(0, 8)}01`);
+  await expect(page.getByLabel("Hasta")).toHaveValue(dias.hoy);
+  await page.getByRole("button", { name: "Últimos 7 días" }).click();
+  await expect(page.getByLabel("Desde")).toHaveValue(dias.semana);
+  await expect(page.getByRole("button", { name: "Últimos 7 días" })).toHaveAttribute("aria-pressed", "true");
+
+  const bajar = async (nombre: string): Promise<{ archivo: string; renglones: string[] }> => {
+    const espera = page.waitForEvent("download");
+    await page.getByRole("button", { name: `Bajar ${nombre}` }).click();
+    const bajado = await espera;
+    return { archivo: bajado.suggestedFilename(), renglones: (await readFile(await bajado.path())).toString("utf8").split("\r\n") };
+  };
+
+  // Las cuentas: una por renglón, con la marca que Excel pide para leer los acentos.
+  const cuentas = await bajar("las cuentas");
+  expect(cuentas.archivo).toBe(`cuentas-${dias.semana}-a-${dias.hoy}.csv`);
+  expect(cuentas.renglones[0]).toBe("\uFEFFFecha,Hora,Folio,Tipo,Cliente,Nombre,Materiales,Kilos,Total,Atendió");
+  expect(cuentas.renglones).toHaveLength(6);
+  expect(cuentas.renglones[1]).toMatch(new RegExp(`^${dias.antier},\\d\\d:\\d\\d,1,compra,,,1,100\\.000,210,Luis$`));
+  expect(cuentas.renglones[4]).toMatch(new RegExp(`^${dias.hoy},\\d\\d:\\d\\d,4,compra,,,1,30\\.000,63,Servando$`));
+  await expect(page.locator(".okmsg")).toContainText(`Se bajó «Las cuentas», del ${fechaCorta(dias.semana)} al ${fechaCorta(dias.hoy)}`);
+
+  // Los días: cada uno dice lo que su cierre.
+  const losDias = await bajar("los días");
+  expect(losDias.archivo).toBe(`dias-${dias.semana}-a-${dias.hoy}.csv`);
+  expect(losDias.renglones).toEqual([
+    "\uFEFFFecha,Estado,Cuentas,Compras,Ventas,Pagado,Cobrado,Kilos comprados,Kilos vendidos",
+    `${dias.antier},cerrado,2,1,1,210,100,100.000,40.000`,
+    `${dias.ayer},cerrado,1,1,0,75,0,10.000,0.000`,
+    `${dias.hoy},abierto,1,1,0,63,0,30.000,0.000`,
+    "",
+  ]);
+  expect((await bajar("los materiales de cada cuenta")).renglones).toHaveLength(6);
+  expect((await bajar("los precios")).renglones[0]).toBe("\uFEFFFecha,Familia,Material,Compra,Venta");
+
+  // Un periodo al revés no se pide: se dice por qué, y no hay qué bajar.
+  await page.getByLabel("Desde").fill(dias.hoy);
+  await page.getByLabel("Hasta").fill(dias.ayer);
+  await expect(page.getByText("El primer día no puede ser posterior al último.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Bajar las cuentas" })).toBeDisabled();
+});
+
+test("imprimir una pantalla del panel: sale ella sola, sin la barra ni lo que se toca; el comprobante sigue saliendo solo, en su papel", async ({ page }) => {
+  const g = await gente();
+  await tresDias(g);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  await page.goto("/panel");
+  await expect(indicador(page, "Compras")).toContainText("$348");
+  await page.getByRole("button", { name: "Imprimir" }).click();
+  expect(await impresiones(page)).toBe(1);
+
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".indicador").first()).toBeVisible();
+  // La barra de antier (la quinta de siete): la primera es de un día sin cuentas y no mide nada.
+  await expect(tarjeta(page, "Compras y ventas").locator(".col").nth(4).locator(".barrita.compra")).toBeVisible();
+  for (const loQueNoSale of ['nav[aria-label="Pantallas"]', ".secciones", ".chips", ".imprimir", ".barra .dia"]) {
+    await expect(page.locator(loQueNoSale).first(), loQueNoSale).toBeHidden();
+  }
+
+  // Un día también se imprime; y su comprobante, cuando se abre, es lo único que va al papel.
+  await page.emulateMedia({ media: "screen" });
+  await page.goto("/panel/dias");
+  await page.locator(".exrow.dia").nth(2).click();
+  await expect(page.getByRole("button", { name: "Imprimir" })).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".card").filter({ hasText: "Cuentas del día" })).toBeVisible();
+  await expect(page.locator(".secciones")).toBeHidden();
+  await page.emulateMedia({ media: "screen" });
+  await tarjeta(page, "Cuentas del día").locator(".exrow").nth(0).click();
+  await expect(page.locator(".ticket")).toContainText("A PAGAR$210");
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".papel .ticket").first()).toBeVisible();
+  await expect(page.locator(".imprimible")).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="Pantallas"]')).toBeHidden();
+});
+
 test("el panel es de quien dirige y de quien consulta: al mostrador no se le ofrece, y si escribe la dirección, tampoco", async ({ page }) => {
   const g = await gente();
   await tresDias(g);
@@ -216,7 +524,7 @@ test("el panel es de quien dirige y de quien consulta: al mostrador no se le ofr
   await darDeAltaEquipo(page);
   await entrar(page, g.luis);
   await expect(page.getByRole("link", { name: "Panel" })).toHaveCount(0);
-  for (const camino of ["/panel", "/panel/dias", "/panel/bitacora"]) {
+  for (const camino of ["/panel", "/panel/dias", "/panel/precios", "/panel/clientes", "/panel/bitacora", "/panel/reportes"]) {
     await page.goto(camino);
     await expect(page.getByText("El panel es para quien dirige el negocio.")).toBeVisible();
     await expect(page.locator(".indicador, .exrow, .asiento")).toHaveCount(0);
@@ -228,7 +536,7 @@ test("el panel es de quien dirige y de quien consulta: al mostrador no se le ofr
 });
 
 for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
-  test(`a ${ancho}×${alto}, en el resumen, los días y la bitácora todo lo que se toca mide 60 px o más y está separado, la letra se lee y nada se sale de lado`, async ({ page }) => {
+  test(`a ${ancho}×${alto}, en todas las partes del panel todo lo que se toca mide 60 px o más y está separado, la letra se lee y nada se sale de lado`, async ({ page }) => {
     await page.setViewportSize({ width: ancho, height: alto });
     const g = await gente();
     await tresDias(g);
@@ -256,6 +564,25 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await page.getByRole("link", { name: "Bitácora" }).click();
     await expect(page.locator(".asiento").first()).toBeVisible();
     await medir("la bitácora");
+
+    await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Precios" }).click();
+    await expect(page.locator(".exrow.material")).toHaveCount(5);
+    await medir("la historia de precios");
+    await page.locator(".exrow.material").first().click();
+    await expect(tarjeta(page, "Cada cambio")).toBeVisible();
+    await medir("la historia de un material");
+
+    await clientesDeHoy(g);
+    await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Clientes" }).click();
+    await expect(page.locator(".exrow.cliente")).toHaveCount(2);
+    await medir("los clientes");
+    await page.locator(".exrow.cliente").first().click();
+    await expect(tarjeta(page, "Sus cuentas").locator(".exrow")).toHaveCount(2);
+    await medir("un cliente");
+
+    await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Reportes" }).click();
+    await expect(page.getByRole("button", { name: "Bajar las cuentas" })).toBeVisible();
+    await medir("los reportes");
   });
 }
 
@@ -283,6 +610,32 @@ test("capturas del panel", async ({ page }) => {
     await page.goto("/panel/bitacora");
     await expect(page.locator(".asiento").first()).toBeVisible();
     await foto("4-bitacora");
+    await page.goto("/panel/precios");
+    await expect(page.locator(".exrow.material").first()).toBeVisible();
+    await foto("5-precios");
+    await page.goto("/panel/reportes");
+    await expect(page.getByRole("button", { name: "Bajar las cuentas" })).toBeVisible();
+    await foto("8-reportes");
+  }
+});
+
+test("capturas de los clientes", async ({ page }) => {
+  test.skip(!process.env.CAPTURAS, "solo cuando se piden capturas");
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  await clientesDeHoy(g);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.servando);
+  for (const [nombre, ancho, alto, esquema] of [["", 1180, 820, "light"], ["-telefono", 390, 800, "light"], ["-oscuro", 1180, 820, "dark"]] as const) {
+    await page.setViewportSize({ width: ancho, height: alto });
+    await page.emulateMedia({ colorScheme: esquema });
+    const foto = (que: string) => page.screenshot({ path: `recorrido/capturas/panel/${que}${nombre}.png`, fullPage: true });
+    await page.goto("/panel/clientes");
+    await expect(page.locator(".exrow.cliente")).toHaveCount(2);
+    await foto("6-clientes");
+    await page.locator(".exrow.cliente").first().click();
+    await expect(tarjeta(page, "Sus cuentas").locator(".exrow")).toHaveCount(2);
+    await foto("7-un-cliente");
   }
 });
 
@@ -321,5 +674,34 @@ test("capturas del panel con ocho semanas de demostración", async ({ page }) =>
     await page.goto("/panel/bitacora");
     await expect(page.locator(".asiento").first()).toBeVisible();
     await foto("6-bitacora");
+    await page.goto("/panel/precios");
+    await page.getByRole("group", { name: "Periodo" }).getByRole("button", { name: "3 meses" }).click();
+    await expect(page.locator(".periodo")).not.toContainText("cargando");
+    await expect(page.locator(".exrow.material").first()).toBeVisible();
+    await foto("7-precios");
+    await page.locator(".exrow.material").first().click();
+    await expect(tarjeta(page, "Cada cambio")).toBeVisible();
+    await foto("8-un-precio");
+    await page.goto("/panel/clientes");
+    await expect(page.locator(".exrow.cliente").first()).toBeVisible();
+    await foto("9-clientes");
+    await page.locator(".exrow.cliente").first().click();
+    await expect(tarjeta(page, "Sus cuentas").locator(".exrow").first()).toBeVisible();
+    await foto("10-un-cliente");
   }
+
+  // Lo que va al papel, en una hoja carta y aunque la pantalla esté en oscuro: el resumen de un mes y un día.
+  await page.setViewportSize({ width: 816, height: 1056 });
+  await page.emulateMedia({ media: "screen", colorScheme: "dark" });
+  await page.goto("/panel");
+  await page.getByRole("group", { name: "Periodo" }).getByRole("button", { name: "30 días" }).click();
+  await expect(tarjeta(page, "Compras y ventas").locator(".col")).toHaveCount(30);
+  await page.emulateMedia({ media: "print", colorScheme: "dark" });
+  await page.screenshot({ path: "recorrido/capturas/panel/demo-papel-1-resumen.png", fullPage: true });
+  await page.emulateMedia({ media: "screen", colorScheme: "dark" });
+  await page.goto("/panel/dias");
+  await page.locator(".exrow.dia").nth(1).click();
+  await expect(tarjeta(page, "Cuentas del día").locator(".exrow").first()).toBeVisible();
+  await page.emulateMedia({ media: "print", colorScheme: "dark" });
+  await page.screenshot({ path: "recorrido/capturas/panel/demo-papel-2-un-dia.png", fullPage: true });
 });

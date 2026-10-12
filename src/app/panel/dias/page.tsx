@@ -8,6 +8,7 @@ import { pedir } from "../../../componentes/cliente.ts";
 import { cuantosMateriales, fechaConDia, pesosCerrados } from "../../../componentes/formato.ts";
 import { Ticket } from "../../../componentes/mostrador/Ticket.tsx";
 import type { Comprobante, Tipo } from "../../../componentes/mostrador/tipos.ts";
+import { Imprimir } from "../../../componentes/panel/Imprimir.tsx";
 import { Secciones, SoloQuienDirige } from "../../../componentes/panel/Secciones.tsx";
 import { DIRIGEN, useSesion } from "../../../componentes/Sesion.tsx";
 
@@ -92,11 +93,12 @@ export default function PantallaDeLosDias() {
 
   if (elegido) {
     return (
-      <div className="angosto" style={{ margin: "0 auto" }}>
+      <div className="angosto imprimible" style={{ margin: "0 auto" }}>
         <Secciones />
         <div className="top">
           <button className="quitar" type="button" onClick={volver}>‹ Días</button>
           <h2>{mayuscula(fechaConDia(elegido.fecha))}</h2>
+          {detalle ? <Imprimir /> : null}
         </div>
         {aviso ? <div className="flag" role="alert">{aviso}</div> : null}
         {!detalle ? (aviso ? null : <p className="cargando">Un momento…</p>) : (

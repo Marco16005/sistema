@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { pedir } from "../../componentes/cliente.ts";
 import { diaCorto, fechaCorta, kilosCortos, pesos, pesosCerrados, precio } from "../../componentes/formato.ts";
 import { Barras, Tira } from "../../componentes/panel/Graficas.tsx";
+import { Imprimir } from "../../componentes/panel/Imprimir.tsx";
 import { Secciones, SoloQuienDirige } from "../../componentes/panel/Secciones.tsx";
 import type { Panel, Periodo, Tramo } from "../../componentes/panel/tipos.ts";
 import { DIRIGEN, useSesion } from "../../componentes/Sesion.tsx";
@@ -114,9 +115,9 @@ export default function PantallaDelPanel() {
   const c = panel.control;
 
   return (
-    <div className="panel">
+    <div className="panel imprimible">
       <Secciones />
-      <div className="top"><h2>Resumen</h2></div>
+      <div className="top"><h2>Resumen</h2><Imprimir /></div>
       {elegir}
       {aviso ? <div className="flag" role="alert">{aviso}</div> : null}
       <p className="note periodo" role="status">

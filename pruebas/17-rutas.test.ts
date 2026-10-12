@@ -61,6 +61,10 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "GET historial": DIRIGEN,
   "GET historial/[jornada]": DIRIGEN,
   "GET bitacora": DIRIGEN,
+  "GET precios/historia": DIRIGEN,
+  "GET clientes/resumen": DIRIGEN,
+  "GET clientes/[cliente]": DIRIGEN,
+  "GET exportar": DIRIGEN,
   "POST envios/[envio]/cancelar": ARMAN,
   "GET inventario": TODOS,
   "GET inventario/materiales/[material]": TODOS,
@@ -90,7 +94,7 @@ async function rutasEnDisco(): Promise<Array<{ clave: string; camino: string; me
   return rutas;
 }
 
-const PARAMETROS = { cuenta: randomUUID(), operacion: randomUUID(), material: "1", envio: randomUUID(), jornada: "1" };
+const PARAMETROS = { cuenta: randomUUID(), operacion: randomUUID(), material: "1", envio: randomUUID(), jornada: "1", cliente: "1" };
 const CLAVES: Record<Rol, string> = { responsable: "481516", mostrador: "4815", patio: "2718", consulta: "3141", administracion: "271828" };
 
 interface Mundo {

@@ -70,10 +70,10 @@ vacía se borra la base (`docker compose down --volumes`) y se pone a andar otra
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 901 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 941 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 195 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 188
+docker compose --profile recorrido run --rm recorrido     # 201 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 194
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
@@ -167,18 +167,29 @@ docs/revisiones/  las revisiones de Codex y la respuesta a cada hallazgo
 
 ### El panel de quien dirige
 
-Lo ven el responsable y quien consulta, en `/panel`. Tiene tres partes: el **resumen** (compras,
-ventas y cuentas de los últimos 7 días, 30 días o 3 meses, con sus gráficas, lo que más se movió, lo
-que hay en el patio y lo que conviene vigilar), los **días** (cada día que ha habido, con el reporte
-de su cierre y sus cuentas, cada una con su comprobante) y la **bitácora** (quién hizo qué y
-cuándo, en palabras llanas).
+Lo ven el responsable y quien consulta, en `/panel`. Tiene seis partes:
+
+- el **resumen**: compras, ventas y cuentas de los últimos 7 días, 30 días o 3 meses, con sus
+  gráficas, lo que más se movió, lo que hay en el patio y lo que conviene vigilar;
+- los **días**: cada día que ha habido, con el reporte de su cierre y sus cuentas, cada una con su
+  comprobante;
+- los **precios**: cómo se ha movido el precio de compra y de venta de cada material en 30 días,
+  3 meses o 1 año, con su gráfica y sus cambios uno por uno;
+- los **clientes**: a quién se le da precio especial, cuánto se le ha comprado y vendido en esas
+  cuentas, y cuánto movieron sus precios respecto de la lista;
+- la **bitácora**: quién hizo qué y cuándo, en palabras llanas;
+- los **reportes**: bajar los días, las cuentas, los materiales de cada cuenta o los precios de un
+  periodo como archivo para Excel (CSV). Además, el resumen, cada día, los precios y la ficha de un
+  cliente se imprimen desde su pantalla, en una hoja normal.
 
 El panel no lleva cuentas propias: todo sale de los comprobantes y del libro de inventario, con la
 regla del cierre —una cuenta es del día en que se asentó—, así que cada día del panel dice lo mismo
 que su cierre (`pruebas/37-panel.test.ts` lo exige). No hay tabla de resumen ni migración: son
 consultas sobre lo que ya se guarda. «Ventas menos compras» no es la ganancia, y la pantalla lo
-dice: la ganancia pide el costo de lo vendido, que es de la etapa de caja. Las gráficas son cajas
-dibujadas con CSS, sin biblioteca. El detalle está en `docs/planes/2026-10-11-lado-administrativo.md`.
+dice: la ganancia pide el costo de lo vendido, que es de la etapa de caja. Las gráficas se dibujan
+a mano (cajas con CSS y un SVG para los precios), sin biblioteca. Un «cliente» es alguien con precio
+especial: las demás cuentas no quedan a nombre de nadie. El detalle está en
+`docs/planes/2026-10-11-lado-administrativo.md`.
 
 ## Las reglas que sostiene la base
 
@@ -523,8 +534,7 @@ Faltan, en este orden:
    respaldo y el proxy con HTTPS (ensayado en local); faltan publicar una versión, la guía del
    servidor, la revisión de Codex del bloque y el servidor real.
 3. **Lo que falta del lado administrativo** (`docs/planes/2026-10-11-lado-administrativo.md`): dar de
-   alta personas, equipos y materiales desde la pantalla (hoy: consola y migración), los clientes,
-   sacar los reportes a papel y a archivo, y la historia de precios.
+   alta personas, equipos y materiales desde la pantalla (hoy: consola y migración).
 4. Lectura de básculas, tabletas, trabajo sin conexión, caja —con ella, la ganancia de verdad— y crédito.
 
 **Corregir el inventario no corrige el dinero.** Si se pagó de más o de menos, eso se arregla fuera
