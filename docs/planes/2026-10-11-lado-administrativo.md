@@ -185,6 +185,19 @@ repositorio); con ella se vuelve a como estaba.
 
 ## Verificado
 
+**El 12 de octubre de 2026, por la noche**, con los ajustes (personas, equipos y materiales) y las
+tres migraciones nuevas (0030, 0031 y 0032) ya integrados, y después de corregir lo que encontraron
+las dos revisiones:
+
+- tipos y **981 pruebas** (eran 944; las 37 nuevas son 18 de los materiales, 18 de personas y
+  equipos y una de estilo), sin fallas;
+- **214 recorridos en Chromium** y **207 en WebKit** (eran 204 y 197; los 10 nuevos son los de los
+  ajustes, con las medidas de patio en tres tamaños), sin fallas.
+
+Se corrió dos veces completo esa noche: antes de las correcciones (978, 213 y 206) y después.
+
+### El 12 de octubre, por la tarde
+
 **El 12 de octubre de 2026**, con la historia de precios, los clientes, los reportes e imprimir ya
 integrados:
 

@@ -78,10 +78,10 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 944 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 981 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 204 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 197
+docker compose --profile recorrido run --rm recorrido     # 214 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 207
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
