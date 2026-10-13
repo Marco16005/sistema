@@ -25,6 +25,22 @@ prueba se entera.
    antes de descifrar. Toca respaldar, restaurar, el diario, la instalación y la guía. Se deja
    para antes del servidor de verdad (tarea 7), que es cuando existe un depósito que alguien
    pueda tocar; hoy los depósitos son los de pruebas. **Es condición para operar con datos reales.**
+
+   **Corregido el 13 de octubre de 2026.** Como se había pensado: cada manifiesto lleva un sello
+   —un HMAC de todo lo que dice: el archivo, su tamaño y su huella, su momento, el esquema y la
+   publicación—, con una clave que se saca de la llave privada de age fuera del servidor
+   (`operacion/sello.ts`) y que el servidor guarda como `RESPALDO_SELLO`. Quien restaura la saca
+   otra vez de la llave con que descifra y comprueba el sello **antes de bajar, descifrar o
+   restaurar**; lo mismo quien pregunta de qué versión instalar (`version-del-respaldo.ts`, que
+   ahora pide la llave) y el servidor al decidir si ya se respaldó y al elegir el diario. La clave
+   viaja con el «destino»: no hay camino que lea un manifiesto sin ella. Antes de corregir se
+   reprodujo el hallazgo aquí (`pruebas/23-respaldo`: el respaldo y su manifiesto sustituidos, con
+   la huella y el tamaño rehechos, llegaban a `pg_restore`); ahora se rechazan sin descifrar.
+   Toca `destino.ts`, `respaldar.ts`, `restaurar.ts`, `diario.ts`, `version-del-respaldo.ts`,
+   `publicar.sh`, el entorno (`RESPALDO_SELLO` es obligatorio en operación) y los dos simulacros.
+   Lo que el sello no cubre: un servidor comprometido entero tiene la clave y puede sellar; y un
+   archivo que el operador ya tiene en la mano se restaura sin manifiesto, bajo su responsabilidad.
+   **Esta corrección no la ha revisado Codex.**
 2. **De la parte D nunca se revisaron** restaurar del diario (8), las precisiones del diseño
    (9; solo tocó la c) y el veredicto (10).
 3. **Sin verificar por Codex:** las correcciones de la segunda vuelta de D, las tres de los

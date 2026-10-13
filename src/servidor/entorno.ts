@@ -78,6 +78,11 @@ export function faltasDelEntorno(env: Entorno, partes: readonly Parte[]): string
   }
 
   if (pide("respaldo")) {
+    // El sello dice quién tomó cada respaldo: se saca de la llave privada, fuera del servidor (operacion/sello.ts).
+    if (!env.RESPALDO_SELLO) faltas.push("Falta RESPALDO_SELLO");
+    else if (!/^[0-9a-f]{64}$/.test(env.RESPALDO_SELLO)) {
+      faltas.push("RESPALDO_SELLO no tiene su forma (64 letras hexadecimales): es lo que da operacion/sello.ts con la llave privada. La llave privada misma no va aquí");
+    }
     if (!env.RESPALDO_LLAVE_PUBLICA) faltas.push("Falta RESPALDO_LLAVE_PUBLICA");
     else if (!LLAVE_PUBLICA_DE_AGE.test(env.RESPALDO_LLAVE_PUBLICA)) {
       faltas.push("RESPALDO_LLAVE_PUBLICA no tiene la forma de una llave pública de age (empieza con age1). La privada no va aquí");

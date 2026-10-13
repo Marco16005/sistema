@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,9 +15,9 @@ import pg from "pg";
 import { conCubo } from "./almacen.ts";
 import type { Credencial, Cubo } from "./almacen.ts";
 import { comoApp, compraDe, contar as cuantos, una, urlDe } from "./apoyo.ts";
-import { LIMPIO, administradorConClave, basesCon, conDestino, conPatio, llaves, procesos, retrato, urlEn } from "./patio.ts";
+import { LIMPIO, administradorConClave, basesCon, conDestino, conPatio, correr as programa, llaves, procesos, retrato, urlEn } from "./patio.ts";
 import type { Patio, Proceso } from "./patio.ts";
-import { destinoRclone, leerManifiesto, nombreDeManifiesto, nombreDeObjeto, respaldos, traer, ultimoUtilizable } from "../operacion/destino.ts";
+import { claveDeSello, destinoRclone, leerManifiesto, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, traer, ultimoUtilizable } from "../operacion/destino.ts";
 import type { Destino, Manifiesto } from "../operacion/destino.ts";
 import { ESQUEMA_ESPERADO } from "../src/servidor/esquema.ts";
 import { leerHorario, siguiente, toca, ultimoDebido } from "../operacion/horario.ts";
@@ -268,6 +268,8 @@ test("un respaldo que tarda más que el intervalo no deja sin tomar el que venci
 // ── la corrida, contra un almacenamiento de verdad ─────────────────────────
 
 const BLOQUE = 100_000;
+/** La clave del sello de las pruebas que arman sus manifiestos a mano, sin una llave de por medio. */
+const SELLO_DE_PRUEBA = "5e".repeat(32);
 const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 const restos = async (): Promise<string[]> => (await readdir(tmpdir())).filter((x) => x.startsWith("feruga-respaldo-") || x.startsWith("feruga-restaurar-"));
 
@@ -299,7 +301,8 @@ const conTodo = (prueba: (t: Todo) => Promise<void>) =>
   conPatio((p) =>
     conCubo(async (cubo) => {
       const llave = await llaves();
-      const con = (c: Credencial): Destino => destinoRclone(cubo.destino, cubo.entorno(c));
+      // El sello sale de la llave privada, como en la vida real: el servidor guarda la derivada, y quien restaura la vuelve a sacar.
+      const con = (c: Credencial): Destino => destinoRclone(cubo.destino, cubo.entorno(c), { sello: claveDeSello(llave.privada) });
       const senales: Senal[] = [];
       const tropiezos: unknown[] = [];
       const servidor = createServer((peticion, respuesta) => {
@@ -434,7 +437,7 @@ test("la credencial del servidor no puede destruir la historia: sobrescribir dej
       await assert.rejects(cubo.mc(cubo.raiz, "rm", "--version-id", original.id, objeto));
       await assert.rejects(cubo.mc(cubo.raiz, "retention", "set", "--version-id", original.id, "COMPLIANCE", "1d", objeto));
       // 5. Fuera de su prefijo el servidor no escribe; y la credencial de recuperación no escribe en ninguna parte.
-      await assert.rejects(destinoRclone(`prueba:${cubo.nombre}/otro`, cubo.entorno(cubo.servidor)).subir(basura, "x.dump.age"));
+      await assert.rejects(destinoRclone(`prueba:${cubo.nombre}/otro`, cubo.entorno(cubo.servidor), { sello: null }).subir(basura, "x.dump.age"));
       await assert.rejects(con(cubo.recuperacion).subir(basura, "2026/01/01/x.dump.age"));
 
       // Después de todo eso, nada cambió: las dos versiones, y la retención con candado.
@@ -446,7 +449,7 @@ test("la credencial del servidor no puede destruir la historia: sobrescribir dej
       await assert.rejects(traer(con(cubo.recuperacion), carpeta), /no coincide con su manifiesto/i);
       // …pero el almacenamiento se puede ver como estaba antes del daño, y ahí el respaldo sigue entero.
       const lectora = await cubo.credencial({ "*": ["s3:GetObject", "s3:GetObjectVersion"] }, ["s3:ListBucket", "s3:ListBucketVersions"]);
-      const comoEstaba = destinoRclone(cubo.destino, cubo.entorno(lectora), { comoEstaba: antesDelDano });
+      const comoEstaba = destinoRclone(cubo.destino, cubo.entorno(lectora), { sello: claveDeSello(llave.privada), comoEstaba: antesDelDano });
       const traido = await traer(comoEstaba, carpeta);
       assert.equal(traido.manifiesto.sha256, manifiesto.sha256);
       assert.ok(llave.privada);
@@ -717,6 +720,142 @@ test("se restaura el último respaldo, o el que se pida por su nombre", () =>
     await assert.rejects(restaurado("2020/01/01/20200101T000000000Z-00000000-0000-0000-0000-000000000000.dump.age"), /no hay.*respaldo/i);
   }));
 
+// ── el sello: quién tomó el respaldo ───────────────────────────────────────
+// Lo encontró Codex en su décima revisión (docs/revisiones/2026-10-09-codex-decima-verificacion-c.md):
+// cifrar para la llave pública no dice quién cifró, y una huella que viaja junto al archivo la
+// rehace cualquiera. Quien pudiera escribir en el almacenamiento sustituía un respaldo y su
+// manifiesto, y al restaurar se ejecutaba lo que trajera.
+
+test("quien puede escribir en el almacenamiento sustituye un respaldo y su manifiesto, con el tamaño y la huella rehechos: no se restaura, y ni siquiera se descifra", () =>
+  conTodo(async ({ cubo, llave, con, correr }) => {
+    const bueno = await correr();
+    const carpeta = await mkdtemp(join(tmpdir(), "sustituido-"));
+    try {
+      // Lo suyo, cifrado con la llave pública —que el manifiesto dice—, en el lugar del respaldo…
+      const [claro, suyo] = [join(carpeta, "suyo.sql"), join(carpeta, "suyo.dump.age")];
+      await writeFile(claro, "CREATE FUNCTION lo_que_quiera() RETURNS void LANGUAGE sql AS 'SELECT 1';\n".repeat(50));
+      await programa("age", ["-r", bueno.manifiesto.llavePublica, "-o", suyo, claro]);
+      const cifrado = await readFile(suyo);
+      await cubo.poner(bueno.manifiesto.objeto, cifrado);
+      // …y el manifiesto rehecho para que todo coincida: lo demás, como estaba.
+      const rehecho = { ...bueno.manifiesto, bytes: cifrado.length, sha256: sha256(cifrado) };
+      await cubo.poner(nombreDeManifiesto(bueno.manifiesto.objeto), Buffer.from(JSON.stringify(rehecho, null, 2) + "\n"));
+
+      const recuperacion = con(cubo.recuperacion);
+      for (const cual of [undefined, bueno.manifiesto.objeto]) {
+        const dicho: string[] = [];
+        await conDestino(async (destino, admin) => {
+          await assert.rejects(
+            restaurarDelDestino({
+              destino: recuperacion, servidor: LIMPIO, base: destino, llave: llave.privada, usuarioWeb: "feruga_prueba", claveWeb: "prueba",
+              decir: (linea) => dicho.push(linea), ...(cual ? { cual } : {}),
+            }),
+            /sello/i,
+          );
+          assert.deepEqual(await basesCon(admin, destino), [], "quedó una base");
+        });
+        assert.ok(!dicho.some((linea) => /descifr|restaurando/i.test(linea)), `se llegó a tocar lo sustituido: ${dicho.join(" | ")}`);
+      }
+      // Tampoco cuenta como respaldo reciente para el servidor.
+      assert.equal(await ultimoUtilizable(con(cubo.servidor)), null);
+    } finally {
+      await rm(carpeta, { recursive: true, force: true });
+    }
+  }));
+
+test("la clave del sello sale de la llave privada: siempre la misma, otra con otra llave, igual con el archivo entero o con su renglón solo; y lo que no es una llave no da nada", async () => {
+  const [a, b] = [await llaves(), await llaves()];
+  const clave = claveDeSello(a.privada);
+  assert.match(clave, /^[0-9a-f]{64}$/);
+  assert.equal(claveDeSello(a.privada), clave);
+  assert.notEqual(claveDeSello(b.privada), clave);
+  const renglon = /AGE-SECRET-KEY-1[0-9A-Z]+/.exec(a.privada)![0];
+  assert.equal(claveDeSello(renglon), clave);
+  assert.equal(claveDeSello(`  ${renglon}\r\n`), clave);
+  for (const mala of ["", a.publica, "AGE-SECRET-KEY-1", "no es una llave", renglon.toLowerCase()]) assert.throws(() => claveDeSello(mala), /llave privada de age/, mala.slice(0, 20));
+  // La receta para sacarla sin este programa —la que dicen la guía y el .env— da lo mismo.
+  const receta = "grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' | head -1 | tr -d '\\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1";
+  const conOpenssl = spawnSync("sh", ["-c", receta], { input: a.privada, encoding: "utf8" });
+  assert.equal(conOpenssl.status, 0, conOpenssl.stderr);
+  assert.equal(conOpenssl.stdout.trim(), clave);
+  // Y el programa: la llave entra por la entrada estándar, y sale la clave y nada más.
+  const hecho = await consola("operacion/sello.ts", [], {}, a.privada);
+  assert.deepEqual({ codigo: hecho.codigo, salida: hecho.salida.trim() }, { codigo: 0, salida: clave });
+  const sinLlave = await consola("operacion/sello.ts", [], {}, "esto no es una llave\n");
+  assert.equal(sinLlave.codigo, 1);
+  assert.match(sinLlave.queja, /llave privada de age/);
+  assert.equal((await consola("operacion/sello.ts", ["de más"], {}, a.privada)).codigo, 2);
+});
+
+test("el sello cubre todo lo que el manifiesto dice: cambiarle cualquier cosa después de sellado, quitarle el sello o ponerle el de otra clave, y ya no acredita el respaldo", () => {
+  const objeto = nombreDeObjeto(new Date("2026-10-04T12:00:00.000Z"), "11111111-1111-4111-8111-111111111111");
+  const de = { objeto, bytes: 1000, momento: new Date("2026-10-04T12:00:00.000Z"), preciso: true };
+  const bueno = JSON.parse(manifiestoDePrueba(objeto, { publicacion: "20261006T211000Z-fedcba987654-000002" })) as Manifiesto;
+  assert.deepEqual(leerManifiesto(JSON.stringify(bueno), de, SELLO_DE_PRUEBA), bueno);
+  const sinSello = /no lleva el sello de este negocio/;
+  // Cada dato, cambiado por otro que por sí solo sería válido.
+  const cambios: Array<Partial<Manifiesto>> = [
+    { sha256: "b".repeat(64) }, { pgDump: "pg_dump (PostgreSQL) 16.1" }, { llavePublica: "age1" + "p".repeat(58) }, { esquema: "0021_vida_sin_reconectar.sql" },
+    { publicacion: "20261006T211000Z-aaaaaaaaaaaa-000009" },
+  ];
+  for (const cambio of cambios) assert.throws(() => leerManifiesto(JSON.stringify({ ...bueno, ...cambio }), de, SELLO_DE_PRUEBA), sinSello, JSON.stringify(cambio));
+  const { publicacion: _publicacion, ...sinPublicacion } = bueno;
+  assert.throws(() => leerManifiesto(JSON.stringify(sinPublicacion), de, SELLO_DE_PRUEBA), sinSello, "sin la publicación");
+  // El tamaño tiene que ser el del objeto que hay: si alguien cambia los dos, lo delata el sello.
+  assert.throws(() => leerManifiesto(JSON.stringify({ ...bueno, bytes: 2000 }), { ...de, bytes: 2000 }, SELLO_DE_PRUEBA), sinSello);
+  // Sin sello, con uno que no tiene su forma, con el de otra clave; y leído con otra clave.
+  for (const sello of [undefined, "", 7, "x".repeat(64), "5E".repeat(32), selloDe(bueno, "ab".repeat(32))]) {
+    assert.throws(() => leerManifiesto(JSON.stringify({ ...bueno, sello }), de, SELLO_DE_PRUEBA), sinSello, String(sello));
+  }
+  assert.throws(() => leerManifiesto(JSON.stringify(bueno), de, "ab".repeat(32)), sinSello);
+  // Lo que alguien le agregue no pasa de leerlo: sale lo que se conoce, y nada más.
+  assert.deepEqual(leerManifiesto(JSON.stringify({ ...bueno, deMas: "rm -rf /" }), de, SELLO_DE_PRUEBA), bueno);
+  // Y el sello es de ese manifiesto: el de otro respaldo no le sirve.
+  const otro = nombreDeObjeto(new Date("2026-10-04T13:00:00.000Z"), "22222222-2222-4222-8222-222222222222");
+  const delOtro = JSON.parse(manifiestoDePrueba(otro)) as Manifiesto;
+  assert.notEqual(delOtro.sello, bueno.sello);
+  assert.throws(() => leerManifiesto(JSON.stringify({ ...bueno, sello: delOtro.sello }), de, SELLO_DE_PRUEBA), sinSello);
+});
+
+test("un destino sin sello sirve para ver qué hay, pero no acredita nada: ni cuál es el último, ni traer uno, ni tomar un respaldo", () =>
+  conTodo(async ({ cubo, correr }) => {
+    await correr();
+    const soloVer = destinoRclone(cubo.destino, cubo.entorno(cubo.recuperacion), { sello: null });
+    assert.equal((await respaldos(soloVer)).length, 1);
+    const carpeta = await mkdtemp(join(tmpdir(), "sin-sello-"));
+    try {
+      await assert.rejects(ultimoUtilizable(soloVer), /Sin el sello de los respaldos/);
+      await assert.rejects(traer(soloVer, carpeta), /Sin el sello de los respaldos/);
+      await assert.rejects(correr({ destino: destinoRclone(cubo.destino, cubo.entorno(cubo.servidor), { sello: null }) }), /Sin el sello de los respaldos/);
+      assert.equal((await respaldos(soloVer)).length, 1, "se tomó un respaldo sin sello");
+    } finally {
+      await rm(carpeta, { recursive: true, force: true });
+    }
+    assert.throws(() => destinoRclone(cubo.destino, {}, { sello: "no-es-un-sello" }), /sello de los respaldos no tiene su forma/);
+  }));
+
+test("restaurar comprueba el sello con la clave que sale de la llave con que descifra, y con ninguna otra; con la llave de otro, estos respaldos no son suyos", () =>
+  conTodo(async ({ cubo, llave, correr }) => {
+    await correr();
+    const pedir = (destino: Destino, privada: string) =>
+      conDestino(async (base, admin) => {
+        const dicho: string[] = [];
+        const r = await restaurarDelDestino({ destino, servidor: LIMPIO, base, llave: privada, usuarioWeb: "feruga_prueba", claveWeb: "prueba", decir: (linea) => dicho.push(linea) })
+          .then(() => "restauró", (e: Error) => e.message);
+        assert.deepEqual(await basesCon(admin, base), [], "quedó una base");
+        return { r, dicho };
+      });
+    // Un destino armado con otra clave que la de la llave: no se baja nada.
+    const conOtroSello = await pedir(destinoRclone(cubo.destino, cubo.entorno(cubo.recuperacion), { sello: SELLO_DE_PRUEBA }), llave.privada);
+    assert.match(conOtroSello.r, /no es el de esta llave privada/);
+    assert.deepEqual(conOtroSello.dicho, []);
+    // La llave de otro, con su propio sello: para ella, aquí no hay ningún respaldo que valga.
+    const otra = await llaves();
+    const delOtro = await pedir(destinoRclone(cubo.destino, cubo.entorno(cubo.recuperacion), { sello: claveDeSello(otra.privada) }), otra.privada);
+    assert.match(delOtro.r, /sin el sello de este negocio/);
+    assert.ok(!delOtro.dicho.some((linea) => /descifr/i.test(linea)), delOtro.dicho.join(" | "));
+  }));
+
 // ── por la consola, como se usa ────────────────────────────────────────────
 
 /** Corre uno de los programas de operación como proceso aparte, con ese entorno. */
@@ -749,7 +888,7 @@ test("el respaldo dice qué publicación corría cuando se tomó: con eso se sab
 test("por la consola: la publicación que corre le llega al respaldo por su entorno; lo que no es una publicación no se anota, y el respaldo vale igual", () =>
   conTodo(async ({ p, cubo, llave, con }) => {
     const delServidor = {
-      ...cubo.entorno(cubo.servidor), RESPALDO_DESTINO: cubo.destino, DATABASE_URL: urlDe(p.base), RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_VIGIA_URL: "",
+      ...cubo.entorno(cubo.servidor), RESPALDO_DESTINO: cubo.destino, DATABASE_URL: urlDe(p.base), RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_SELLO: claveDeSello(llave.privada), RESPALDO_VIGIA_URL: "",
     };
     const publicacion = "20261006T211000Z-fedcba987654-000002";
     const dice = async (version: string): Promise<string | undefined> => {
@@ -767,10 +906,10 @@ test("por la consola: la publicación que corre le llega al respaldo por su ento
 test("un manifiesto que nombra su publicación con algo que no es una publicación no acredita el respaldo", () => {
   const objeto = nombreDeObjeto(new Date("2026-10-04T12:00:00.000Z"), "11111111-1111-4111-8111-111111111111");
   const de = { objeto, bytes: 1000, momento: new Date("2026-10-04T12:00:00.000Z"), preciso: true };
-  const con = (publicacion: unknown): string => JSON.stringify({ ...JSON.parse(manifiestoDePrueba(objeto)), publicacion });
-  assert.equal(leerManifiesto(con("20261006T211000Z-fedcba987654-000002"), de).publicacion, "20261006T211000Z-fedcba987654-000002");
+  const con = (publicacion: unknown): string => manifiestoDePrueba(objeto, { publicacion: publicacion as string });
+  assert.equal(leerManifiesto(con("20261006T211000Z-fedcba987654-000002"), de, SELLO_DE_PRUEBA).publicacion, "20261006T211000Z-fedcba987654-000002");
   for (const rara of ["", "la de ayer", 7, null, "../../otra"]) {
-    assert.throws(() => leerManifiesto(con(rara), de), /no es de ese respaldo/, JSON.stringify(rara));
+    assert.throws(() => leerManifiesto(con(rara), de, SELLO_DE_PRUEBA), /no es de ese respaldo/, JSON.stringify(rara));
   }
 });
 
@@ -778,7 +917,7 @@ test("al servicio de respaldo se le pide que se detenga: si tiene un respaldo a 
   conTodo(async ({ p, cubo, llave, vigia, con }) => {
     const entorno = {
       ...process.env, ...cubo.entorno(cubo.servidor), RESPALDO_DESTINO: cubo.destino, DATABASE_URL: urlDe(p.base),
-      RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_VIGIA_URL: vigia.url, RESPALDO_HORARIO: "03:00",
+      RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_SELLO: claveDeSello(llave.privada), RESPALDO_VIGIA_URL: vigia.url, RESPALDO_HORARIO: "03:00",
     };
     const arrancar = () => {
       const hijo = spawn(process.execPath, ["operacion/respaldar.ts", "servicio"], { env: entorno, stdio: ["ignore", "pipe", "pipe"] });
@@ -827,7 +966,7 @@ test("al servicio de respaldo se le pide que se detenga: si tiene un respaldo a 
 test("por la consola: respaldar ahora dice, en un renglón aparte, si el vigilante se enteró; que no se entere no quita que el respaldo vale", () =>
   conTodo(async ({ p, cubo, llave, vigia }) => {
     const delServidor = {
-      ...cubo.entorno(cubo.servidor), RESPALDO_DESTINO: cubo.destino, DATABASE_URL: urlDe(p.base), RESPALDO_LLAVE_PUBLICA: llave.publica,
+      ...cubo.entorno(cubo.servidor), RESPALDO_DESTINO: cubo.destino, DATABASE_URL: urlDe(p.base), RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_SELLO: claveDeSello(llave.privada),
     };
     const dicho = async (entorno: Record<string, string>): Promise<{ respaldo: string | undefined; vigia: string | undefined }> => {
       const hecho = await consola("operacion/respaldar.ts", ["ahora"], { ...delServidor, ...entorno });
@@ -843,14 +982,14 @@ test("por la consola: respaldar ahora dice, en un renglón aparte, si el vigilan
     assert.equal(sinAvisar.vigia, "sin avisar");
     // Sin vigilante (solo en desarrollo se puede), tampoco hay a quién avisar.
     assert.equal((await dicho({ RESPALDO_VIGIA_URL: "" })).vigia, "no hay");
-    assert.equal((await respaldos(destinoRclone(cubo.destino, cubo.entorno(cubo.servidor)))).length, 3);
+    assert.equal((await respaldos(destinoRclone(cubo.destino, cubo.entorno(cubo.servidor), { sello: null }))).length, 3);
   }));
 
 test("por la consola: respaldar ahora, ver la lista, y un ensayo de restauración desde el almacenamiento que avisa a su vigilante", () =>
   conTodo(async ({ p, cubo, llave, vigia }) => {
     const delServidor = {
       ...cubo.entorno(cubo.servidor), RESPALDO_DESTINO: cubo.destino, DATABASE_URL: urlDe(p.base),
-      RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_VIGIA_URL: vigia.url,
+      RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_SELLO: claveDeSello(llave.privada), RESPALDO_VIGIA_URL: vigia.url,
     };
     const hecho = await consola("operacion/respaldar.ts", ["ahora"], delServidor);
     assert.equal(hecho.codigo, 0, hecho.queja);
@@ -863,6 +1002,18 @@ test("por la consola: respaldar ahora, ver la lista, y un ensayo de restauració
     const objeto = /\S+\.dump\.age/.exec(lista.salida)?.[0];
     assert.ok(objeto, lista.salida);
     assert.match(lista.salida, /\b1 respaldo\b/);
+    // Ver qué hay no pide el sello; decir cuál sirve, sí: sin él se dice que no se comprobó, y con él, cuál es.
+    assert.match(lista.salida, /Cuál sirve no se comprobó: hace falta el sello/);
+    const conSello = await consola("operacion/respaldar.ts", ["lista"], { ...delDueno, RESPALDO_SELLO: claveDeSello(llave.privada) });
+    assert.match(conSello.salida, new RegExp(`El último con su manifiesto en orden: ${objeto.replaceAll(".", "\\.")}`));
+    const conOtroSello = await consola("operacion/respaldar.ts", ["lista"], { ...delDueno, RESPALDO_SELLO: claveDeSello((await llaves()).privada) });
+    assert.match(conOtroSello.salida, /Ninguno de los más nuevos tiene su manifiesto en orden/);
+    assert.equal((await consola("operacion/respaldar.ts", ["lista"], { ...delDueno, RESPALDO_SELLO: "no-es-un-sello" })).codigo, 1);
+    // Y sin el sello el servidor no toma un respaldo que después nadie podría acreditar.
+    const sinSello = await consola("operacion/respaldar.ts", ["ahora"], { ...delServidor, RESPALDO_SELLO: "" });
+    assert.equal(sinSello.codigo, 1);
+    assert.match(sinSello.queja, /Falta RESPALDO_SELLO/);
+    assert.match((await consola("operacion/respaldar.ts", ["lista"], delDueno)).salida, /\b1 respaldo\b/);
 
     await conDestino(async (destino, admin) => {
       const ensayo = vigia.url.replace("respaldo-de-prueba", "ensayo-de-prueba");
@@ -918,6 +1069,7 @@ test("el orden de los respaldos es el de su momento, al milisegundo; no el del i
   const b = nombreDeObjeto(new Date("2026-10-04T07:36:55.326Z"), "543b7615-0000-4000-8000-000000000000");
   const sinManifiesto = nombreDeObjeto(new Date("2026-10-04T07:36:55.900Z"), "00000000-0000-4000-8000-000000000000");
   const destino: Destino = {
+    sello: null,
     subir: async () => {},
     bajar: async () => {},
     listar: async () => [b, nombreDeManifiesto(b), a, nombreDeManifiesto(a), sinManifiesto].map((nombre) => ({ nombre, bytes: 10 })),
@@ -1147,6 +1299,7 @@ function destinoDeMentira(objetos: { nombre: string; bytes: number }[], contenid
   const bajadas: string[] = [];
   return {
     bajadas,
+    sello: SELLO_DE_PRUEBA,
     subir: async () => {},
     listar: async () => objetos,
     bajar: async (nombre, archivo) => {
@@ -1164,11 +1317,14 @@ function momentoDelNombre(objeto: string): string {
   return `${a}-${me}-${d}T${h}:${mi}:${s}.${ms ?? "000"}Z`;
 }
 
-const manifiestoDePrueba = (objeto: string, cambios: Partial<Manifiesto> = {}): string =>
-  JSON.stringify({
-    formato: 1, corrida: /-([0-9a-f-]{36})\.dump\.age$/.exec(objeto)![1], instantanea: momentoDelNombre(objeto), objeto, bytes: 1000,
+/** Un manifiesto con lo que debe decir de ese respaldo, salvo lo que se cambie, y sellado con la clave de prueba ya con esos cambios. */
+function manifiestoDePrueba(objeto: string, cambios: Partial<Manifiesto> = {}): string {
+  const dicho = {
+    formato: 1 as const, corrida: /-([0-9a-f-]{36})\.dump\.age$/.exec(objeto)![1]!, instantanea: momentoDelNombre(objeto), objeto, bytes: 1000,
     sha256: "a".repeat(64), pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: "age1" + "q".repeat(58), esquema: "0020_restauracion.sql", ...cambios,
-  });
+  };
+  return JSON.stringify({ ...dicho, sello: cambios.sello ?? selloDe(dicho, SELLO_DE_PRUEBA) });
+}
 
 test("los respaldos con el nombre de antes (al segundo) se siguen viendo, y si empatan en el segundo decide el manifiesto", async () => {
   const viejo = "2026/10/03/20261003T150000Z-11111111-1111-4111-8111-111111111111.dump.age";
@@ -1186,13 +1342,15 @@ test("los respaldos con el nombre de antes (al segundo) se siguen viendo, y si e
 });
 
 test("un respaldo guardado con el nombre de antes se restaura por su nombre", () =>
-  conTodo(async ({ cubo, con, correr }) => {
+  conTodo(async ({ cubo, llave, con, correr }) => {
     const { manifiesto } = await correr();
     // El mismo respaldo, como lo habría nombrado la versión anterior: sin milisegundos.
     const deAntes = manifiesto.objeto.replace(/(T\d{6})\d{3}Z-/, "$1Z-");
     assert.notEqual(deAntes, manifiesto.objeto);
     await cubo.poner(deAntes, await cubo.leer(manifiesto.objeto));
-    await cubo.poner(nombreDeManifiesto(deAntes), Buffer.from(JSON.stringify({ ...manifiesto, objeto: deAntes })));
+    // Con su sello: el nombre es parte de lo sellado, así que el de aquel nombre lleva el suyo.
+    const { sello: _sello, ...dicho } = { ...manifiesto, objeto: deAntes };
+    await cubo.poner(nombreDeManifiesto(deAntes), Buffer.from(JSON.stringify({ ...dicho, sello: selloDe(dicho, claveDeSello(llave.privada)) })));
     const recuperacion = con(cubo.recuperacion);
     assert.ok((await respaldos(recuperacion)).some((r) => r.objeto === deAntes), "no aparece en la lista");
     const carpeta = await mkdtemp(join(tmpdir(), "deantes-"));
@@ -1419,7 +1577,7 @@ interface ConDiario extends Todo {
 const conDiario = (prueba: (t: ConDiario) => Promise<void>) =>
   conTodo((t) =>
     conCubo(async (anual) => {
-      const delDiario = (c: Credencial): Destino => destinoRclone(anual.destino, anual.entorno(c));
+      const delDiario = (c: Credencial): Destino => destinoRclone(anual.destino, anual.entorno(c), { sello: claveDeSello(t.llave.privada) });
       const comprobados = sinComprobar();
       const url = t.vigia.url.replace("respaldo-de-prueba", "diario-de-prueba");
       await prueba({
@@ -1710,7 +1868,7 @@ test("el servicio, al arrancar, llama a poner al día el diario una vez, antes d
 test("por la consola, con depósito diario: respaldar ahora deja también el diario; «lista --diario» lo muestra; y «restaurar --diario» lo trae, sin combinarse con --remoto ni con un archivo", () =>
   conDiario(async ({ p, cubo, anual, llave, vigia, senalesDelDiario }) => {
     const delServidor = {
-      ...cubo.entorno(cubo.servidor), ...anual.entorno(anual.servidor), DATABASE_URL: urlDe(p.base), RESPALDO_LLAVE_PUBLICA: llave.publica,
+      ...cubo.entorno(cubo.servidor), ...anual.entorno(anual.servidor), DATABASE_URL: urlDe(p.base), RESPALDO_LLAVE_PUBLICA: llave.publica, RESPALDO_SELLO: claveDeSello(llave.privada),
       RESPALDO_DESTINO: cubo.destino, RESPALDO_VIGIA_URL: vigia.url,
       RESPALDO_DESTINO_DIARIO: anual.destino, RESPALDO_VIGIA_DIARIO_URL: vigia.url.replace("respaldo-de-prueba", "diario-de-prueba"),
     };

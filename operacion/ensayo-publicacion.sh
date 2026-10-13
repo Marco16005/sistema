@@ -454,6 +454,8 @@ dijo "No llegó la llave privada" || { dicho; falla "sin la llave, no dijo qué 
 docker run --rm --log-driver none --entrypoint age-keygen "$HERRAMIENTAS_DEL_ENSAYO" > "$trabajo/otra-llave.txt" 2>/dev/null
 if volver <"$trabajo/otra-llave.txt"; then dicho; falla "restauró con una llave que no es la del respaldo"; fi
 dijo "No se pudo restaurar el respaldo" || { dicho; falla "con otra llave, no dijo que no se pudo restaurar"; }
+# Y no llegó ni a bajarlo: para esa llave, el respaldo no lleva su sello.
+dijo "no lleva el sello de este negocio" || { dicho; falla "con otra llave, no se detuvo en el sello del respaldo"; }
 bases > "$trabajo/bases"
 grep -q "^$fallida $marca\$" "$trabajo/bases" || { cat "$trabajo/bases" >&2; falla "la base que falló no quedó apartada con su marca"; }
 [ -z "$(awk '$1 == "feruga"' "$trabajo/bases")" ] || { cat "$trabajo/bases" >&2; falla "con una llave equivocada quedó una base con el nombre definitivo"; }
@@ -543,13 +545,20 @@ atiende_con "$ultima" "publicada sobre la base restaurada"
 
 paso "Se perdió la máquina: en otra, sin nada local, se instala desde un respaldo, con la versión construida de su commit"
 # Cada respaldo dice qué publicación corría cuando se tomó, y con ella de qué commit era.
-version_de() { por_fuera run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts "$@"; }
+# Lo dice su manifiesto, y solo se le cree con el sello de la llave del dueño: la llave entra por la entrada estándar.
+version_con() { de_quien=$1; shift; por_fuera run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts "$@" <"$de_quien"; }
+version_de() { version_con "$trabajo/llave.txt" "$@"; }
 de_entonces=$(git rev-parse HEAD)
 web_de_entonces=$(docker inspect -f '{{.Image}}' "$(operacion ps -q web)")
 # Un respaldo de ahora, con todo lo asentado.
 operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS respaldo ahora >"$trabajo/respaldo.salida" 2>&1 || { cat "$trabajo/respaldo.salida" >&2; falla "no se pudo tomar el respaldo"; }
 el_respaldo=$(sed -n 's/^respaldo: //p' "$trabajo/respaldo.salida")
 [ "$(version_de "$el_respaldo")" = "$el_respaldo $ultima $(printf '%s' "$de_entonces" | cut -c1-12)" ] || falla "el respaldo no dice qué publicación corría cuando se tomó, ni de qué commit"
+# Con la llave de otro, ese respaldo no lleva su sello: no se le cree nada de lo que dice, ni por su nombre ni como «el último».
+if version_con "$trabajo/otra-llave.txt" "$el_respaldo" >"$trabajo/salida" 2>&1; then dicho; falla "se le creyó a un respaldo sin comprobar su sello con la llave"; fi
+dijo "no lleva el sello de este negocio" || { dicho; falla "con otra llave, no dijo que el respaldo no lleva su sello"; }
+if version_con "$trabajo/otra-llave.txt" >"$trabajo/salida" 2>&1; then dicho; falla "con otra llave, dio por bueno el último respaldo"; fi
+if version_con /dev/null "$el_respaldo" >"$trabajo/salida" 2>&1; then dicho; falla "sin la llave dijo de qué versión es el respaldo"; fi
 
 # La máquina se pierde: lo que corría, la base, las imágenes y la carpeta de publicaciones. Queda
 # lo de fuera —el almacenamiento, con los respaldos—, el repositorio y el entorno. (El volumen de

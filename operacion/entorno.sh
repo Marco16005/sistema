@@ -53,6 +53,11 @@ set -C
   echo "# Lo que solo tú puedes poner."
   echo "# La llave pública (empieza con age1) se genera FUERA del servidor; la privada nunca debe estar aquí."
   echo "RESPALDO_LLAVE_PUBLICA="
+  echo "# El sello de los respaldos: 64 letras que se sacan de la llave privada, también FUERA del servidor:"
+  echo "#   node operacion/sello.ts < llave-privada.txt"
+  echo "# Con él el servidor sella cada respaldo; quien restaura lo comprueba con la llave privada, antes de"
+  echo "# bajar nada. De estas 64 letras no se vuelve a la llave privada."
+  echo "RESPALDO_SELLO="
   echo "# A dónde van los respaldos: respaldo:<cubo>/<carpeta>. Y cómo se llega: el servicio, y la credencial"
   echo "# del servidor, que sube y lee lo cifrado pero no puede borrar ni cambiar la retención."
   echo "RESPALDO_DESTINO="
@@ -77,5 +82,5 @@ set -C
 } > .env
 
 echo "Listo: se creó .env para $dominio, con claves nuevas."
-echo "Falta que pongas en él lo del respaldo: la llave pública, los dos destinos (el de cada hora y el diario) con sus credenciales, y sus vigilantes."
+echo "Falta que pongas en él lo del respaldo: la llave pública y el sello, los dos destinos (el de cada hora y el diario) con sus credenciales, y sus vigilantes."
 echo "Sin eso, operación no arranca."

@@ -14,9 +14,12 @@
 > «falta que Codex lo revise» que siguen más abajo. Lo que cambió respecto de lo escrito aquí:
 > el candado de la instalación es del sistema operativo (`flock`); **ya no se guardan imágenes
 > fuera del servidor**: instalar desde un respaldo las construye del commit de esa publicación;
-> la elección del respaldo diario se decide en la base (migración 0029). **Queda abierto, y es
-> condición para operar con datos reales:** autenticar el respaldo antes de restaurarlo (está en
-> la tarea 7), y una pasada de Codex sobre lo que no alcanzó a ver.
+> la elección del respaldo diario se decide en la base (migración 0029). **El 13 de octubre se
+> cerró lo de autenticar el respaldo** (el sello del manifiesto: ver la tarea 7 y
+> `docs/revisiones/2026-10-07-respuesta-a-la-decima-revision.md`) y se escribió la guía
+> (`docs/operacion.md`). **Queda abierto, y es condición para operar con datos reales:** una
+> pasada de Codex sobre lo que no alcanzó a ver —y ahora también sobre el sello—, el guion del
+> servidor, y todo lo que solo se puede probar en el servidor de verdad.
 
 **Objetivo:** que el sistema viva en un servidor propio y se use desde los equipos del patio por
 HTTPS; que su historia no se pueda perder —respaldos fuera de la máquina, que se restauran de
@@ -1168,7 +1171,10 @@ roturas a propósito: los prueban los dos ensayos.
 ### Tarea 6 · Guía de operación y guion del servidor
 Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
 
-- [ ] La guía: preparar el servidor; el paquete de recuperación (qué lleva, quién lo guarda, cuándo
+- [x] La guía (`docs/operacion.md`, 13 de octubre): escrita con lo que hay en el repositorio y
+      probado en los simulacros; lo que solo se puede comprobar en el servidor de verdad está
+      marcado ahí como pendiente, y la preparación del servidor espera a su guion. Lo que pedía:
+      preparar el servidor; el paquete de recuperación (qué lleva, quién lo guarda, cuándo
       se actualiza); primer día; publicar; restaurar en un servidor nuevo y conciliar lo perdido;
       el ensayo periódico; rotar cada clave (distinguiendo cambiar el archivo de cambiar la clave
       de una base que ya existe); qué hacer si no se emite el certificado, si se pierde la llave
@@ -1187,8 +1193,10 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
       último respaldo, restaurarlo siguiendo solo la guía, y reconstruir un día sin reutilizar
       folios. Medir cuánto tardó: ese es el tiempo de recuperación real.
 - [ ] Apagar la aplicación y ver que llega el aviso; impedir un respaldo y ver que llega el otro.
-- [ ] **Autenticar el respaldo antes de restaurarlo** (lo dejó abierto Codex al verificar su
-      décima revisión): hoy un respaldo y su manifiesto se creen si coinciden entre sí; quien
+- [x] **Autenticar el respaldo antes de restaurarlo** — hecho el 13 de octubre, como estaba
+      pensado; falta repetirlo contra el almacenamiento contratado y que Codex lo revise. Lo que
+      había (lo dejó abierto Codex al verificar su
+      décima revisión): un respaldo y su manifiesto se creían si coincidían entre sí; quien
       pudiera escribir en el depósito podría sustituir los dos. La corrección pensada: un sello
       (HMAC) del manifiesto con una clave derivada de la llave privada de age —el servidor guarda
       solo el sello; quien restaura lo deriva de la llave que ya tiene—, comprobado antes de

@@ -121,7 +121,7 @@ function comprobar(args: string[], entorno: Record<string, string>, entrada = ""
 const BUENO = {
   DATABASE_URL: "postgres://feruga:Qm3vT8xLp2Rk9Zc4Wn7Yb5Hd@db:5432/feruga", WEB_BD_CLAVE: "Jf6Gs1Ua0Ve8Xi3Ko9Ml2Np7",
   SESION_CLAVE: "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8", COOKIE_SEGURA: "1", DOMINIO: "patio.ejemplo.mx", ORIGEN: "https://patio.ejemplo.mx",
-  RESPALDO_LLAVE_PUBLICA: "age1" + "q".repeat(58), RESPALDO_DESTINO: "respaldo:respaldos-del-patio/feruga", RESPALDO_HORARIO: "07:00,08:00",
+  RESPALDO_LLAVE_PUBLICA: "age1" + "q".repeat(58), RESPALDO_SELLO: "0f".repeat(32), RESPALDO_DESTINO: "respaldo:respaldos-del-patio/feruga", RESPALDO_HORARIO: "07:00,08:00",
   RESPALDO_VIGIA_URL: "https://vigia.ejemplo.mx/ping/0b2c1f", RCLONE_CONFIG_RESPALDO_TYPE: "s3",
   RCLONE_CONFIG_RESPALDO_ACCESS_KEY_ID: "llaveDelServidor", RCLONE_CONFIG_RESPALDO_SECRET_ACCESS_KEY: "secretoDelServidor0123456789",
   RESPALDO_DESTINO_DIARIO: "diario:respaldos-de-un-anio/feruga", RESPALDO_VIGIA_DIARIO_URL: "https://vigia.ejemplo.mx/ping/7d9e3a",

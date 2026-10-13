@@ -45,7 +45,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ManifiestoInvalido, huellaDe, leerManifiesto, nombreDeManifiesto, respaldosEntre } from "./destino.ts";
+import { ManifiestoInvalido, huellaDe, leerManifiesto, nombreDeManifiesto, respaldosEntre, selloDelDestino } from "./destino.ts";
 import type { Destino, Manifiesto, Respaldado } from "./destino.ts";
 
 const formatos = new Map<string, Intl.DateTimeFormat>();
@@ -293,7 +293,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
   /** Baja el manifiesto de ese respaldo a un archivo y lo valida. Devuelve lo que dice, y el archivo tal como bajó. */
   const manifiestoDe = async (destino: Destino, de: Respaldado, archivo: string): Promise<Manifiesto> => {
     await destino.bajar(nombreDeManifiesto(de.objeto), archivo, NOTA);
-    return leerManifiesto(await readFile(archivo, "utf8"), de);
+    return leerManifiesto(await readFile(archivo, "utf8"), de, selloDelDestino(destino));
   };
   const coincide = async (archivo: string, con: { bytes: number; sha256: string }): Promise<boolean> => {
     const h = await huellaDe(archivo);

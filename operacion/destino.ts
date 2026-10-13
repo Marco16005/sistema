@@ -8,7 +8,16 @@
 //
 // Que rclone termine bien no prueba nada por sí solo —leer un objeto que no existe puede terminar
 // «bien», con nada—: lo que se baja se compara siempre, byte por byte, contra su huella.
-import { createHash } from "node:crypto";
+//
+// Y que la huella coincida tampoco dice quién tomó el respaldo: la huella viaja junto al archivo,
+// y quien pudiera escribir en el almacenamiento rehace las dos cosas (cifrar solo pide la llave
+// pública, que el manifiesto dice). Por eso cada manifiesto lleva un sello: un HMAC de lo que dice,
+// con una clave que no está en el almacenamiento. Esa clave se deriva de la llave privada del
+// dueño: el servidor guarda solo la derivada (RESPALDO_SELLO) y con ella sella; quien restaura la
+// deriva de la llave que de todos modos necesita para descifrar, y comprueba el sello ANTES de
+// bajar, descifrar o restaurar nada. Un manifiesto sin sello, o con el de otra llave, no acredita
+// ningún respaldo. Quien se haga del servidor entero sí puede sellar: contra eso no hay sello.
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,9 +37,19 @@ export interface Destino {
   bajar(nombre: string, archivo: string, plazo?: number): Promise<void>;
   /** Todo lo que hay en el destino. */
   listar(plazo?: number): Promise<Entrada[]>;
+  /**
+   * La clave con que se sellan los manifiestos que se suben y se comprueban los que se leen. Sin
+   * ella (nada) el destino sirve para ver qué hay, pero no acredita ningún respaldo.
+   */
+  sello: string | null;
 }
 
 export interface OpcionesDeDestino {
+  /**
+   * La clave del sello (ver `claveDeSello`), o nada si solo se va a mirar qué hay. Se dice siempre,
+   * también cuando es nada: que un destino no compruebe sellos no puede pasar por descuido.
+   */
+  sello: string | null;
   /** Cuánto puede tardar cada subida, bajada o listado, en milisegundos. */
   plazo?: number;
   /**
@@ -43,8 +62,9 @@ export interface OpcionesDeDestino {
 const REMOTO_Y_CAMINO = /^[A-Za-z0-9_]+:[^:]+$/;
 
 /** El destino al que se llega con rclone: «remoto:cubo/carpeta». El remoto se configura en el entorno. */
-export function destinoRclone(camino: string, entorno: Record<string, string> = {}, o: OpcionesDeDestino = {}): Destino {
+export function destinoRclone(camino: string, entorno: Record<string, string>, o: OpcionesDeDestino): Destino {
   if (!REMOTO_Y_CAMINO.test(camino)) throw new Error("El destino del respaldo va como remoto:cubo/carpeta");
+  if (o.sello !== null && !SELLO.test(o.sello)) throw new Error("El sello de los respaldos no tiene su forma: 64 letras hexadecimales. Se saca de la llave privada con operacion/sello.ts");
   const raiz = camino.replace(/\/+$/, "");
   const plazo = o.plazo ?? 30 * 60_000;
   // Sin archivo de configuración: solo cuenta lo que diga el entorno. Pocos reintentos y con plazo:
@@ -53,6 +73,7 @@ export function destinoRclone(camino: string, entorno: Record<string, string> = 
   const deEntonces = o.comoEstaba ? ["--s3-version-at", o.comoEstaba.toISOString()] : [];
   const rclone = (args: string[], cuanto = plazo): Promise<string> => correr("rclone", [...comunes, ...args], { entorno, plazo: cuanto });
   return {
+    sello: o.sello,
     // Sin mirar antes ni después: la credencial del servidor no tiene por qué poder leer para subir,
     // y la comprobación de lo subido la hace quien respalda, bajándolo.
     subir: async (archivo, nombre, cuanto) => {
@@ -70,6 +91,34 @@ export function destinoRclone(camino: string, entorno: Record<string, string> = 
       return (JSON.parse(salida) as { Path: string; Size: number }[]).map((e) => ({ nombre: e.Path, bytes: e.Size }));
     },
   };
+}
+
+// ── el sello ───────────────────────────────────────────────────────────────
+
+/** La forma de la clave del sello y del sello mismo: un SHA-256 en hexadecimal. */
+export const SELLO = /^[0-9a-f]{64}$/;
+/** Separa esta clave de cualquier otra cosa que algún día se derive de la misma llave. */
+const ETIQUETA_DE_LA_CLAVE = "feruga: sello de los respaldos, v1";
+const ETIQUETA_DEL_MANIFIESTO = "feruga: manifiesto de respaldo, v1";
+
+/**
+ * La clave del sello, derivada de la llave privada de age tal como la guarda el dueño (el archivo
+ * de age-keygen, con sus comentarios, o el renglón solo). Es un HMAC-SHA256 con la etiqueta como
+ * clave y la llave como mensaje: de la derivada no se vuelve a la llave. Lo mismo, sin este
+ * programa:
+ *   grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' llave-privada.txt | head -1 | tr -d '\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1
+ */
+export function claveDeSello(llavePrivada: string): string {
+  const secreta = /AGE-SECRET-KEY-1[0-9A-Z]{40,}/.exec(llavePrivada)?.[0];
+  if (!secreta) throw new Error("Eso no es una llave privada de age (el renglón que empieza con AGE-SECRET-KEY-1)");
+  return createHmac("sha256", ETIQUETA_DE_LA_CLAVE).update(secreta).digest("hex");
+}
+
+/** El sello de lo que dice ese manifiesto, con esa clave. Todo lo que el manifiesto dice entra, en un orden fijo. */
+export function selloDe(m: Omit<Manifiesto, "sello">, clave: string): string {
+  if (!SELLO.test(clave)) throw new Error("La clave del sello no tiene su forma");
+  const dicho = JSON.stringify([m.formato, m.corrida, m.instantanea, m.objeto, m.bytes, m.sha256, m.pgDump, m.llavePublica, m.esquema, m.publicacion ?? null]);
+  return createHmac("sha256", Buffer.from(clave, "hex")).update(`${ETIQUETA_DEL_MANIFIESTO}\n${dicho}`).digest("hex");
 }
 
 // ── lo que hay respaldado ──────────────────────────────────────────────────
@@ -98,6 +147,8 @@ export interface Manifiesto {
    * respaldos de antes de que se publicara así, ni los de desarrollo.
    */
   publicacion?: string;
+  /** El sello de todo lo anterior (`selloDe`): dice que lo tomó quien tiene la clave, y que nadie lo cambió. */
+  sello: string;
 }
 
 /** El identificador de una publicación (operacion/publicacion.ts): la hora, el commit y algo al azar. */
@@ -182,10 +233,10 @@ function delMismoMomento(instantanea: number, de: Respaldado): boolean {
 }
 
 /**
- * Lo que un manifiesto debe decir para acreditar ese respaldo: completo, con forma, con su momento
- * y con el tamaño del objeto que hay. Si no, falla con `ManifiestoInvalido`.
+ * Lo que un manifiesto debe decir para acreditar ese respaldo: completo, con forma, con su momento,
+ * con el tamaño del objeto que hay, y con el sello de esa clave. Si no, falla con `ManifiestoInvalido`.
  */
-export function leerManifiesto(texto: string, de: Respaldado): Manifiesto {
+export function leerManifiesto(texto: string, de: Respaldado, clave: string): Manifiesto {
   let m: Partial<Manifiesto>;
   try {
     m = JSON.parse(texto) as Partial<Manifiesto>;
@@ -202,7 +253,26 @@ export function leerManifiesto(texto: string, de: Respaldado): Manifiesto {
     texto_(m.esquema) && /^\d{4}_[a-z0-9_]+\.sql$/.test(m.esquema) &&
     (m.publicacion === undefined || (typeof m.publicacion === "string" && PUBLICACION.test(m.publicacion)));
   if (!bien) throw new ManifiestoInvalido(`El manifiesto de ${de.objeto} no es de ese respaldo, o dice algo que no puede ser`);
-  return m as Manifiesto;
+  // Solo lo que se conoce, y con su sello: lo que alguien le hubiera agregado no pasa de aquí.
+  const limpio: Omit<Manifiesto, "sello"> = {
+    formato: 1, corrida: m.corrida!, instantanea: m.instantanea!, objeto: m.objeto!, bytes: m.bytes!, sha256: m.sha256!,
+    pgDump: m.pgDump!, llavePublica: m.llavePublica!, esquema: m.esquema!, ...(m.publicacion !== undefined ? { publicacion: m.publicacion } : {}),
+  };
+  const debido = Buffer.from(selloDe(limpio, clave), "hex");
+  if (typeof m.sello !== "string" || !SELLO.test(m.sello) || !timingSafeEqual(Buffer.from(m.sello, "hex"), debido)) {
+    throw new ManifiestoInvalido(
+      `El manifiesto de ${de.objeto} no lleva el sello de este negocio: no lo tomó este sistema con esta llave, o alguien lo cambió después. No acredita ningún respaldo`,
+    );
+  }
+  return { ...limpio, sello: m.sello };
+}
+
+/** La clave con que ese destino comprueba sellos. Sin ella no se acredita nada: se dice, y no se sigue. */
+export function selloDelDestino(destino: Destino): string {
+  if (destino.sello === null) {
+    throw new Error("Sin el sello de los respaldos no se puede saber cuál sirve: hace falta RESPALDO_SELLO, o la llave privada, de la que se saca");
+  }
+  return destino.sello;
 }
 
 /** Los manifiestos son chicos: si uno no baja en este plazo, el destino no está contestando. */
@@ -213,10 +283,11 @@ const PLAZO_DE_MANIFIESTO = 60_000;
  * con cualquier otro error, si no se pudo leer (el destino no contesta, o niega la lectura).
  */
 export async function manifiestoDe(destino: Destino, de: Respaldado, carpeta: string): Promise<Manifiesto> {
+  const clave = selloDelDestino(destino);
   const archivo = join(carpeta, "manifiesto.json");
   try {
     await destino.bajar(nombreDeManifiesto(de.objeto), archivo, PLAZO_DE_MANIFIESTO);
-    return leerManifiesto(await readFile(archivo, "utf8"), de);
+    return leerManifiesto(await readFile(archivo, "utf8"), de, clave);
   } finally {
     await rm(archivo, { force: true });
   }
@@ -244,6 +315,7 @@ export interface Utilizable {
  * diciendo que no se pudo comprobar. No poder leer no es lo mismo que estar dañado.
  */
 export async function ultimoUtilizable(destino: Destino): Promise<Utilizable | null> {
+  selloDelDestino(destino);
   const hay = await respaldos(destino);
   const carpeta = await mkdtemp(join(tmpdir(), "feruga-respaldo-"));
   const saltados: string[] = [];
@@ -297,6 +369,7 @@ export async function ultimoUtilizable(destino: Destino): Promise<Utilizable | n
  * pedirlo por su nombre. Y si no se pudo comprobar (el destino no contesta), dice eso y nada más.
  */
 export async function traer(destino: Destino, carpeta: string, cual?: string): Promise<{ archivo: string; manifiesto: Manifiesto }> {
+  selloDelDestino(destino);
   let manifiesto: Manifiesto;
   if (cual === undefined) {
     let util: Utilizable | null;
@@ -308,13 +381,13 @@ export async function traer(destino: Destino, carpeta: string, cual?: string): P
     if (!util) {
       if ((await respaldos(destino)).length === 0) throw new Error("No hay ningún respaldo en el destino");
       throw new Error(
-        `Los respaldos más nuevos tienen el manifiesto dañado (se revisaron hasta ${LECTURAS}): no se restaura a ciegas. ` +
+        `Los respaldos más nuevos tienen el manifiesto dañado o sin el sello de este negocio (se revisaron hasta ${LECTURAS}): no se restaura a ciegas. ` +
           "Puede haber anteriores en orden: se ven con «lista» y se piden por su nombre.",
       );
     }
     if (util.saltados.length > 0) {
       throw new Error(
-        `Hay respaldos más nuevos, o del mismo segundo, con el manifiesto dañado (${util.saltados[0]}): no se restaura uno más viejo sin que se pida. ` +
+        `Hay respaldos más nuevos, o del mismo segundo, con el manifiesto dañado o sin el sello de este negocio (${util.saltados[0]}): no se restaura uno más viejo sin que se pida. ` +
           `El último con su manifiesto en orden es ${util.manifiesto.objeto} (del ${util.manifiesto.instantanea}); pídelo por su nombre.`,
       );
     }

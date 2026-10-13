@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
-import { nombreDeManifiesto, nombreDeObjeto } from "../operacion/destino.ts";
+import { nombreDeManifiesto, nombreDeObjeto, selloDe } from "../operacion/destino.ts";
 import type { Destino, Entrada, Manifiesto } from "../operacion/destino.ts";
 import { REPASAR_CADA, REVALIDAR_CADA, anotarAvisados, diaDelPatio, eleccionesEnMemoria, ponerAlDia, sinComprobar } from "../operacion/diario.ts";
 import type { AlDia, Comprobados, Eleccion, Elecciones } from "../operacion/diario.ts";
@@ -17,9 +17,12 @@ import type { AlDia, Comprobados, Eleccion, Elecciones } from "../operacion/diar
 const PATIO = "America/Mexico_City";      // sin cambio de horario desde 2022: seis horas detrás de UTC
 
 type Operacion = "subir" | "bajar" | "listar";
+const SELLO_DE_PRUEBA = "5e".repeat(32);
 
 /** Un depósito en memoria. Anota lo que se le pide, y tropieza donde se le diga. */
 class Deposito implements Destino {
+  /** La clave del sello: la misma en el depósito de cada hora y en el diario, como en el servidor. */
+  sello = SELLO_DE_PRUEBA;
   objetos = new Map<string, Buffer>();
   subidas: string[] = [];
   bajadas: string[] = [];
@@ -94,11 +97,12 @@ function respaldoDe(
   // El nombre de antes llevaba el momento solo al segundo: dos del mismo segundo no se ordenan por su nombre.
   const objeto = como.nombreDeAntes ? nombreDeObjeto(new Date(instante), corrida).replace(/(T\d{6})\d{3}Z-/, "$1Z-") : nombreDeObjeto(new Date(instante), corrida);
   const contenido = Buffer.from(`lo cifrado del respaldo de ${instante} (${corrida})`);
-  const manifiesto: Manifiesto = {
+  const dicho: Omit<Manifiesto, "sello"> = {
     formato: 1, corrida, instantanea: new Date(instante).toISOString(), objeto, bytes: contenido.length,
     sha256: createHash("sha256").update(contenido).digest("hex"), pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: "age1" + "q".repeat(58),
     esquema: "0025_precio_especial.sql",
   };
+  const manifiesto: Manifiesto = { ...dicho, sello: selloDe(dicho, SELLO_DE_PRUEBA) };
   // Dañado: lo que quedó guardado pesa lo mismo y no es lo que dice su manifiesto.
   deposito.objetos.set(objeto, como.archivoDanado ? Buffer.alloc(contenido.length, "#") : contenido);
   if (!como.sinManifiesto) deposito.objetos.set(nombreDeManifiesto(objeto), Buffer.from(como.manifiestoDanado ? "{ no es json" : JSON.stringify(manifiesto, null, 2) + "\n"));

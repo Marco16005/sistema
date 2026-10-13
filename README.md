@@ -80,10 +80,10 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 1022 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 1045 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 220 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 213
+docker compose --profile recorrido run --rm recorrido     # 221 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 214
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
@@ -332,8 +332,8 @@ candado: respaldar, perder la máquina, bajar con otra credencial y restaurar.
 **Cada respaldo es una corrida con pasos explícitos** (`operacion/respaldar.ts`): tomar el turno
 (uno a la vez) → avisar al vigilante que empezó → volcar (`pg_dump`, una instantánea coherente con
 el patio trabajando) → cifrar con la llave **pública** (`age`) → subir con un nombre que no se
-repite (`rclone`) → bajar lo subido y comparar su huella → subir el manifiesto → avisar que
-terminó bien. El fallo de cualquier paso detiene la corrida y avisa del fallo.
+repite (`rclone`) → bajar lo subido y comparar su huella → subir el manifiesto, **sellado** →
+avisar que terminó bien. El fallo de cualquier paso detiene la corrida y avisa del fallo.
 
 ```bash
 sh operacion/compose.sh run --rm --no-deps respaldo ahora      # uno ahora (lo usa también la publicación de una versión)
@@ -345,6 +345,18 @@ sh operacion/compose.sh run --rm --no-deps respaldo lista --diario   # los que s
   final y dice de cuándo es, cuánto pesa, cuál es su huella y en qué versión del esquema estaba la
   base (leída de la misma instantánea que se volcó). Un objeto sin manifiesto, o con el manifiesto
   dañado, no cuenta: el servicio toma otro.
+- **Cada manifiesto lleva un sello que dice quién tomó el respaldo.** Que la huella coincida no
+  lo dice: la huella viaja junto al archivo, y quien pudiera escribir en el almacenamiento rehace
+  las dos cosas (cifrar solo pide la llave pública). El sello es un HMAC de todo lo que el
+  manifiesto dice —el archivo, su tamaño y su huella, de cuándo es, y qué publicación corría—,
+  con una clave que no está en el almacenamiento. Esa clave **se saca de la llave privada**, fuera
+  del servidor (`node operacion/sello.ts < llave-privada.txt`, o la receta con `openssl` que trae
+  ese archivo), y al servidor va solo lo que sale (`RESPALDO_SELLO`): con eso sella, y de ahí no
+  se vuelve a la llave. Quien restaura no guarda nada más: la saca otra vez de la llave con que
+  va a descifrar, y **comprueba el sello antes de bajar, descifrar o restaurar nada**. Un
+  manifiesto sin sello, con el de otra llave, o al que le cambiaron algo después, no acredita
+  ningún respaldo: ni para restaurar, ni para saber de qué versión instalar, ni para que el
+  servidor dé por tomado el respaldo de la hora.
 - **El nombre de cada respaldo lleva su momento al milisegundo**, y ese es su orden. `respaldar
   ahora` dice el nombre de lo que tomó (`respaldo: …`): para volver a uno en particular se pide
   por su nombre, no «el último».
@@ -388,7 +400,9 @@ node operacion/restaurar.ts --diario < llave-privada.txt               # el últ
 node operacion/restaurar.ts --diario=<objeto> < llave-privada.txt      # el de un día en particular (se ven con «lista --diario»)
 ```
 
-Lo que se baja se comprueba contra su manifiesto; si no coincide, no se restaura. Si el más
+Del almacenamiento solo se restaura un respaldo con el sello de esa misma llave, y lo que se baja
+se comprueba contra su manifiesto; si no coincide, no se restaura. (Con un archivo que ya se tiene
+no hay manifiesto ni sello: lo que se confía es el archivo que eligió quien restaura.) Si el más
 nuevo no sirve, lo dice y dice cuál es el último que sí: no baja a uno más viejo en silencio. Un
 respaldo de una versión del sistema que el programa no conoce tampoco se restaura. Y antes de dar
 la base por buena, entra como entra la aplicación y comprueba que la puede usar. Con
@@ -435,9 +449,13 @@ o se registre lo que pasó. Una base que ya operaba antes de tener esta marca no
 actualizarse: se le dice una vez, con `SELECT estrenar_vida()`, y mientras tanto no atiende. Lo
 mismo después de una actualización mayor de PostgreSQL.
 
-**Límites que conviene saber.** El manifiesto prueba que lo que se baja es lo que se subió, no
-quién lo subió: un servidor comprometido puede subir un respaldo falso más nuevo, y el remedio es
-restaurar uno anterior por su nombre o ver el almacenamiento como estaba antes. Los permisos y la
+**Límites que conviene saber.** El sello prueba que el respaldo lo tomó quien tiene su clave, y
+esa clave vive en el servidor: quien solo pueda escribir en el almacenamiento ya no puede hacer
+pasar un respaldo suyo, pero **un servidor comprometido entero sí puede sellar** uno falso más
+nuevo, y el remedio sigue siendo restaurar uno anterior por su nombre o ver el almacenamiento como
+estaba antes. Cambiar la llave privada cambia el sello: los respaldos sellados con la anterior se
+restauran con la anterior. Los respaldos tomados por una versión de antes del sello no lo llevan:
+esta versión no los restaura del almacenamiento. Los permisos y la
 retención están probados contra MinIO; contra el almacenamiento que se contrate se repiten en el
 servidor real. El cifrado protege los respaldos, no la base viva.
 
@@ -449,6 +467,7 @@ renueva; el servicio que respalda a su hora; y una comprobación del entorno que
 
 ```bash
 sh operacion/entorno.sh patio.ejemplo.mx     # una vez: genera .env con claves nuevas; falta llenar lo del respaldo
+node operacion/sello.ts < llave-privada.txt  # FUERA del servidor: el sello de los respaldos, que va al .env (RESPALDO_SELLO)
 sh operacion/publicar.sh                     # publica el commit de esta carpeta (también la primera vez)
 sh operacion/levantar.sh                     # levanta lo publicado, o lo pone al día después de cambiar el .env
 sh operacion/compose.sh ps                   # «docker compose», sobre lo publicado: registros, consola, respaldar a mano
@@ -496,7 +515,8 @@ folios. Abrir es un paso aparte y expreso (`sh operacion/volver.sh --abrir`), cu
 todo está bien. Si muere a la mitad, se vuelve a correr y sigue desde donde quedó.
 
 **Si se pierde la máquina.** Cada respaldo dice, en su manifiesto, qué publicación corría cuando
-se tomó, y con ella de qué commit era. En otra máquina —con el repositorio en ese commit y el
+se tomó, y con ella de qué commit era; se le cree porque su manifiesto lleva el sello de la llave
+del dueño. En otra máquina —con el repositorio en ese commit y el
 `.env` del paquete de recuperación— se instala desde un respaldo (`sh operacion/publicar.sh
 --desde-respaldo < llave-privada.txt`): construye las imágenes de esa versión ahí mismo, de su
 commit, restaura, y sigue como cualquier publicación. Del almacenamiento baja el respaldo —que va

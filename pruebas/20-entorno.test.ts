@@ -30,6 +30,7 @@ const BUENO = {
   DOMINIO: "patio.ejemplo.mx",
   ORIGEN: "https://patio.ejemplo.mx",
   RESPALDO_LLAVE_PUBLICA: "age1" + "q".repeat(58),
+  RESPALDO_SELLO: "0f".repeat(32),
   RESPALDO_DESTINO: "respaldo:respaldos-del-patio/feruga",
   RESPALDO_HORARIO: "07:00,08:00,19:30",
   RESPALDO_VIGIA_URL: "https://vigia.ejemplo.mx/ping/0b2c1f",
@@ -68,6 +69,9 @@ test("cada cosa que falta o viene de desarrollo se rechaza diciendo cuál", () =
     [{ DOMINIO: undefined }, /DOMINIO/],
     [{ DOMINIO: "https://patio.ejemplo.mx", ORIGEN: "https://https://patio.ejemplo.mx" }, /DOMINIO/],
     [{ DOMINIO: "patio.ejemplo.mx/app" }, /DOMINIO/],
+    [{ RESPALDO_SELLO: undefined }, /Falta RESPALDO_SELLO/],
+    [{ RESPALDO_SELLO: "0F".repeat(32) }, /RESPALDO_SELLO no tiene su forma/],
+    [{ RESPALDO_SELLO: "AGE-SECRET-KEY-1" + "Q".repeat(58) }, /RESPALDO_SELLO no tiene su forma.*La llave privada misma no va aquí/],
     [{ RESPALDO_LLAVE_PUBLICA: undefined }, /RESPALDO_LLAVE_PUBLICA/],
     [{ RESPALDO_LLAVE_PUBLICA: "AGE-SECRET-KEY-1QQQQQQ" }, /RESPALDO_LLAVE_PUBLICA/],
     [{ RESPALDO_DESTINO: "" }, /RESPALDO_DESTINO/],
@@ -301,8 +305,9 @@ test("el guion genera un entorno de operación que solo espera lo que el dueño 
     // Lo que no puede generar: la llave pública del respaldo, a dónde va y con qué credencial, y a
     // quién se le avisa. Lo demás, completo; también el horario, que trae uno por omisión.
     const faltas = faltasDelEntorno(entorno, TODAS);
-    assert.equal(faltas.length, 5, faltas.join("\n"));
+    assert.equal(faltas.length, 6, faltas.join("\n"));
     assert.match(faltas.join("\n"), /RESPALDO_LLAVE_PUBLICA/);
+    assert.match(faltas.join("\n"), /Falta RESPALDO_SELLO/);
     assert.match(faltas.join("\n"), /Falta RESPALDO_DESTINO\b/);
     assert.match(faltas.join("\n"), /RESPALDO_VIGIA_URL/);
     assert.match(faltas.join("\n"), /Falta RESPALDO_DESTINO_DIARIO/);
@@ -310,7 +315,7 @@ test("el guion genera un entorno de operación que solo espera lo que el dueño 
     assert.deepEqual(leerHorario(entorno.RESPALDO_HORARIO!).length, 14, "cada hora, de 07:00 a 20:00");
     // Con el destino puesto, pide también la credencial del almacenamiento, que viene vacía.
     const conDestino = {
-      ...entorno, RESPALDO_LLAVE_PUBLICA: BUENO.RESPALDO_LLAVE_PUBLICA, RESPALDO_VIGIA_URL: BUENO.RESPALDO_VIGIA_URL, RESPALDO_DESTINO: BUENO.RESPALDO_DESTINO,
+      ...entorno, RESPALDO_LLAVE_PUBLICA: BUENO.RESPALDO_LLAVE_PUBLICA, RESPALDO_SELLO: BUENO.RESPALDO_SELLO, RESPALDO_VIGIA_URL: BUENO.RESPALDO_VIGIA_URL, RESPALDO_DESTINO: BUENO.RESPALDO_DESTINO,
       RESPALDO_DESTINO_DIARIO: BUENO.RESPALDO_DESTINO_DIARIO, RESPALDO_VIGIA_DIARIO_URL: BUENO.RESPALDO_VIGIA_DIARIO_URL,
     };
     assert.match(faltasDelEntorno(conDestino, TODAS).join("\n"), /RCLONE_CONFIG_RESPALDO_ACCESS_KEY_ID[^]*RCLONE_CONFIG_RESPALDO_SECRET_ACCESS_KEY[^]*RCLONE_CONFIG_DIARIO_ACCESS_KEY_ID[^]*RCLONE_CONFIG_DIARIO_SECRET_ACCESS_KEY/);

@@ -500,9 +500,11 @@ instalar() {
     resolver "IMAGEN_DB=$HERRAMIENTAS" "IMAGEN_ADMIN=$HERRAMIENTAS" "IMAGEN_WEB=$HERRAMIENTAS" "IMAGEN_RESPALDO=$HERRAMIENTAS" "IMAGEN_PROXY=$HERRAMIENTAS" VERSION=arranque \
       >"$privado/arranque.json" || falla "La configuración no se pudo resolver: revisa el .env. No se tocó nada."
     docker compose -f "$privado/arranque.json" run --rm --no-deps -T comprobacion entorno </dev/null || falla "El entorno no pasa la comprobación. No se tocó nada."
+    # Lo que el respaldo dice de sí —qué publicación corría, de qué commit— solo se cree con el sello
+    # de esta llave: por eso la llave entra también aquí, por la entrada estándar y por ningún otro lado.
     # shellcheck disable=SC2086  # el nombre del respaldo, o nada
-    de=$(docker compose -f "$privado/arranque.json" run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts $respaldo_pedido </dev/null) \
-      || falla "No se pudo saber qué versión tomó el respaldo. No se tocó nada."
+    de=$(printf '%s\n' "$llave" | docker compose -f "$privado/arranque.json" run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts $respaldo_pedido) \
+      || falla "No se pudo saber qué versión tomó el respaldo: no está, o no lleva el sello de esta llave. No se tocó nada."
     respaldo=${de%% *}
     resto=${de#* }
     de_pub=${resto%% *}

@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { exigirEntorno } from "../src/servidor/entorno.ts";
-import { PUBLICACION, destinoRclone, huellaDe, nombreDeManifiesto, nombreDeObjeto, respaldos, ultimoUtilizable } from "./destino.ts";
+import { PUBLICACION, SELLO, destinoRclone, huellaDe, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, selloDelDestino, ultimoUtilizable } from "./destino.ts";
 import type { Destino, Manifiesto } from "./destino.ts";
 import { anotarAvisados, ponerAlDia, sinComprobar } from "./diario.ts";
 import type { AlDia, Comprobados, Eleccion, Elecciones } from "./diario.ts";
@@ -248,6 +248,8 @@ async function terminarSesion(base: string, sesion: string, decir: (linea: strin
 }
 
 export async function respaldar(r: Respaldo): Promise<Hecho> {
+  // Sin la clave del sello no se toma un respaldo que después nadie podría acreditar.
+  const clave = selloDelDestino(r.destino);
   const decir = r.decir ?? (() => {});
   const plazos = { ...PLAZOS, ...r.plazos };
   const corrida = randomUUID();
@@ -333,10 +335,12 @@ export async function respaldar(r: Respaldo): Promise<Hecho> {
     await rm(cifrado);
 
     paso = "subir el manifiesto";
-    const manifiesto: Manifiesto = {
+    const dicho: Omit<Manifiesto, "sello"> = {
       formato: 1, corrida, instantanea: instantanea.toISOString(), objeto, bytes: local.bytes, sha256: local.sha256,
       pgDump, llavePublica: r.llavePublica, esquema, ...(r.publicacion !== undefined ? { publicacion: r.publicacion } : {}),
     };
+    // El sello va al final y cubre todo lo anterior: sin él, quien restaura no toma este respaldo por bueno.
+    const manifiesto: Manifiesto = { ...dicho, sello: selloDe(dicho, clave) };
     const texto = JSON.stringify(manifiesto, null, 2) + "\n";
     const delManifiesto = join(carpeta, "manifiesto.json");
     await writeFile(delManifiesto, texto);
@@ -465,25 +469,33 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       // Con --diario, los que se guardan un año: uno por día.
       const cual = process.argv.includes("--diario") ? "RESPALDO_DESTINO_DIARIO" : "RESPALDO_DESTINO";
       pedir(env, [cual]);
-      const hay = await respaldos(destinoRclone(env[cual]!));
+      // Ver qué hay no pide el sello; saber cuál sirve, sí.
+      if (env.RESPALDO_SELLO && !SELLO.test(env.RESPALDO_SELLO)) throw new Error("RESPALDO_SELLO no tiene su forma: 64 letras hexadecimales");
+      const destino = destinoRclone(env[cual]!, {}, { sello: env.RESPALDO_SELLO || null });
+      const hay = await respaldos(destino);
       for (const r of hay) console.log(`${r.momento.toLocaleString("es-MX")}  ${String(r.bytes).padStart(12)} bytes  ${r.objeto}`);
       console.log(hay.length === 0 ? "No hay ningún respaldo en el destino." : hay.length === 1 ? "1 respaldo." : `${hay.length} respaldos. El último es el de abajo.`);
-      // Que aparezca en la lista no dice que sirva: eso lo dice su manifiesto.
-      const util = hay.length > 0 ? await ultimoUtilizable(destinoRclone(env[cual]!)) : null;
-      if (hay.length > 0) console.log(util ? `El último con su manifiesto en orden: ${util.manifiesto.objeto}` : "Ninguno de los más nuevos tiene su manifiesto en orden.");
+      // Que aparezca en la lista no dice que sirva: eso lo dice su manifiesto, con su sello.
+      if (hay.length > 0 && destino.sello === null) {
+        console.log("Cuál sirve no se comprobó: hace falta el sello de los respaldos (RESPALDO_SELLO), que se saca de la llave privada con operacion/sello.ts.");
+      } else if (hay.length > 0) {
+        const util = await ultimoUtilizable(destino);
+        console.log(util ? `El último con su manifiesto en orden: ${util.manifiesto.objeto}` : "Ninguno de los más nuevos tiene su manifiesto en orden.");
+      }
     } else if (orden === "ahora" || orden === "servicio") {
       exigirEntorno(env, ["administracion", "respaldo"]);
-      pedir(env, ["DATABASE_URL", "RESPALDO_LLAVE_PUBLICA", "RESPALDO_DESTINO", ...(orden === "servicio" ? ["RESPALDO_HORARIO"] : [])]);
+      pedir(env, ["DATABASE_URL", "RESPALDO_LLAVE_PUBLICA", "RESPALDO_DESTINO", "RESPALDO_SELLO", ...(orden === "servicio" ? ["RESPALDO_HORARIO"] : [])]);
+      const sello = env.RESPALDO_SELLO!;
       const zona = env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const respaldo: Respaldo = {
-        base: env.DATABASE_URL!, llavePublica: env.RESPALDO_LLAVE_PUBLICA!, destino: destinoRclone(env.RESPALDO_DESTINO!),
+        base: env.DATABASE_URL!, llavePublica: env.RESPALDO_LLAVE_PUBLICA!, destino: destinoRclone(env.RESPALDO_DESTINO!, {}, { sello }),
         ...(env.RESPALDO_VIGIA_URL ? { vigia: vigiaHttp(env.RESPALDO_VIGIA_URL) } : {}),
         // En operación, la publicación que corre (la pone el Compose). Lo que no sea una, no se anota.
         ...(env.VERSION && PUBLICACION.test(env.VERSION) ? { publicacion: env.VERSION } : {}),
         // El diario, si hay depósito para él (en operación lo hay siempre: lo exige el entorno).
         ...(env.RESPALDO_DESTINO_DIARIO ? {
           diario: {
-            destino: destinoRclone(env.RESPALDO_DESTINO_DIARIO), zona, comprobados: sinComprobar(),
+            destino: destinoRclone(env.RESPALDO_DESTINO_DIARIO, {}, { sello }), zona, comprobados: sinComprobar(),
             ...(env.RESPALDO_VIGIA_DIARIO_URL ? { vigia: vigiaHttp(env.RESPALDO_VIGIA_DIARIO_URL) } : {}),
           },
         } : {}),

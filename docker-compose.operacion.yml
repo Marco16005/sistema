@@ -21,6 +21,8 @@ x-respaldo: &respaldo
     # La publicación que corre: cada respaldo la deja dicha en su manifiesto.
     VERSION: "${VERSION:?Falta VERSION. En operación la pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     RESPALDO_LLAVE_PUBLICA: "${RESPALDO_LLAVE_PUBLICA:?Falta RESPALDO_LLAVE_PUBLICA en .env}"
+    # Con esto se sella cada respaldo: quien restaura comprueba el sello con la llave privada.
+    RESPALDO_SELLO: "${RESPALDO_SELLO:?Falta RESPALDO_SELLO en .env}"
     RESPALDO_DESTINO: "${RESPALDO_DESTINO:?Falta RESPALDO_DESTINO en .env}"
     RESPALDO_HORARIO: "${RESPALDO_HORARIO:?Falta RESPALDO_HORARIO en .env}"
     RESPALDO_VIGIA_URL: "${RESPALDO_VIGIA_URL:?Falta RESPALDO_VIGIA_URL en .env}"

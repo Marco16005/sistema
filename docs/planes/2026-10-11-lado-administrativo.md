@@ -263,6 +263,19 @@ repositorio); con ella se vuelve a como estaba.
 
 ## Verificado
 
+**El 13 de octubre de 2026, por la noche**, con las migraciones 0035 (los intentos de clave que no
+se deshacen) y 0036 (el nombre de un cliente desde la pantalla) y el sello de los respaldos:
+
+- tipos y **1045 pruebas** (eran 1022: 10 de los intentos en `11-identidad`, 8 del nombre del
+  cliente en `46-clientes-en-pantalla` y 5 del sello en `23-respaldo`), sin fallas;
+- **221 recorridos en Chromium** y **214 en WebKit** (eran 220 y 213; el nuevo es el del cambio de
+  nombre, y las medidas de patio de los ajustes lo incluyen), sin fallas.
+
+Las dos correcciones de seguridad se vieron fallar antes de corregirlas: cinco claves malas
+deshechas, y la buena entraba; y un respaldo sustituido en el almacenamiento, con su manifiesto
+rehecho, llegaba a `pg_restore`. Los simulacros y la revisión de Codex de las dos, más abajo en
+cuanto terminen.
+
 **El 13 de octubre de 2026, por la tarde**, con los materiales en el panel y el resumen ampliado
 (la cuenta promedio, el día de la semana, lo de cada persona, los kilos descontados y el periodo
 que se elige), sin migración nueva:

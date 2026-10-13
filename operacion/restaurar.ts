@@ -24,7 +24,7 @@ import { migrar } from "../db/migrar.ts";
 import { asegurarRol } from "../db/rol.ts";
 import { exigirEntorno } from "../src/servidor/entorno.ts";
 import { ESQUEMA_ESPERADO, SQL_DE_VIDA } from "../src/servidor/esquema.ts";
-import { destinoRclone, traer } from "./destino.ts";
+import { claveDeSello, destinoRclone, traer } from "./destino.ts";
 import type { Destino } from "./destino.ts";
 import { correr, entornoDePg } from "./programas.ts";
 
@@ -208,9 +208,14 @@ export async function restaurarDelDestino(
   o: Omit<Restauracion, "archivo" | "respaldoDe"> & { destino: Destino; cual?: string },
 ): Promise<{ respaldoDe: Date; folioDespues: number; comprobado: true; objeto: string }> {
   const decir = o.decir ?? (() => {});
+  // El sello se comprueba con la clave que sale de la llave con que se va a descifrar, y con ninguna
+  // otra: así un manifiesto solo vale si lo selló quien tiene la derivada de esta misma llave.
+  if (o.destino.sello !== claveDeSello(o.llave)) {
+    throw new Error("El sello con que se comprobarían los respaldos no es el de esta llave privada: no se baja nada. (El destino se arma con la clave que sale de la llave: claveDeSello.)");
+  }
   const carpeta = await mkdtemp(join(tmpdir(), "feruga-restaurar-"));
   try {
-    decir("Bajando el respaldo y comprobándolo contra su manifiesto…");
+    decir("Bajando el respaldo y comprobando su sello y su huella contra su manifiesto…");
     const { archivo, manifiesto } = await traer(o.destino, carpeta, o.cual);
     decir(`Respaldo del ${manifiesto.instantanea}: ${manifiesto.objeto}`);
     // Si el manifiesto ya dice que es de una versión más nueva, ni se intenta. (Lo que decide, de
@@ -256,6 +261,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     "Con --como-estaba se ve el almacenamiento como estaba en ese momento, por si alguien pisó un respaldo después.",
     "Con --ensayo, al terminar bien se le avisa al vigilante de los ensayos (ENSAYO_VIGIA_URL).",
     "La llave privada entra por la entrada estándar, desde un archivo. No se teclea ni se pasa como argumento.",
+    "Del almacenamiento solo se restaura un respaldo con el sello de esa misma llave: se comprueba antes de bajarlo.",
   ].join("\n");
   const cuando = (nombre: string): Date | undefined => {
     const texto = opcion(nombre);
@@ -290,7 +296,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const cual = opcion(remoto ? "remoto" : "diario");
       await restaurarDelDestino({
         ...comunes,
-        destino: destinoRclone(env[remoto ? "RESPALDO_DESTINO" : "RESPALDO_DESTINO_DIARIO"]!, {}, pedido.comoEstaba ? { comoEstaba: pedido.comoEstaba } : {}),
+        destino: destinoRclone(env[remoto ? "RESPALDO_DESTINO" : "RESPALDO_DESTINO_DIARIO"]!, {}, {
+          sello: claveDeSello(comunes.llave), ...(pedido.comoEstaba ? { comoEstaba: pedido.comoEstaba } : {}),
+        }),
         ...(cual ? { cual } : {}),
       });
     } else {
