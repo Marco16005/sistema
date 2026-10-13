@@ -221,7 +221,8 @@ Se corrió tres veces completo: antes de corregir los nombres (993, 216 y 209), 
 revisión de Codex (996, 216 y 209) y con la 0034 (999, 216 y 209). En la última, cuatro recorridos
 de inventario fallaron en Chromium por tiempo —la máquina se durmió a media corrida—; repetidos
 completos con la máquina despierta, pasaron los 216. **Los dos simulacros** (operación y
-publicación) pasaron sobre el guardado `1f6f489`, con la 0033.
+publicación) pasaron dos veces: sobre el guardado `1f6f489`, con la 0033, y sobre `fc8f228`, con
+la 0034.
 
 **El 12 de octubre de 2026, por la noche**, con los ajustes (personas, equipos y materiales) y las
 tres migraciones nuevas (0030, 0031 y 0032) ya integrados, y después de corregir lo que encontraron

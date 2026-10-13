@@ -108,6 +108,27 @@ pediría una tabla de parecidos. Un cliente en la lista no da nada por sí solo 
 pide la clave de quien autoriza, que lee el nombre antes de teclearla—; lo que un nombre parecido
 puede hacer es repartir en dos renglones lo que se le dio a uno, y eso se ve en Clientes.
 
+### Aparte: lo que señaló la revisión de seguridad del segundo guardado
+
+Al guardar la 0034 (`fc8f228`), la revisión automática señaló dos cosas; el aviso llegó, otra vez,
+solo con el título de la primera: **la migración se detendría con datos que alguien pudo armar**.
+De la segunda no llegó ni el título, así que no se sabe cuál es y **queda sin atender**.
+
+La primera es cierta, se comprobó, y **no se corrigió**, con este porqué. El paso que limpia a los
+clientes que ya existían (en la 0033 y en la 0034) no aguanta cualquier nombre: uno de ochenta
+letras de las que NFC desdobla en dos (se comprobó: ochenta «क़» dan 160) rebasa el tope y la regla
+lo rechaza; y un nombre puesto a propósito igual al que el paso inventa («Don Chuy (7)», «Cliente
+sin nombre (5)»), o cuyo corte a 58 letras termine en espacio, choca con la tabla. En cualquiera de
+esos casos la migración se detiene y, con ella, la publicación (que vuelve sola al respaldo: no se
+pierde nada, pero no se puede actualizar hasta arreglar el nombre a mano).
+
+No se corrigió porque ese paso ya no vuelve a correr sobre datos: la única base con clientes —la
+demostración— ya pasó las dos migraciones, con sus tres nombres intactos; una instalación nueva las
+corre con la tabla vacía; y las tres copias guardadas de la demostración tienen nombres comunes. Y
+porque una migración ya aplicada no se edita: el migrador compara su huella y se negaría.
+**Queda como regla para la próxima migración que arregle datos que ya existen: tiene que poder con
+cualquier renglón —recortar, numerar y volver a intentar— en vez de detenerse.**
+
 ## El encargo
 
 ```
