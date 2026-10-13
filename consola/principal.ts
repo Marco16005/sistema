@@ -18,9 +18,9 @@ const USO = `Órdenes:
   equipo codigo <nombre>                               código para dar de alta un equipo (15 minutos, un uso)
   equipo baja <id>
   equipo lista
-  cliente lista                                        los clientes con precio especial (se dan de alta en la pantalla, al darles el primero)
+  cliente lista                                        los clientes con precio especial (se dan de alta en la pantalla: en los ajustes, o al darles el primero)
   cliente renombrar <nombre|número> <nombre nuevo>
-  cliente baja <nombre|número>                         ya no se le puede dar precio especial; su historia se conserva
+  cliente baja <nombre|número>                         ya no se le puede dar precio especial; su historia se conserva (también desde los ajustes)
   cliente reactivar <nombre|número>
   demo sembrar [--dias=56] [--semilla=1]               SOLO en desarrollo: le da a una base sin movimiento semanas de historia inventada
 

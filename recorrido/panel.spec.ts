@@ -436,7 +436,7 @@ test("sin clientes, la pantalla lo dice y explica de dónde salen", async ({ pag
   await darDeAltaEquipo(page);
   await adentro(page, g.servando);
   await page.goto("/panel/clientes");
-  await expect(page.getByText("Todavía no hay clientes: se dan de alta al darles su primer precio especial, en el mostrador.")).toBeVisible();
+  await expect(page.getByText("Todavía no hay clientes: se dan de alta en Ajustes, o en el mostrador al darles su primer precio especial.")).toBeVisible();
   await expect(page.locator(".indicador, .exrow")).toHaveCount(0);
 });
 

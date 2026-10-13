@@ -92,6 +92,9 @@ const frases: Record<string, (r: Registro) => string> = {
     return `actualizó el material${nombre(r)}`;
   },
   "delete material": (r) => `eliminó el material${nombre(r)}`,
+  "alta cliente": (r) => `dio de alta al cliente${nombre(r)}`,
+  "baja cliente": (r) => `dio de baja al cliente${nombre(r)}`,
+  "reactivar cliente": (r) => `reactivó al cliente${nombre(r)}`,
 };
 
 /** Las parejas (accion, entidad) que tienen frase propia. La prueba la compara con las migraciones. */

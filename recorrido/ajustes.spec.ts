@@ -1,11 +1,11 @@
-// Los ajustes: personas, equipos y materiales desde la pantalla. Personas y equipos los pide un
-// responsable facultado para autorizar, con su clave cada vez; lo que se genera —la clave de una
-// persona, el código de un equipo— se ve una sola vez. Los materiales, cualquier responsable. Las
-// reglas se prueban en la base y por las rutas (pruebas/44-materiales y 45-administracion); aquí,
-// lo que ve y hace quien administra.
+// Los ajustes: personas, equipos, materiales y clientes desde la pantalla. Personas y equipos los
+// pide un responsable facultado para autorizar, con su clave cada vez; lo que se genera —la clave
+// de una persona, el código de un equipo— se ve una sola vez. Los materiales y los clientes,
+// cualquier responsable. Las reglas se prueban en la base y por las rutas (pruebas/44-materiales,
+// 45-administracion y 46-clientes-en-pantalla); aquí, lo que ve y hace quien administra.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { altaDePersona, aviso, baseNueva, conConsola, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, salir, teclear } from "./apoyo.ts";
+import { altaDePersona, aviso, baseNueva, conConsola, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
 import type { Gente, Persona } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -260,6 +260,124 @@ test("un material se marca como frecuente y se desmarca; se da de baja —si no 
   await expect(dicho.nth(3)).toContainText("Servando marcó como frecuente el material PET");
 });
 
+const enClientes = (page: Page) => page.getByRole("group", { name: "Qué se ajusta" }).getByRole("button", { name: "Clientes" }).click();
+/** De la pantalla en que esté, a esa otra, por la barra de arriba. */
+const irA = (page: Page, pantalla: string) => page.getByRole("navigation", { name: "Pantallas" }).getByRole("link", { name: pantalla, exact: true }).click();
+/** De regreso a los clientes de los ajustes, desde el mostrador. */
+async function deVueltaEnClientes(page: Page): Promise<void> {
+  await irA(page, "Panel");
+  await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Ajustes" }).click();
+  await enClientes(page);
+}
+/** En el mostrador, con el precio especial ya lleno: Servando lo autoriza con su clave. */
+async function autorizaServando(page: Page, g: Gente): Promise<void> {
+  await page.getByRole("button", { name: "Autorizar el precio especial", exact: true }).click();
+  await hoja(page).getByRole("button", { name: /^Servando/ }).click();
+  await teclear(page, g.servando.clave);
+  await hoja(page).getByRole("button", { name: "Autorizar a nombre de Servando" }).click();
+}
+
+test("el responsable da de alta a un cliente sin esperar a su primer precio especial, y el mostrador ya lo ofrece; dado de baja deja de ofrecerse; reactivado, otra vez; y la bitácora lo dice", async ({ page }) => {
+  const g = await gente();
+  await enAjustes(page, g, [["Cartón", "500"]]);
+  await enClientes(page);
+  await expect(page.getByText("Todavía no hay clientes. También se dan de alta en el mostrador, al darles su primer precio especial.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+  await expect(page.getByRole("button", { name: /^Dar de alta a …$/ })).toBeDisabled();
+  await page.getByLabel("Cómo se llama").fill("  Fundidora   del Norte ");
+  await page.getByRole("button", { name: "Dar de alta a Fundidora del Norte" }).click();
+  await expect(page.locator(".okmsg")).toHaveText("Fundidora del Norte quedó dado de alta. Ya se le puede dar precio especial en el mostrador, con la clave de quien autoriza.");
+  await expect(renglon(page, "Fundidora del Norte").locator("small").first()).toHaveText("todavía sin cuentas con precio especial");
+  await expect(tarjeta(page, "Clientes").locator("header small")).toHaveText("1 cliente");
+  // El formulario se cerró. Otro con el mismo nombre no se repite, y lo escrito se queda para corregirlo.
+  await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+  await page.getByLabel("Cómo se llama").fill("fundidora del norte");
+  await page.getByRole("button", { name: "Dar de alta a fundidora del norte" }).click();
+  await expect(aviso(page)).toHaveText("Ya hay un cliente que se llama «Fundidora del Norte»");
+  await expect(page.getByLabel("Cómo se llama")).toHaveValue("fundidora del norte");
+  await page.getByRole("button", { name: "No dar de alta a nadie" }).click();
+  await expect(page.locator(".administrado")).toHaveCount(1);
+
+  // En el mostrador ya está en la lista, sin haber tenido nunca un precio.
+  await irA(page, "Mostrador");
+  await page.getByRole("button", { name: "+ Venta" }).click();
+  await pesar(page, "Cartón", "Báscula 2", "40");
+  await page.getByRole("button", { name: "Precio especial para Cartón" }).click();
+  await expect(page.locator(".grid").getByRole("button", { name: "Fundidora del Norte", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "No dar precio especial" }).click();
+
+  // Darlo de baja se pregunta antes; decir que no, no hace nada.
+  await deVueltaEnClientes(page);
+  await page.getByRole("button", { name: "Dar de baja a Fundidora del Norte" }).click();
+  await expect(renglon(page, "Fundidora del Norte")).toContainText("¿Dar de baja a Fundidora del Norte? Ya no se le podrá dar precio especial.");
+  await renglon(page, "Fundidora del Norte").getByRole("button", { name: "No", exact: true }).click();
+  await expect(tarjeta(page, "Dados de baja")).toHaveCount(0);
+  await page.getByRole("button", { name: "Dar de baja a Fundidora del Norte" }).click();
+  await renglon(page, "Fundidora del Norte").getByRole("button", { name: "Sí, dar de baja" }).click();
+  await expect(page.locator(".okmsg")).toHaveText("Fundidora del Norte quedó dado de baja.");
+  await expect(tarjeta(page, "Dados de baja").locator(".administrado")).toContainText("no se ofrece en el mostrador");
+  await expect(tarjeta(page, "Clientes").locator(".administrado")).toHaveCount(0);
+
+  // En el mostrador ya no se ofrece; y escribirlo como si fuera nuevo dice dónde se reactiva.
+  await irA(page, "Mostrador");
+  await page.getByRole("button", { name: "Precio especial para Cartón" }).click();
+  await expect(page.getByText("Todavía no hay clientes registrados.")).toBeVisible();
+  await page.getByRole("button", { name: "Es un cliente nuevo" }).click();
+  await page.getByLabel("Nombre del cliente nuevo").fill("Fundidora del Norte");
+  await page.getByRole("button", { name: "Menos que la lista" }).click();
+  await teclear(page, "0.3");
+  await autorizaServando(page, g);
+  await expect(page.getByRole("alert").filter({ hasText: "dado de baja" })).toContainText("«Fundidora del Norte» está dado de baja: lo reactiva un responsable en Ajustes, no se da de alta otro igual");
+  expect(await conConsola(async (db) => (await db.query("SELECT count(*)::int AS n FROM precio_especial")).rows[0].n)).toBe(0);
+
+  await page.goto("/panel/ajustes");
+  await enClientes(page);
+  await page.getByRole("button", { name: "Reactivar a Fundidora del Norte" }).click();
+  await expect(page.locator(".okmsg")).toHaveText("Fundidora del Norte quedó reactivado.");
+  await expect(tarjeta(page, "Dados de baja")).toHaveCount(0);
+  await expect(tarjeta(page, "Clientes").locator(".administrado")).toHaveCount(1);
+
+  await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Bitácora" }).click();
+  const dicho = page.locator(".asiento");
+  await expect(dicho.nth(0)).toContainText("Servando reactivó al cliente Fundidora del Norte");
+  // Entre una y otra quedó también el intento del mostrador; cada cosa de los clientes, una vez.
+  await expect(dicho.filter({ hasText: "Servando dio de baja al cliente Fundidora del Norte" })).toHaveCount(1);
+  await expect(dicho.filter({ hasText: "Servando dio de alta al cliente Fundidora del Norte" })).toHaveCount(1);
+});
+
+test("los clientes de los ajustes son de cualquier responsable, tenga o no la facultad de autorizar; y los que nacieron en el mostrador salen ahí también", async ({ page }) => {
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  const marta = await altaDePersona("Marta", "responsable", "271828");
+  await darDeAltaEquipo(page);
+
+  // Luis, en el mostrador, le da su primer precio a un cliente nuevo y cobra.
+  await adentro(page, g.luis);
+  await page.getByRole("button", { name: "+ Venta" }).click();
+  await pesar(page, "Cartón", "Báscula 2", "40");
+  await page.getByRole("button", { name: "Precio especial para Cartón" }).click();
+  await page.getByRole("button", { name: "Es un cliente nuevo" }).click();
+  await page.getByLabel("Nombre del cliente nuevo").fill("Doña Mari");
+  await page.getByRole("button", { name: "Menos que la lista" }).click();
+  await teclear(page, "0.3");
+  await autorizaServando(page, g);
+  await expect(page.getByText("A nombre de Doña Mari")).toBeVisible();
+  await salir(page);
+
+  // Marta es responsable, pero no autoriza: los clientes sí son suyos.
+  await adentro(page, marta);
+  await page.goto("/panel/ajustes");
+  await enClientes(page);
+  await expect(renglon(page, "Doña Mari").locator("small").first()).toHaveText("todavía sin cuentas con precio especial");
+  await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+  await page.getByLabel("Cómo se llama").fill("Aceros Zayha");
+  await page.getByRole("button", { name: "Dar de alta a Aceros Zayha" }).click();
+  await expect(page.locator(".okmsg")).toContainText("Aceros Zayha quedó dado de alta.");
+  // Por nombre, no por orden de llegada.
+  await expect(tarjeta(page, "Clientes").locator(".administrado > b")).toHaveText(["Aceros Zayha", "Doña Mari"]);
+});
+
 test("los ajustes son de un responsable, y personas y equipos, del que está facultado para autorizar: a quien consulta no se le ofrecen, y al responsable sin la facultad se le dice", async ({ page }) => {
   const g = await gente();
   await diaListo(g);
@@ -330,6 +448,21 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await page.getByRole("group", { name: "Familia" }).getByRole("button", { name: "Otros metales" }).click();
     await page.getByLabel("Cómo se llama").fill("Estaño");
     await medir("el material nuevo");
+
+    await enClientes(page);
+    await medir("los clientes, sin ninguno");
+    await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+    // El nombre más difícil que la regla deja pasar: ochenta letras anchas y ni un espacio donde partirlo.
+    await page.getByLabel("Cómo se llama").fill("W".repeat(80));
+    await medir("el cliente nuevo");
+    await page.getByRole("button", { name: /^Dar de alta a W+$/ }).click();
+    await expect(page.locator(".okmsg")).toBeVisible();
+    await medir("los clientes, con uno de nombre largo");
+    await page.getByRole("button", { name: /^Dar de baja a W+$/ }).click();
+    await medir("un cliente por dar de baja");
+    await page.getByRole("button", { name: "Sí, dar de baja" }).click();
+    await expect(tarjeta(page, "Dados de baja")).toBeVisible();
+    await medir("los clientes dados de baja");
   });
 }
 
@@ -365,5 +498,24 @@ test("capturas de los ajustes", async ({ page }) => {
     await page.getByLabel("Cómo se llama").fill("Estaño");
     await page.screenshot({ path: `recorrido/capturas/ajustes/6-material-nuevo${nombre}.png` });
     await page.getByRole("button", { name: "No dar de alta ninguno" }).click();
+    await enClientes(page);
+    // En la segunda vuelta ya están: se espera a que la lista llegue antes de mirar si hay que darlos de alta.
+    await expect(tarjeta(page, "Clientes")).toBeVisible();
+    if (await page.locator(".administrado").count() === 0) {
+      for (const cliente of ["Fundidora del Norte", "Don Chuy", "Aceros Zayha"]) {
+        await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+        await page.getByLabel("Cómo se llama").fill(cliente);
+        await page.getByRole("button", { name: `Dar de alta a ${cliente}` }).click();
+        await expect(renglon(page, cliente)).toBeVisible();
+      }
+      await page.getByRole("button", { name: "Dar de baja a Don Chuy" }).click();
+      await page.getByRole("button", { name: "Sí, dar de baja" }).click();
+      await expect(tarjeta(page, "Dados de baja")).toBeVisible();
+    }
+    await foto("7-clientes");
+    await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+    await page.getByLabel("Cómo se llama").fill("Recicladora del Pacífico");
+    await page.screenshot({ path: `recorrido/capturas/ajustes/8-cliente-nuevo${nombre}.png` });
+    await page.getByRole("button", { name: "No dar de alta a nadie" }).click();
   }
 });

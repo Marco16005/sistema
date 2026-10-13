@@ -85,8 +85,9 @@ export async function listaDePersonas(db: pg.Client): Promise<PersonaEnLista[]> 
 
 // ── clientes con precio especial ───────────────────────────────────────────
 //
-// Un cliente se da de alta en la pantalla, al darle su primer precio especial. Aquí se le corrige
-// el nombre, se le da de baja y se le reactiva.
+// Un cliente se da de alta en la pantalla: en los ajustes, o en el mostrador al darle su primer
+// precio especial. Darlo de baja y reactivarlo también se puede desde los ajustes (migración 0033).
+// Aquí se le corrige el nombre —que solo se hace aquí—, se le da de baja y se le reactiva.
 
 export interface ClienteEnLista {
   id: string;

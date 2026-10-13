@@ -36,7 +36,7 @@ test("GUARDIA: toda pareja anotada en las migraciones tiene frase propia", async
   // Los dos INSERT de 0001: anotar reenvía los argumentos; auditar usa lower(TG_OP)
   // y TG_TABLE_NAME. Sus disparadores están en usuario (0001) y material (0002).
   for (const pareja of ["insert usuario", "update usuario", "delete usuario", "insert material", "update material", "delete material"]) parejas.add(pareja);
-  assert.equal(parejas.size, 31);
+  assert.equal(parejas.size, 34);
   for (const pareja of parejas) assert.ok(CON_FRASE.has(pareja), `Falta frase: ${pareja}`);
 });
 
@@ -114,7 +114,7 @@ test("rechaza cursores, personas, cantidades y fechas mal formados", () =>
   }));
 
 // Una frase genérica para una pareja conocida o volcar cualquier campo adicional falla aquí.
-test("las treinta parejas tienen frases completas y resuelven nombres sin revelar datos internos", () =>
+test("las parejas tienen frases completas y resuelven nombres sin revelar datos internos", () =>
   conBitacora(async (bd, db, e) => {
     const cliente = (await db.query("INSERT INTO cliente (nombre) VALUES ('Don Chuy') RETURNING id::text")).rows[0].id;
     const equipo = randomUUID();
@@ -154,6 +154,9 @@ test("las treinta parejas tienen frases completas y resuelven nombres sin revela
       ["insert", "material", { despues: { nombre: "Cartón" } }, null, "dio de alta el material Cartón"],
       ["update", "material", { despues: { nombre: "Cartón" } }, null, "actualizó el material Cartón"],
       ["delete", "material", { antes: { nombre: "Cartón" } }, null, "eliminó el material Cartón"],
+      ["alta", "cliente", { nombre: "Don Chuy" }, cliente, "dio de alta al cliente Don Chuy"],
+      ["baja", "cliente", { nombre: "Don Chuy" }, cliente, "dio de baja al cliente Don Chuy"],
+      ["reactivar", "cliente", { nombre: "Don Chuy" }, cliente, "reactivó al cliente Don Chuy"],
       ["merma", "material", { kg: "1.001", motivo: "Mojado" }, "999999999", "dio de baja 1.001 kg: Mojado"],
       ["precio_especial", "operacion", { clase: "dar", material: "inexistente", cliente: "inexistente", autoriza: "inexistente", queda: "2.6" }, null, "aplicó un precio especial de $2.60 por kilo"],
     ];

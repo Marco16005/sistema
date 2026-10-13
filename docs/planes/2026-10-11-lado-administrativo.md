@@ -1,9 +1,9 @@
 # El lado administrativo: panel, días y bitácora
 
-> **Estado (12 de octubre de 2026, noche):** hechas siete partes del panel —el resumen con sus
+> **Estado (13 de octubre de 2026):** hechas siete partes del panel —el resumen con sus
 > gráficas, los días que ha habido, la historia de precios, los clientes, la bitácora, sacar
-> reportes (archivos para Excel e imprimir) y los ajustes (personas, equipos y materiales desde la
-> pantalla)— y el sembrador de la demostración.
+> reportes (archivos para Excel e imprimir) y los ajustes (personas, equipos, materiales y, desde
+> el 13 de octubre, clientes desde la pantalla)— y el sembrador de la demostración.
 > Se construye repartido con Codex (`gpt-6-astra`, esfuerzo alto): él escribe el servidor de cada
 > parte en su copia, con las pruebas primero, y aquí se lee, se integra y se le pone la pantalla y
 > su recorrido. Suyos son el historial, la bitácora, la historia de precios, los clientes, exportar
@@ -73,6 +73,10 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
   - **Materiales:** cualquier responsable da de alta un material, lo da de baja (si no hay nada de
     él en el patio ni está en una cuenta abierta), lo reactiva y lo marca o no como frecuente. El
     nombre no se cambia.
+  - **Clientes** (13 de octubre): cualquier responsable da de alta a un cliente sin esperar a darle
+    su primer precio especial en el mostrador, lo da de baja y lo reactiva. Dado de baja ya no se
+    ofrece en el mostrador; lo que se le compró y vendió se conserva. El nombre se cambia solo por
+    la consola.
 
 ### Decisiones
 
@@ -141,6 +145,16 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
 16. **Las reglas del catálogo viven en la base**, como todo lo que escribe: quién, que el nombre no
     se repita ni con otras mayúsculas, y que no se dé de baja lo que todavía hay en el patio o está
     en una cuenta abierta. La aplicación sigue sin poder escribir directo en la tabla.
+17. **Los clientes, desde la pantalla y sin clave otra vez; lo pidió el dueño el 13 de octubre.**
+    Hasta entonces un cliente solo nacía en el mostrador, al darle su primer precio especial, y
+    darlo de baja o reactivarlo era de la consola. Ahora lo hace cualquier responsable en los
+    ajustes (migración 0033), y queda en la bitácora a su nombre. No pide teclear la clave, igual
+    que los materiales: tener a un cliente en la lista no le da nada, porque cada precio especial
+    sigue pidiendo la clave de quien autoriza. La baja no toca lo ya dado: una cuenta abierta que
+    ya lleva precio especial para ese cliente —autorizado cuando estaba activo— se cobra como
+    está; lo que la baja impide es darle otro. Y no se borra a nadie: «borrar» es dar de baja,
+    porque los comprobantes y el registro de precios lo nombran. Cambiarle el nombre se quedó en
+    la consola: nadie lo pidió para la pantalla.
 
 ### El sembrador de la demostración (`consola/demo.ts`)
 
@@ -180,10 +194,22 @@ repositorio); con ella se vuelve a como estaba.
 | Las dos carreras que cerró la revisión | `db/migraciones/0032_los_ajustes_sin_carreras.sql` |
 | Personas y equipos | `db/migraciones/0031_personas_y_equipos_en_pantalla.sql`, `src/servidor/dominio/administracion.ts`, `src/servidor/clave.ts`, `src/app/api/administracion/` |
 | Materiales | `db/migraciones/0030_catalogo_en_pantalla.sql`, `src/servidor/dominio/materiales.ts`, `src/app/api/materiales/` |
+| Clientes desde los ajustes | `db/migraciones/0033_clientes_en_pantalla.sql`, `altaDeCliente` y `cambiarCliente` en `src/servidor/dominio/clientes.ts`, `POST` en `src/app/api/clientes/` y en `[cliente]/`, `src/componentes/ajustes/Clientes.tsx` |
 | La pantalla de ajustes | `src/app/panel/ajustes/page.tsx`, `src/componentes/ajustes/`, `src/estilo/ajustes.css` |
-| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
+| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`, `46-clientes-en-pantalla`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
 
 ## Verificado
+
+**El 13 de octubre de 2026**, con los clientes en los ajustes y la migración 0033 (que además deja
+una sola regla para los nombres de cliente), y después de corregir lo que encontró la revisión de
+Codex (`docs/revisiones/2026-10-13-codex-revision-de-los-clientes-en-pantalla.md`):
+
+- tipos y **996 pruebas** (eran 981; las 15 nuevas son las de `46-clientes-en-pantalla`), sin fallas;
+- **216 recorridos en Chromium** y **209 en WebKit** (eran 214 y 207; los 2 nuevos son los de los
+  clientes en los ajustes; las medidas de patio de los ajustes ahora incluyen a los clientes, con
+  un nombre de ochenta letras sin espacios), sin fallas.
+
+Se corrió dos veces completo: antes de corregir los nombres (993, 216 y 209) y después.
 
 **El 12 de octubre de 2026, por la noche**, con los ajustes (personas, equipos y materiales) y las
 tres migraciones nuevas (0030, 0031 y 0032) ya integrados, y después de corregir lo que encontraron

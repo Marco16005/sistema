@@ -2,8 +2,10 @@
 // Los ajustes: lo que antes solo se hacía por la consola o por migración y el dueño decidió poder
 // hacer desde la pantalla (12 de octubre de 2026). Personas y equipos, para el responsable
 // facultado para autorizar y con su clave cada vez —los responsables mismos siguen siendo de la
-// consola—; y el catálogo de materiales, para cualquier responsable.
+// consola—; y el catálogo de materiales y los clientes con precio especial (13 de octubre), para
+// cualquier responsable.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Clientes } from "../../../componentes/ajustes/Clientes.tsx";
 import { SeVeUnaVez, usePedidoConClave } from "../../../componentes/ajustes/ConTuClave.tsx";
 import { Equipos } from "../../../componentes/ajustes/Equipos.tsx";
 import { Materiales } from "../../../componentes/ajustes/Materiales.tsx";
@@ -13,8 +15,8 @@ import { pedir } from "../../../componentes/cliente.ts";
 import { Secciones } from "../../../componentes/panel/Secciones.tsx";
 import { useSesion } from "../../../componentes/Sesion.tsx";
 
-type Parte = "personas" | "equipos" | "materiales";
-const PARTES: Array<[Parte, string]> = [["personas", "Personas"], ["equipos", "Equipos"], ["materiales", "Materiales"]];
+type Parte = "personas" | "equipos" | "materiales" | "clientes";
+const PARTES: Array<[Parte, string]> = [["personas", "Personas"], ["equipos", "Equipos"], ["materiales", "Materiales"], ["clientes", "Clientes"]];
 
 export default function PantallaDeAjustes() {
   const { persona } = useSesion();
@@ -62,7 +64,7 @@ export default function PantallaDeAjustes() {
       {noSeSupo ? <div className="flag" role="alert">{noSeSupo}</div> : null}
       {aviso ? <div className="flag" role="alert">{aviso}</div> : null}
 
-      {parte === "materiales" ? <Materiales /> : !facultado ? (
+      {parte === "materiales" ? <Materiales /> : parte === "clientes" ? <Clientes /> : !facultado ? (
         <div className="card"><p className="empty">Dar de alta y de baja personas y equipos le toca a un responsable facultado para autorizar.</p></div>
       ) : datos === null ? (aviso ? null : <p className="cargando">Un momento…</p>) : parte === "personas" ? (
         <Personas personas={datos.personas} pedirlo={pedirlo} alVer={setUnaVez} />

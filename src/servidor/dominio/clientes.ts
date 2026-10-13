@@ -1,6 +1,6 @@
 // Los clientes del panel: sus cuentas cobradas y lo que movieron sus precios especiales.
 // Los importes y kilos se calculan en la base y llegan como texto decimal.
-import type { Bd } from "../bd.ts";
+import type { Bd, Persona } from "../bd.ts";
 import { fila } from "../forma.ts";
 
 export interface ClienteDelPanel {
@@ -143,3 +143,24 @@ export async function fichaDeCliente(bd: Bd, cliente: string): Promise<FichaDeCl
     FROM resumen`, [id]);
   return f ?? null;
 }
+
+// ── lo que un responsable hace desde los ajustes ────────────────────────────
+
+/** Un cliente como queda después de darlo de alta, de baja o de reactivarlo. */
+export interface ClienteAdministrado {
+  id: string;
+  nombre: string;
+  activo: boolean;
+}
+
+const COMO_QUEDO = 'id::text AS id, nombre, activo';
+
+/** Da de alta a un cliente sin darle todavía ningún precio. Que sea un responsable lo cuida la base. */
+export const altaDeCliente = (bd: Bd, persona: Persona, nombre: string): Promise<ClienteAdministrado> =>
+  bd.enTransaccion(persona, async (c) =>
+    (await c.query<ClienteAdministrado>(`SELECT ${COMO_QUEDO} FROM alta_cliente($1, $2)`, [nombre, persona])).rows[0]!);
+
+/** Lo da de baja —ya no se le puede dar precio especial; su historia se conserva— o lo reactiva. */
+export const cambiarCliente = (bd: Bd, persona: Persona, cliente: string, activo: boolean): Promise<ClienteAdministrado> =>
+  bd.enTransaccion(persona, async (c) =>
+    (await c.query<ClienteAdministrado>(`SELECT ${COMO_QUEDO} FROM cambiar_cliente($1, $2, $3)`, [cliente, activo, persona])).rows[0]!);

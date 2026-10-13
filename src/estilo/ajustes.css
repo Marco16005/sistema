@@ -19,3 +19,8 @@
 .administrado .detiene{margin-top:var(--espacio-2)}
 .btn.arriba{margin:0 0 var(--espacio-3)}
 .administrado :is(.okmsg,.flag){margin:var(--espacio-2) 0 0}
+
+/* Los clientes: un nombre puede llevar ochenta letras y ningún espacio. Se parte donde haga falta
+   —en su renglón, en el botón que lo nombra, en lo que se pregunta y en lo que se contesta— en vez
+   de ensanchar la pantalla. */
+.clientela :is(b,small,.note,.okmsg,.flag,.btn){overflow-wrap:anywhere}

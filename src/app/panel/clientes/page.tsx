@@ -183,7 +183,7 @@ export default function PantallaDeLosClientes() {
       <div className="top"><h2>Clientes</h2></div>
       {aviso ? <div className="flag" role="alert">{aviso}</div> : null}
       {clientes === null || totales === null ? (aviso ? null : <p className="cargando">Un momento…</p>) : clientes.length === 0 ? (
-        <div className="card"><p className="empty">Todavía no hay clientes: se dan de alta al darles su primer precio especial, en el mostrador.</p></div>
+        <div className="card"><p className="empty">Todavía no hay clientes: se dan de alta en Ajustes, o en el mostrador al darles su primer precio especial.</p></div>
       ) : (
         <>
           <div className="indicadores">

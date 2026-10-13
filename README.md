@@ -39,7 +39,9 @@ fabrica un jefe.
 Desde el 12 de octubre de 2026, por decisión del dueño, lo de todos los días sí se puede desde la
 pantalla (Panel → Ajustes): dar de alta, dar de baja y cambiarle la clave a personas de mostrador,
 de patio y de consulta, y dar de alta y de baja equipos. Lo pide un responsable facultado para
-autorizar, con su clave en ese momento (migración 0031). La consola sigue sirviendo para todo.
+autorizar, con su clave en ese momento (migración 0031). Desde el 13 de octubre, cualquier
+responsable da de alta, da de baja y reactiva ahí mismo a los clientes con precio especial
+(migración 0033). La consola sigue sirviendo para todo.
 
 ```bash
 docker compose run --rm consola persona alta "Luis" mostrador          # genera la clave y la muestra
@@ -78,10 +80,10 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 981 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 996 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 214 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 207
+docker compose --profile recorrido run --rm recorrido     # 216 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 209
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
@@ -191,9 +193,11 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene seis partes, y una m�
   cliente se imprimen desde su pantalla, en una hoja normal.
 - los **ajustes** (solo responsables): dar de alta y de baja **personas** de mostrador, de patio y
   de consulta y cambiarles la clave, y dar de alta y de baja **equipos** —esto, el responsable
-  facultado para autorizar y con su clave cada vez—; y dar de alta, dar de baja, reactivar y marcar
-  como frecuentes los **materiales**. Los responsables, quien administra y la facultad de autorizar
-  siguen siendo de la consola, y a un material no se le cambia el nombre.
+  facultado para autorizar y con su clave cada vez—; dar de alta, dar de baja, reactivar y marcar
+  como frecuentes los **materiales**; y dar de alta, dar de baja y reactivar a los **clientes** a
+  los que se les da precio especial (también siguen naciendo en el mostrador, al darles el
+  primero). Los responsables, quien administra y la facultad de autorizar siguen siendo de la
+  consola, a un material no se le cambia el nombre, y a un cliente, solo por la consola.
 
 El panel no lleva cuentas propias: todo sale de los comprobantes y del libro de inventario, con la
 regla del cierre —una cuenta es del día en que se asentó—, así que cada día del panel dice lo mismo
