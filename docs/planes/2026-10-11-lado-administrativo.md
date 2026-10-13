@@ -176,7 +176,7 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
     ya lleva precio especial para ese cliente —autorizado cuando estaba activo— se cobra como
     está; lo que la baja impide es darle otro. Y no se borra a nadie: «borrar» es dar de baja,
     porque los comprobantes y el registro de precios lo nombran. Cambiarle el nombre se quedó en
-    la consola: nadie lo pidió para la pantalla.
+    la consola: nadie lo pidió para la pantalla (se pidió después: decisión 25).
 18. **Un nombre de cliente, una sola manera de escribirlo** (migraciones 0033 y 0034). Con dos
     puertas para dar de alta a un cliente hacía falta una sola regla, en la base, para los ajustes,
     el mostrador y la consola: se quita lo que no se ve, todo blanco es un espacio, y la misma
@@ -209,6 +209,13 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
 24. **La demostración trae descuentos y cuentas descartadas**, inventados como todo lo demás, y
     sorteados aparte para que no cambie qué se compra y se vende con cada semilla. Una
     demostración sembrada antes del 13 de octubre no los tiene: no se le agregan después.
+25. **Cambiarle el nombre a un cliente, desde la pantalla** (13 de octubre, migración 0036). Era
+    lo único de los clientes que seguía siendo solo de la consola; el dueño lo pidió. Lo hace
+    cualquier responsable en los ajustes, y queda en la bitácora con cómo se llamaba y cómo se
+    llama. No toca lo ya entregado: cada cuenta cobrada guarda el nombre que el cliente tenía ese
+    día; una cuenta abierta que ya lleva su precio se cobra con el nombre de ahora. No puede
+    quedar con el nombre de otro cliente, esté activo o dado de baja. A un material se le sigue
+    sin poder cambiar el nombre: sus comprobantes sí toman el nombre de hoy.
 
 ### El sembrador de la demostración (`consola/demo.ts`)
 
@@ -249,7 +256,8 @@ repositorio); con ella se vuelve a como estaba.
 | Las dos carreras que cerró la revisión | `db/migraciones/0032_los_ajustes_sin_carreras.sql` |
 | Personas y equipos | `db/migraciones/0031_personas_y_equipos_en_pantalla.sql`, `src/servidor/dominio/administracion.ts`, `src/servidor/clave.ts`, `src/app/api/administracion/` |
 | Materiales | `db/migraciones/0030_catalogo_en_pantalla.sql`, `src/servidor/dominio/materiales.ts`, `src/app/api/materiales/` |
-| Clientes desde los ajustes | `db/migraciones/0033_clientes_en_pantalla.sql` y `0034_nombres_de_cliente_sin_resquicios.sql` (la regla de los nombres), `altaDeCliente` y `cambiarCliente` en `src/servidor/dominio/clientes.ts`, `POST` en `src/app/api/clientes/` y en `[cliente]/`, `src/componentes/ajustes/Clientes.tsx` |
+| Clientes desde los ajustes | `db/migraciones/0033_clientes_en_pantalla.sql`, `0034_nombres_de_cliente_sin_resquicios.sql` (la regla de los nombres) y `0036_el_nombre_de_un_cliente_en_pantalla.sql` (cambiarle el nombre); `altaDeCliente`, `cambiarCliente` y `cambiarNombreDeCliente` en `src/servidor/dominio/clientes.ts`; `POST` en `src/app/api/clientes/`, en `[cliente]/` y en `[cliente]/nombre/`; `src/componentes/ajustes/Clientes.tsx` |
+| Los intentos de clave que no se deshacen | `db/migraciones/0035_intentos_que_no_se_deshacen.sql`; sus pruebas, en `pruebas/11-identidad` |
 | La pantalla de ajustes | `src/app/panel/ajustes/page.tsx`, `src/componentes/ajustes/`, `src/estilo/ajustes.css` |
 | Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`, `46-clientes-en-pantalla`, `47-materiales-del-panel`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
 
@@ -369,10 +377,10 @@ De la lista que el usuario aprobó el 12 de octubre ya solo queda lo último:
 Y lo que hay que cerrar antes del servidor de verdad (`2026-10-03-despliegue.md`):
 
 - autenticar el respaldo antes de restaurarlo;
-- **que los intentos de clave se cuenten aunque quien pregunta deshaga su transacción** (lo
-  encontró Codex el 12 de octubre: con la contraseña con que la aplicación entra a la base se puede
-  adivinar una clave sin que se bloquee; ver
-  `docs/revisiones/2026-10-12-codex-revision-de-personas-y-equipos.md`, punto 2);
+- ~~que los intentos de clave se cuenten aunque quien pregunta deshaga su transacción~~ —
+  **hecho el 13 de octubre** (migración 0035): la cuenta vive además en una secuencia por
+  persona, que no es de la transacción. El porqué y lo que no cambia están al principio de la
+  migración y en `docs/revisiones/2026-10-12-codex-revision-de-personas-y-equipos.md`, punto 2;
 - la guía de operación, y probar las pantallas en los equipos del patio.
 
 ## Lo que no se hizo

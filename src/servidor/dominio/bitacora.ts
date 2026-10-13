@@ -27,6 +27,8 @@ interface Registro extends Omit<Asiento, "que"> {
   paso: string | null;
   motivo: string | null;
   nombre: string | null;
+  /** Cómo se llamaba antes de que le cambiaran el nombre. */
+  anterior: string | null;
   material: string | null;
   destino: string | null;
   persona: string | null;
@@ -95,6 +97,7 @@ const frases: Record<string, (r: Registro) => string> = {
   "alta cliente": (r) => `dio de alta al cliente${nombre(r)}`,
   "baja cliente": (r) => `dio de baja al cliente${nombre(r)}`,
   "reactivar cliente": (r) => `reactivó al cliente${nombre(r)}`,
+  "renombrar cliente": (r) => r.anterior && r.nombre ? `le cambió el nombre al cliente ${r.anterior}: ahora es ${r.nombre}` : "le cambió el nombre a un cliente",
 };
 
 /** Las parejas (accion, entidad) que tienen frase propia. La prueba la compara con las migraciones. */
@@ -133,7 +136,7 @@ export async function bitacora(
             b.detalle->>'queda' AS queda, b.detalle->>'folio' AS folio,
             b.detalle->>'cierre' AS cierre, b.detalle->>'tipo' AS tipo,
             b.detalle->>'clase' AS clase, b.detalle->>'paso' AS paso,
-            b.detalle->>'motivo' AS motivo,
+            b.detalle->>'motivo' AS motivo, b.detalle->>'anterior' AS anterior,
             b.detalle #>> '{antes,activo}' AS "activoAntes", b.detalle #>> '{despues,activo}' AS "activoDespues",
             b.detalle #>> '{antes,frecuente}' AS "frecuenteAntes", b.detalle #>> '{despues,frecuente}' AS "frecuenteDespues",
             CASE WHEN b.accion IN ('insert', 'update', 'delete')

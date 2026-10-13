@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -278,6 +278,160 @@ test("bitácora: el alta, la baja y la reactivación se dicen con el nombre del 
     } finally { await bd.cerrar(); }
   }));
 
+// ── cambiarle el nombre a un cliente (migración 0036) ───────────────────────
+// Era solo de la consola. Lo hace un responsable; lo ya cobrado conserva el nombre que tenía.
+
+const renombre = (db: pg.Client, quien: string, id: string | number, nombre: string | null) =>
+  una(db, "SELECT * FROM cambiar_nombre_de_cliente($1, $2, $3)", [id, nombre, quien]);
+
+test("nombre: el responsable le cambia el nombre a un cliente; el nombre nuevo se limpia con la misma regla, y queda anotado con el de antes y el de ahora", () =>
+  conApp(async (app, db, e) => {
+    const c = await alta(app, e.responsable, "Don Chuy");
+    const r = await renombre(app, e.responsable, c.id, "  Jesús   Pérez ");
+    assert.deepEqual({ id: r.id, nombre: r.nombre, activo: r.activo }, { id: c.id, nombre: "Jesús Pérez", activo: true });
+    assert.deepEqual((await anotado(db)).at(-1), { usuario_id: e.responsable, accion: "renombrar", entidad_id: c.id, detalle: { anterior: "Don Chuy", nombre: "Jesús Pérez" } });
+    // Cambiar solo las mayúsculas o un acento de su propio nombre también es cambiarlo.
+    assert.equal((await renombre(app, e.responsable, c.id, "JESÚS PÉREZ")).nombre, "JESÚS PÉREZ");
+    // Y a un cliente dado de baja también se le puede corregir el nombre.
+    await cambio(app, e.responsable, c.id, false);
+    assert.deepEqual((({ nombre, activo }) => ({ nombre, activo }))(await renombre(app, e.responsable, c.id, "Jesús Pérez Soto")), { nombre: "Jesús Pérez Soto", activo: false });
+  }));
+
+test("nombre: ponerle el que ya tiene no cambia ni anota nada", () =>
+  conApp(async (app, db, e) => {
+    const c = await alta(app, e.responsable, "Don Chuy");
+    const antes = (await anotado(db)).length;
+    assert.equal((await renombre(app, e.responsable, c.id, "  Don   Chuy ")).nombre, "Don Chuy");
+    assert.equal((await anotado(db)).length, antes);
+  }));
+
+test("nombre: sin nombre, con más de 80 letras, igual al de otro cliente —activo o de baja— o de un cliente que no existe, no se cambia, y se dice por qué", () =>
+  conApp(async (app, db, e) => {
+    const chuy = await alta(app, e.responsable, "Don Chuy");
+    const mari = await alta(app, e.responsable, "Doña Mari");
+    const lupita = await alta(app, e.responsable, "Doña Lupita");
+    await cambio(app, e.responsable, lupita.id, false);
+    await falla(renombre(app, e.responsable, chuy.id, "   "), "Falta el nombre del cliente");
+    await falla(renombre(app, e.responsable, chuy.id, null), "Falta el nombre del cliente");
+    await falla(renombre(app, e.responsable, chuy.id, "X".repeat(81)), "El nombre del cliente lleva hasta 80 letras");
+    await falla(renombre(app, e.responsable, chuy.id, "doña mari"), "Ya hay un cliente que se llama «Doña Mari»");
+    await falla(renombre(app, e.responsable, chuy.id, "DOÑA LUPITA"), "«Doña Lupita» ya es el nombre de un cliente dado de baja");
+    await falla(renombre(app, e.responsable, 999999, "Alguien"), "Ese cliente no existe");
+    assert.deepEqual((await db.query("SELECT nombre FROM cliente ORDER BY id")).rows.map((f) => f.nombre), ["Don Chuy", "Doña Mari", "Doña Lupita"]);
+    assert.equal((await anotado(db)).filter((a) => a.accion === "renombrar").length, 0);
+    assert.equal(mari.nombre, "Doña Mari");
+  }));
+
+test("nombre: solo un responsable lo cambia, y se le dice antes de mirar los datos", () =>
+  conApp(async (app, db, e) => {
+    const c = await alta(app, e.responsable, "Don Chuy");
+    for (const quien of [e.mostrador, e.patio, e.consulta]) {
+      await rechaza(renombre(app, quien, c.id, "Otro"), "RC008");
+      await rechaza(renombre(app, quien, 999999, "   "), "RC008");
+    }
+    assert.equal((await una(db, "SELECT nombre FROM cliente WHERE id = $1", [c.id])).nombre, "Don Chuy");
+  }));
+
+test("nombre: lo ya cobrado conserva el nombre que el cliente tenía ese día; lo que se cobre después lleva el nuevo", async () => {
+  const { conMundo, ruta, CLAVES } = await import("./mundo.ts");
+  await conMundo(async (m) => {
+    const carton = await material(m.db, "Cartón");
+    const jefe = await m.adentro("responsable");
+    await jefe.bien(await ruta("arranque/terminar", "POST"), "POST", "/api/x", { saldos: [{ material: carton, kg: "500", origen: "estimado" }] });
+    await jefe.bien(await ruta("jornada/abrir", "POST"), "POST", "/api/x");
+    await jefe.bien(await ruta("precios", "POST"), "POST", "/api/x", { cambios: [{ material: carton, compra: "2.1", venta: "2.5" }] });
+    await jefe.bien(await ruta("precios/publicar", "POST"), "POST", "/api/x");
+    const { cliente } = await jefe.bien(await ruta("clientes", "POST"), "POST", "/api/clientes", { nombre: "Don Chuy" });
+    const autoriza = { autoriza: m.personas.responsable, clave: CLAVES.responsable };
+    const conEspecial = async (cobrar: boolean): Promise<string> => {
+      const cuenta = randomUUID();
+      const par = { parametros: { cuenta } };
+      const linea = randomUUID();
+      await jefe.bien(await ruta("cuentas", "POST"), "POST", "/api/x", { id: cuenta, tipo: "compra", etiqueta: null });
+      await jefe.bien(await ruta("cuentas/[cuenta]/materiales", "POST"), "POST", "/api/x", { linea, captura: randomUUID(), material: carton, bascula: 2, kg: "10" }, par);
+      const r = await jefe.bien(await ruta("cuentas/[cuenta]/precio-especial", "POST"), "POST", "/api/x",
+        { id: randomUUID(), linea, visto: null, cliente: cliente.id, clienteNuevo: null, diferencia: "0.10", ...autoriza }, par);
+      if (cobrar) await jefe.bien(await ruta("cuentas/[cuenta]/confirmar", "POST"), "POST", "/api/x", { revision: r.cuenta.revision }, par);
+      return cuenta;
+    };
+    const cobrada = await conEspecial(true);
+    const abierta = await conEspecial(false);
+    const r = await jefe.bien(await ruta("clientes/[cliente]/nombre", "POST"), "POST", "/api/x", { nombre: "Jesús Pérez" }, { parametros: { cliente: cliente.id } });
+    assert.deepEqual(r, { cliente: { id: cliente.id, nombre: "Jesús Pérez", activo: true } });
+    // La cuenta abierta que ya llevaba su precio se cobra, y lleva el nombre de ahora.
+    const revision = (await una(m.db, "SELECT revision FROM operacion WHERE id = $1", [abierta])).revision;
+    await jefe.bien(await ruta("cuentas/[cuenta]/confirmar", "POST"), "POST", "/api/x", { revision }, { parametros: { cuenta: abierta } });
+    assert.deepEqual((await m.db.query("SELECT id, cliente_nombre FROM operacion WHERE id = ANY($1) ORDER BY folio", [[cobrada, abierta]])).rows,
+      [{ id: cobrada, cliente_nombre: "Don Chuy" }, { id: abierta, cliente_nombre: "Jesús Pérez" }]);
+    // En el mostrador se ofrece con su nombre nuevo.
+    assert.deepEqual((await jefe.bien(await ruta("clientes", "GET"), "GET", "/api/clientes")).clientes.map((c: { nombre: string }) => c.nombre), ["Jesús Pérez"]);
+  });
+});
+
+test("nombre, por las rutas: es del responsable; lo mal formado es 400 FORMA, y lo que la base no deja, 409 con su mensaje", async () => {
+  const { conMundo, ruta } = await import("./mundo.ts");
+  await conMundo(async (m) => {
+    const jefe = await m.adentro("responsable");
+    const [nuevo, nombrar] = [await ruta("clientes", "POST"), await ruta("clientes/[cliente]/nombre", "POST")];
+    const { cliente } = await jefe.bien(nuevo, "POST", "/api/clientes", { nombre: "Don Chuy" });
+    await jefe.bien(nuevo, "POST", "/api/clientes", { nombre: "Doña Mari" });
+    const par = { parametros: { cliente: cliente.id } };
+    for (const rol of ["consulta", "mostrador", "patio", "administracion", null] as const) {
+      const n = rol === null ? await m.equipo() : await m.adentro(rol);
+      const r = await n.pedir(nombrar, "POST", "/api/x", { nombre: "Otro" }, par);
+      assert.equal(r.status, rol === null ? 401 : 403, String(rol));
+      if (rol !== null) assert.equal((await r.json()).error.codigo, "ROL");
+    }
+    for (const cuerpo of [[], {}, { nombre: 42 }, { nombre: null }, { nombre: ["Otro"] }, { nombre: "X".repeat(1001) }]) {
+      const r = await jefe.pedir(nombrar, "POST", "/api/x", cuerpo, par);
+      assert.equal(r.status, 400, JSON.stringify(cuerpo).slice(0, 40));
+      assert.equal((await r.json()).error.codigo, "FORMA");
+    }
+    for (const id of ["0", "abc", "-1", "1.5", "9".repeat(19)]) {
+      const r = await jefe.pedir(nombrar, "POST", "/api/x", { nombre: "Otro" }, { parametros: { cliente: id } });
+      assert.equal(r.status, 400, id);
+      assert.equal((await r.json()).error.codigo, "FORMA");
+    }
+    const mensaje = async (r: Response) => { assert.equal(r.status, 409); return (await r.json()).error; };
+    assert.deepEqual(await mensaje(await jefe.pedir(nombrar, "POST", "/api/x", { nombre: "   " }, par)), { codigo: "RC005", mensaje: "Falta el nombre del cliente" });
+    assert.deepEqual(await mensaje(await jefe.pedir(nombrar, "POST", "/api/x", { nombre: "doña mari" }, par)), { codigo: "RC005", mensaje: "Ya hay un cliente que se llama «Doña Mari»" });
+    assert.deepEqual(await mensaje(await jefe.pedir(nombrar, "POST", "/api/x", { nombre: "Otro" }, { parametros: { cliente: "999999" } })), { codigo: "RC005", mensaje: "Ese cliente no existe" });
+    assert.deepEqual((await m.db.query("SELECT nombre FROM cliente ORDER BY id")).rows.map((f) => f.nombre), ["Don Chuy", "Doña Mari"]);
+  });
+});
+
+test("nombre, a la vez: dos clientes que quieren el mismo nombre nuevo: uno lo consigue y el otro recibe el mensaje de negocio, no un error de la base", () =>
+  conBase(async (db, base) => {
+    const q = await usuario(db, "Dueño", "responsable");
+    const chuy = await alta(db, q, "Don Chuy");
+    const mari = await alta(db, q, "Doña Mari");
+    const otro = await conectar(base);
+    const vigia = await conectar(base);
+    try {
+      const pid = await pidDe(otro);
+      await db.query("BEGIN");
+      await renombre(db, q, chuy.id, "Taller López");
+      const pendiente = falla(renombre(otro, q, mari.id, "taller lópez"), "Ya hay un cliente que se llama «Taller López»");
+      await esperarQueEspere(vigia, pid);
+      await db.query("COMMIT");
+      await pendiente;
+      assert.deepEqual((await db.query("SELECT nombre FROM cliente ORDER BY id")).rows.map((f) => f.nombre), ["Taller López", "Doña Mari"]);
+      assert.equal((await anotado(db)).filter((a) => a.accion === "renombrar").length, 1);
+    } finally { await db.query("ROLLBACK"); await otro.end(); await vigia.end(); }
+  }));
+
+test("nombre, en la bitácora: se dice cómo se llamaba y cómo se llama", () =>
+  conApp(async (app, _db, e, base) => {
+    const { bitacora } = await import("../src/servidor/dominio/bitacora.ts");
+    const bd = crearBd(await urlApp(base));
+    try {
+      const c = await alta(app, e.responsable, "Don Chuy");
+      await renombre(app, e.responsable, c.id, "Jesús Pérez");
+      const r = (await bitacora(bd, { cuantos: 1 })).asientos[0]!;
+      assert.deepEqual({ que: r.que, quien: r.quien }, { que: "le cambió el nombre al cliente Don Chuy: ahora es Jesús Pérez", quien: "Servando" });
+    } finally { await bd.cerrar(); }
+  }));
+
 // ── los nombres ─────────────────────────────────────────────────────────────
 //
 // Lo encontró la revisión de Codex del 13 de octubre (docs/revisiones): la regla de nombres de la
@@ -348,7 +502,9 @@ test("nombres, en el mostrador: un cliente nuevo hecho de puros blancos no es na
   });
 });
 
-const DESDE_LA_0033 = ["0033_clientes_en_pantalla.sql", "0034_nombres_de_cliente_sin_resquicios.sql"];
+/** Las migraciones de esa en adelante: las que una base «de antes» todavía no tiene. */
+const desdeLa = async (primera: string): Promise<string[]> =>
+  (await readdir(fileURLToPath(new URL("../db/migraciones", import.meta.url)))).filter((f) => f.endsWith(".sql") && f >= primera).sort();
 
 test("al migrar, los clientes que ya existían pasan por la regla nueva: se limpian; al que quedaría sin nombre o igual a otro se le pone uno que dice cuál es; ninguno se pierde, y la tabla ya no admite los de antes", () =>
   conBaseVacia(async (base) => {
@@ -356,15 +512,17 @@ test("al migrar, los clientes que ya existían pasan por la regla nueva: se limp
     const antes = await mkdtemp(join(tmpdir(), "antes-de-0033-"));
     const db = await conectar(base);
     try {
+      const nuevas = await desdeLa("0033_");
+      assert.deepEqual(nuevas.slice(0, 2), ["0033_clientes_en_pantalla.sql", "0034_nombres_de_cliente_sin_resquicios.sql"]);
       await cp(MIGRACIONES, antes, { recursive: true });
-      for (const nueva of DESDE_LA_0033) await rm(join(antes, nueva));
+      for (const nueva of nuevas) await rm(join(antes, nueva));
       await migrar(db, antes);
       // Todos estos los dejaba pasar la regla de la 0025.
       const viejos = ["Don Chuy", " ", "Ana\u00A0Paz", "Ana Paz", "\u200B", "Jose\u0301", "\u200BDon\u200B Chuy"];
       for (const nombre of viejos) await db.query("INSERT INTO cliente (nombre) VALUES ($1)", [nombre]);
       await db.query("UPDATE cliente SET activo = false WHERE nombre = ' '");
 
-      assert.deepEqual(await migrar(db), DESDE_LA_0033);
+      assert.deepEqual(await migrar(db), nuevas);
       assert.deepEqual((await db.query("SELECT id::int, nombre, activo FROM cliente ORDER BY id")).rows, [
         { id: 1, nombre: "Don Chuy", activo: true },
         { id: 2, nombre: "Cliente sin nombre (2)", activo: false },
@@ -449,13 +607,15 @@ test("al migrar a la 0034, los clientes que la 0033 dejó pasar con un disfraz s
     const antes = await mkdtemp(join(tmpdir(), "antes-de-0034-"));
     const db = await conectar(base);
     try {
+      const nuevas = await desdeLa("0034_");
+      assert.equal(nuevas[0], "0034_nombres_de_cliente_sin_resquicios.sql");
       await cp(MIGRACIONES, antes, { recursive: true });
-      await rm(join(antes, "0034_nombres_de_cliente_sin_resquicios.sql"));
+      for (const nueva of nuevas) await rm(join(antes, nueva));
       await migrar(db, antes);
       // Todos estos pasaban la regla de la 0033.
       for (const nombre of ["Don Chuy", "Don Chuy\u{E0100}", "Don\u2800Chuy", "Taller\u0001 L\u00F3pez", "\u{E0041}"]) await db.query("INSERT INTO cliente (nombre) VALUES ($1)", [nombre]);
 
-      assert.deepEqual(await migrar(db), ["0034_nombres_de_cliente_sin_resquicios.sql"]);
+      assert.deepEqual(await migrar(db), nuevas);
       assert.deepEqual((await db.query("SELECT id::int, nombre FROM cliente ORDER BY id")).rows, [
         { id: 1, nombre: "Don Chuy" },
         { id: 2, nombre: "Don Chuy (2)" },

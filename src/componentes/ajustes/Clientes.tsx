@@ -1,9 +1,9 @@
 "use client";
 // Los clientes a los que se les puede dar precio especial, para un responsable: dar de alta uno
-// —sin esperar a darle el primero en el mostrador—, darlo de baja y reactivarlo. Tenerlo en la
-// lista no le da nada: cada precio especial sigue pidiendo la clave de quien autoriza. Dado de
-// baja ya no se ofrece en el mostrador; lo que se le compró y vendió se conserva. El nombre no se
-// cambia aquí: eso sigue siendo de la consola. Las reglas las cuida la base (migración 0033).
+// —sin esperar a darle el primero en el mostrador—, cambiarle el nombre, darlo de baja y
+// reactivarlo. Tenerlo en la lista no le da nada: cada precio especial sigue pidiendo la clave de
+// quien autoriza. Dado de baja ya no se ofrece en el mostrador; lo que se le compró y vendió se
+// conserva, con el nombre que tenía ese día. Las reglas las cuida la base (migraciones 0033 y 0036).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pedir } from "../cliente.ts";
 import { fechaCorta } from "../formato.ts";
@@ -21,6 +21,9 @@ export function Clientes() {
   const [dicho, setDicho] = useState<{ de: string | null; texto: string; mal: boolean } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [porBajar, setPorBajar] = useState<string | null>(null);
+  // A quién se le está cambiando el nombre, y cómo va quedando.
+  const [renombrando, setRenombrando] = useState<string | null>(null);
+  const [otroNombre, setOtroNombre] = useState("");
   const [dando, setDando] = useState(false);
   const [nombre, setNombre] = useState("");
 
@@ -63,8 +66,18 @@ export function Clientes() {
 
   const activos = lista.filter((c) => c.activo).sort(porNombre);
   const deBaja = lista.filter((c) => !c.activo).sort(porNombre);
-  const elNombre = nombre.trim().replace(/\s+/g, " ");
+  const limpio = (t: string): string => t.trim().replace(/\s+/g, " ");
+  const elNombre = limpio(nombre);
+  const elOtro = limpio(otroNombre);
   const cerrarAlta = (): void => { setDando(false); setNombre(""); };
+  const dejarElNombre = (): void => { setRenombrando(null); setOtroNombre(""); };
+  const cambiarElNombre = async (c: ClienteDelPanel): Promise<void> => {
+    if (elOtro === "" || elOtro === c.nombre || ocupado) return;
+    const bien = await mandar(c.id, `/api/clientes/${c.id}/nombre`, { nombre: elOtro },
+      (como) => `Ahora se llama ${como}. Los comprobantes ya entregados conservan el nombre de antes.`);
+    // Si no se pudo —ya hay otro con ese nombre—, lo tecleado se queda para corregirlo.
+    if (bien) dejarElNombre();
+  };
 
   const darDeAlta = async (): Promise<void> => {
     if (elNombre === "" || ocupado) return;
@@ -112,8 +125,23 @@ export function Clientes() {
                     <button className="btn ghostbtn chico" type="button" disabled={ocupado} onClick={() => setPorBajar(null)}>No</button>
                   </div>
                 </>
+              ) : renombrando === c.id ? (
+                <>
+                  <label>
+                    <span className="lbl sep">Cómo se llama ahora</span>
+                    <input className="campo" type="text" value={otroNombre} maxLength={80} autoComplete="off" autoCapitalize="words" enterKeyHint="done" onChange={(e) => setOtroNombre(e.target.value)} />
+                  </label>
+                  <p className="note">Los comprobantes ya entregados conservan el nombre que tenía ese día.</p>
+                  <div className="dos">
+                    <button className="btn chico" type="button" disabled={elOtro === "" || elOtro === c.nombre || ocupado} onClick={() => void cambiarElNombre(c)}>Guardar el nombre</button>
+                    <button className="btn ghostbtn chico" type="button" disabled={ocupado} onClick={dejarElNombre}>No cambiarlo</button>
+                  </div>
+                </>
               ) : (
-                <button className="btn ghostbtn chico" type="button" disabled={ocupado} aria-label={`Dar de baja a ${c.nombre}`} onClick={() => { setPorBajar(c.id); setDicho(null); }}>Dar de baja</button>
+                <div className="dos">
+                  <button className="btn ghostbtn chico" type="button" disabled={ocupado} aria-label={`Cambiarle el nombre a ${c.nombre}`} onClick={() => { setRenombrando(c.id); setOtroNombre(c.nombre); setPorBajar(null); setDicho(null); }}>Cambiar el nombre</button>
+                  <button className="btn ghostbtn chico" type="button" disabled={ocupado} aria-label={`Dar de baja a ${c.nombre}`} onClick={() => { setPorBajar(c.id); dejarElNombre(); setDicho(null); }}>Dar de baja</button>
+                </div>
               )}
             </div>
           ))}
@@ -136,7 +164,7 @@ export function Clientes() {
         </div>
       ) : null}
 
-      <p className="note">Un cliente también se da de alta en el mostrador, al darle su primer precio especial. Lo que se le ha comprado y vendido a cada uno está en Clientes, en el panel. Cambiarle el nombre a un cliente sigue siendo por la consola.</p>
+      <p className="note">Un cliente también se da de alta en el mostrador, al darle su primer precio especial. Lo que se le ha comprado y vendido a cada uno está en Clientes, en el panel.</p>
     </div>
   );
 }

@@ -164,3 +164,8 @@ export const altaDeCliente = (bd: Bd, persona: Persona, nombre: string): Promise
 export const cambiarCliente = (bd: Bd, persona: Persona, cliente: string, activo: boolean): Promise<ClienteAdministrado> =>
   bd.enTransaccion(persona, async (c) =>
     (await c.query<ClienteAdministrado>(`SELECT ${COMO_QUEDO} FROM cambiar_cliente($1, $2, $3)`, [cliente, activo, persona])).rows[0]!);
+
+/** Le cambia el nombre a un cliente. Lo ya cobrado conserva el que tenía ese día. */
+export const cambiarNombreDeCliente = (bd: Bd, persona: Persona, cliente: string, nombre: string): Promise<ClienteAdministrado> =>
+  bd.enTransaccion(persona, async (c) =>
+    (await c.query<ClienteAdministrado>(`SELECT ${COMO_QUEDO} FROM cambiar_nombre_de_cliente($1, $2, $3)`, [cliente, nombre, persona])).rows[0]!);

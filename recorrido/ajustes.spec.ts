@@ -378,6 +378,54 @@ test("los clientes de los ajustes son de cualquier responsable, tenga o no la fa
   await expect(tarjeta(page, "Clientes").locator(".administrado > b")).toHaveText(["Aceros Zayha", "Doña Mari"]);
 });
 
+test("a un cliente se le cambia el nombre en los ajustes: no puede quedar con el de otro; el mostrador lo ofrece con el nuevo, y la bitácora dice cómo se llamaba", async ({ page }) => {
+  const g = await gente();
+  await enAjustes(page, g, [["Cartón", "500"]]);
+  await enClientes(page);
+  for (const nombre of ["Don Chuy", "Doña Mari"]) {
+    await page.getByRole("button", { name: "Dar de alta un cliente" }).click();
+    await page.getByLabel("Cómo se llama").fill(nombre);
+    await page.getByRole("button", { name: `Dar de alta a ${nombre}` }).click();
+    await expect(page.locator(".okmsg")).toContainText(`${nombre} quedó dado de alta.`);
+  }
+
+  await page.getByRole("button", { name: "Cambiarle el nombre a Don Chuy" }).click();
+  const campo = page.getByLabel("Cómo se llama ahora");
+  // Empieza con el que tiene, y con ese mismo no hay nada que guardar.
+  await expect(campo).toHaveValue("Don Chuy");
+  await expect(page.getByRole("button", { name: "Guardar el nombre" })).toBeDisabled();
+  // El de otro cliente no se puede: se dice junto a él, y lo tecleado se queda para corregirlo.
+  await campo.fill("doña mari");
+  await page.getByRole("button", { name: "Guardar el nombre" }).click();
+  await expect(renglon(page, "Don Chuy").locator('.flag[role="alert"]')).toHaveText("Ya hay un cliente que se llama «Doña Mari»");
+  await expect(campo).toHaveValue("doña mari");
+  await campo.fill("  Jesús   Pérez ");
+  await page.getByRole("button", { name: "Guardar el nombre" }).click();
+  await expect(page.locator(".okmsg")).toHaveText("Ahora se llama Jesús Pérez. Los comprobantes ya entregados conservan el nombre de antes.");
+  await expect(tarjeta(page, "Clientes").locator(".administrado > b")).toHaveText(["Doña Mari", "Jesús Pérez"]);
+  await expect(page.getByLabel("Cómo se llama ahora")).toHaveCount(0);
+
+  // Arrepentirse no cambia nada.
+  await page.getByRole("button", { name: "Cambiarle el nombre a Doña Mari" }).click();
+  await page.getByLabel("Cómo se llama ahora").fill("Otra");
+  await page.getByRole("button", { name: "No cambiarlo" }).click();
+  await expect(tarjeta(page, "Clientes").locator(".administrado > b")).toHaveText(["Doña Mari", "Jesús Pérez"]);
+  expect(await conConsola(async (db) => (await db.query("SELECT nombre FROM cliente ORDER BY id")).rows.map((f) => f.nombre))).toEqual(["Jesús Pérez", "Doña Mari"]);
+
+  // En el mostrador se ofrece con su nombre de ahora, no con el de antes.
+  await irA(page, "Mostrador");
+  await page.getByRole("button", { name: "+ Venta" }).click();
+  await pesar(page, "Cartón", "Báscula 2", "40");
+  await page.getByRole("button", { name: "Precio especial para Cartón" }).click();
+  await expect(page.locator(".grid").getByRole("button", { name: "Jesús Pérez", exact: true })).toBeVisible();
+  await expect(page.locator(".grid").getByRole("button", { name: "Don Chuy", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "No dar precio especial" }).click();
+
+  await irA(page, "Panel");
+  await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Bitácora" }).click();
+  await expect(page.locator(".asiento").filter({ hasText: "Servando le cambió el nombre al cliente Don Chuy: ahora es Jesús Pérez" })).toHaveCount(1);
+});
+
 test("los ajustes son de un responsable, y personas y equipos, del que está facultado para autorizar: a quien consulta no se le ofrecen, y al responsable sin la facultad se le dice", async ({ page }) => {
   const g = await gente();
   await diaListo(g);
@@ -458,6 +506,10 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await page.getByRole("button", { name: /^Dar de alta a W+$/ }).click();
     await expect(page.locator(".okmsg")).toBeVisible();
     await medir("los clientes, con uno de nombre largo");
+    await page.getByRole("button", { name: /^Cambiarle el nombre a W+$/ }).click();
+    await expect(page.getByLabel("Cómo se llama ahora")).toBeVisible();
+    await medir("un cliente al que se le cambia el nombre");
+    await page.getByRole("button", { name: "No cambiarlo" }).click();
     await page.getByRole("button", { name: /^Dar de baja a W+$/ }).click();
     await medir("un cliente por dar de baja");
     await page.getByRole("button", { name: "Sí, dar de baja" }).click();

@@ -542,6 +542,177 @@ test("lo mismo cuando ya había alguien atendiendo en el equipo", () =>
     }
   }));
 
+// ── los intentos que no se pueden deshacer ─────────────────────────────────
+// Quien tuviera la contraseña con que la aplicación entra a la base podía probar una clave dentro
+// de una transacción y deshacerla si no pasaba: el fallo no quedaba contado. La cuenta vive ahora,
+// además, en una secuencia por persona, que no es de la transacción (migración 0035).
+
+/** Prueba una clave como lo haría quien tiene la contraseña de la aplicación: en una transacción que deshace. */
+const probarYDeshacer = async (app: pg.Client, huella: string, persona: string, clave: string): Promise<boolean> => {
+  await app.query("BEGIN");
+  try {
+    return (await una(app, "SELECT verificar_clave($1, $2, $3) AS bien", [huella, persona, clave])).bien;
+  } finally {
+    await app.query("ROLLBACK");
+  }
+};
+const intentosDe = (db: pg.Client, persona: string) => una(db, "SELECT * FROM intentos_de($1)", [persona]);
+
+test("cinco claves malas bloquean aunque quien pregunta deshaga cada intento", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const servando = await alta(db, "Servando", "responsable", "481516", true);
+    for (let k = 0; k < 4; k++) assert.equal(await probarYDeshacer(app, h, servando, `00000${k}`), false);
+    // El renglón no se enteró —cada intento se deshizo—, pero la cuenta sí: van cuatro.
+    assert.equal((await credencialDe(db, servando)).fallos, 0);
+    assert.deepEqual(await intentosDe(db, servando), { fallos: 4, bloqueos: 0, bloqueada_hasta: null });
+    assert.equal(await probarYDeshacer(app, h, servando, "000004"), false);
+    const i = await intentosDe(db, servando);
+    assert.deepEqual({ fallos: i.fallos, bloqueos: i.bloqueos }, { fallos: 0, bloqueos: 1 });
+    assert.ok(i.bloqueada_hasta > new Date());
+    // Bloqueada: ni la clave buena pasa, se deshaga o no; y seguir probando no dice nada.
+    assert.equal(await probarYDeshacer(app, h, servando, "481516"), false);
+    assert.equal(await entrar(app, h, servando, "481516"), null);
+    for (let k = 0; k < 20; k++) assert.equal(await probarYDeshacer(app, h, servando, "481516"), false);
+  }));
+
+test("un fallo deshecho se suma a los que sí quedaron asentados", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    await fallar(app, h, luis, 2);
+    assert.equal(await probarYDeshacer(app, h, luis, "0000"), false);
+    assert.equal(await probarYDeshacer(app, h, luis, "0000"), false);
+    assert.equal((await intentosDe(db, luis)).fallos, 4);
+    // El quinto, por la pantalla, bloquea: y ahora sí queda en el renglón y en la bitácora.
+    await fallar(app, h, luis, 1);
+    const c = await credencialDe(db, luis);
+    assert.ok(c.bloqueada_hasta > new Date());
+    assert.deepEqual({ fallos: c.fallos, bloqueos: c.bloqueos }, { fallos: 0, bloqueos: 1 });
+    assert.equal(await contar(db, "bitacora", "accion = 'bloquear'"), 1);
+    assert.equal(await entrar(app, h, luis, "4815"), null);
+  }));
+
+test("un acierto limpia la cuenta aunque lo que siga se deshaga: nadie se bloquea por un error que no fue de su clave", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const servando = await alta(db, "Servando", "responsable", "481516", true);
+    await fallar(app, h, servando, 4);
+    assert.equal(await probarYDeshacer(app, h, servando, "481516"), true);
+    assert.deepEqual(await intentosDe(db, servando), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
+    // Con la cuenta en cero, hacen falta otros cinco fallos para bloquear.
+    await fallar(app, h, servando, 4);
+    assert.ok(await entrar(app, h, servando, "481516"));
+  }));
+
+test("pasado el bloqueo que dejaron los intentos deshechos, la clave buena vuelve a entrar, y el siguiente bloqueo dura más", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    for (let k = 0; k < 5; k++) await probarYDeshacer(app, h, luis, "0000");
+    const primero = (await intentosDe(db, luis)).bloqueada_hasta as Date;
+    // Cinco minutos, con el margen de lo que tardó la prueba.
+    assert.ok(Math.abs(primero.getTime() - Date.now() - 5 * 60_000) < 30_000);
+    // La consola (o el tiempo) levanta el bloqueo: lo que se escribe en el renglón pasa a la cuenta.
+    await db.query("UPDATE credencial SET bloqueada_hasta = now() - interval '1 second' WHERE usuario_id = $1", [luis]);
+    assert.equal(await probarYDeshacer(app, h, luis, "0000"), false);
+    for (let k = 0; k < 4; k++) await probarYDeshacer(app, h, luis, "0000");
+    const segundo = await intentosDe(db, luis);
+    assert.equal(segundo.bloqueos, 2);
+    assert.ok(Math.abs((segundo.bloqueada_hasta as Date).getTime() - Date.now() - 15 * 60_000) < 30_000);
+    await db.query("UPDATE credencial SET bloqueada_hasta = now() - interval '1 second' WHERE usuario_id = $1", [luis]);
+    assert.ok(await entrar(app, h, luis, "4815"));
+    assert.deepEqual(await intentosDe(db, luis), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
+  }));
+
+test("una clave nueva empieza con la cuenta en cero, también la que dejaron los intentos deshechos", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    assert.deepEqual(await intentosDe(db, luis), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
+    for (let k = 0; k < 5; k++) await probarYDeshacer(app, h, luis, "0000");
+    assert.equal(await entrar(app, h, luis, "4815"), null);
+    await db.query("SELECT fijar_clave($1, '2718')", [luis]);
+    assert.deepEqual(await intentosDe(db, luis), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
+    assert.ok(await entrar(app, h, luis, "2718"));
+  }));
+
+test("cinco claves malas a la vez, cada una en una transacción que se deshace, cuentan cinco", () =>
+  conIdentidad(async (app, db, base) => {
+    const h = await equipoNuevo(app, db);
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    const otras = await Promise.all([1, 2, 3, 4, 5].map(() => comoApp(base)));
+    const candado = await conectar(base);
+    try {
+      const pids = await Promise.all(otras.map(pidDe));
+      // Con la credencial tomada, los cinco intentos llegan juntos al mismo punto y esperan ahí.
+      await candado.query("BEGIN");
+      await candado.query("SELECT 1 FROM credencial WHERE usuario_id = $1 FOR UPDATE", [luis]);
+      const intentos = otras.map((c) => probarYDeshacer(c, h, luis, "0000"));
+      await esperarQueEsperen(db, pids);
+      await candado.query("COMMIT");
+      assert.deepEqual(await Promise.all(intentos), [false, false, false, false, false]);
+      const i = await intentosDe(db, luis);
+      assert.ok(i.bloqueada_hasta > new Date(), `quedó con ${i.fallos} fallos y sin bloqueo`);
+      assert.equal(await entrar(app, h, luis, "4815"), null);
+    } finally {
+      await candado.end();
+      await Promise.all(otras.map((c) => c.end()));
+    }
+  }));
+
+test("la lista de personas de los ajustes dice quién está bloqueado aunque el bloqueo venga de intentos deshechos", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const servando = await alta(db, "Servando", "responsable", "481516", true);
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    const bloqueados = async () => (await db.query("SELECT nombre FROM personas_para_administrar($1) WHERE bloqueada ORDER BY nombre", [servando])).rows.map((f) => f.nombre);
+    assert.deepEqual(await bloqueados(), []);
+    for (let k = 0; k < 5; k++) await probarYDeshacer(app, h, luis, "0000");
+    // El renglón de Luis dice que no está bloqueado: cada intento se deshizo. La lista no se fía de él.
+    assert.equal((await credencialDe(db, luis)).bloqueada_hasta, null);
+    assert.deepEqual(await bloqueados(), ["Luis"]);
+    await db.query("UPDATE credencial SET bloqueada_hasta = NULL WHERE usuario_id = $1", [luis]);
+    assert.deepEqual(await bloqueados(), []);
+  }));
+
+test("una credencial a la que le falta su cuenta —datos cargados con los disparadores apagados— no deja a nadie afuera: la cuenta nace al primer intento", () =>
+  conIdentidad(async (app, db) => {
+    const h = await equipoNuevo(app, db);
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    await db.query(`DROP SEQUENCE intentos.c${luis}`);
+    assert.equal(await entrar(app, h, luis, "0000"), null);
+    assert.deepEqual(await intentosDe(db, luis), { fallos: 1, bloqueos: 0, bloqueada_hasta: null });
+    await db.query(`DROP SEQUENCE intentos.c${luis}`);
+    assert.ok(await entrar(app, h, luis, "4815"));
+    assert.deepEqual(await intentosDe(db, luis), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
+  }));
+
+test("la aplicación no lee ni toca la cuenta de intentos: ni la secuencia ni la función que la lee", () =>
+  conIdentidad(async (app, db) => {
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    const secuencia = `intentos.c${luis}`;
+    assert.equal((await una(db, `SELECT last_value::int AS v FROM ${secuencia}`)).v, 0);
+    for (const consulta of [
+      `SELECT last_value FROM ${secuencia}`, `SELECT setval('${secuencia}', 0)`, `SELECT nextval('${secuencia}')`,
+      `ALTER SEQUENCE ${secuencia} RESTART`, `DROP SEQUENCE ${secuencia}`, "CREATE SEQUENCE intentos.otra",
+    ]) await rechaza(app.query(consulta), SIN_PERMISO);
+    await rechaza(app.query("SELECT * FROM intentos_de($1)", [luis]), SIN_PERMISO);
+    await rechaza(app.query("SELECT intento_guardado($1)", [luis]), SIN_PERMISO);
+    await rechaza(app.query("SELECT intento_empacado(0, 0, NULL)"), SIN_PERMISO);
+  }));
+
+test("quien no tiene clave no tiene cuenta, y una fecha sin fin no revienta la cuenta", () =>
+  conIdentidad(async (_app, db) => {
+    const sinClave = (await una(db, "INSERT INTO usuario (sucursal_id, nombre, rol) VALUES (1, 'Sin clave', 'patio') RETURNING id")).id;
+    assert.deepEqual(await intentosDe(db, sinClave), { fallos: null, bloqueos: null, bloqueada_hasta: null });
+    const luis = await alta(db, "Luis", "mostrador", "4815");
+    await db.query("UPDATE credencial SET fallos = 3, bloqueos = 12, bloqueada_hasta = 'infinity' WHERE usuario_id = $1", [luis]);
+    const i = await intentosDe(db, luis);
+    assert.deepEqual({ fallos: i.fallos, bloqueos: i.bloqueos }, { fallos: 3, bloqueos: 9 });
+    assert.ok((i.bloqueada_hasta as Date).getUTCFullYear() > 4000);
+  }));
+
 // ── lo que la aplicación no puede ──────────────────────────────────────────
 
 test("la aplicación no lee claves, equipos, códigos ni sesiones", () =>

@@ -37,6 +37,8 @@ async function retrato(db: pg.Client) {
     pesadas: await filas("SELECT linea_id, orden, captura_id FROM linea_pesada ORDER BY linea_id, orden"),
     bitacora: (await una(db, "SELECT count(*)::int AS n FROM bitacora")).n,
     precios: await filas("SELECT lista_id, material_id, compra, venta FROM precio ORDER BY 1, 2"),
+    // La cuenta de intentos de clave vive en secuencias (migración 0035): también tiene que volver.
+    intentos: await filas("SELECT u.id, i.fallos, i.bloqueos, i.bloqueada_hasta FROM usuario u, intentos_de(u.id) i ORDER BY u.id"),
     disparadores: await una(db, "SELECT count(*)::int AS total, count(*) FILTER (WHERE tgenabled = 'O')::int AS activos FROM pg_trigger WHERE NOT tgisinternal"),
   };
 }
@@ -65,7 +67,14 @@ test("un respaldo restaurado en un servidor vacío deja el patio como estaba y c
     ]);
     const camioneta = await renglonSinPeso(db, await cuenta(db, e, "compra"), e.mat["Fierro pesado"], GRANDE);
     await asentar(db, camioneta, await pesada(db, e, GRANDE, 2860), 1);         // una cuenta que queda abierta
+    // Una persona con dos fallos contados, y otra bloqueada: su cuenta está en su secuencia.
+    const conFallos = (await una(db, "SELECT * FROM alta_persona('Marta', 'mostrador', false, '4815')")).id;
+    const bloqueada = (await una(db, "SELECT * FROM alta_persona('Rosa', 'mostrador', false, '2718')")).id;
+    await db.query("UPDATE credencial SET fallos = 2 WHERE usuario_id = $1", [conFallos]);
+    await db.query("UPDATE credencial SET bloqueos = 1, bloqueada_hasta = '2031-01-01 00:00:00.123+00' WHERE usuario_id = $1", [bloqueada]);
     const antes = await retrato(db);
+    assert.deepEqual(antes.intentos.filter((i) => i.id === conFallos || i.id === bloqueada).map((i) => [i.fallos, i.bloqueos, i.bloqueada_hasta?.toISOString() ?? null]),
+      [[2, 0, null], [0, 1, "2031-01-01T00:00:00.123Z"]]);
     const ultimoFolio = BigInt((await una(db, "SELECT max(folio) AS f FROM operacion")).f);
 
     const carpeta = await mkdtemp(join(tmpdir(), "feruga-respaldo-"));

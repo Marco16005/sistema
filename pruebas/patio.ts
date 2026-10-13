@@ -42,6 +42,7 @@ export async function retrato(db: pg.Client) {
     preciosEspeciales: await filas("SELECT id, clase, operacion_id, linea_id, material_id, cliente_id, cliente_nombre, precio_lista, precio_anterior, precio_nuevo, capturado_por, autorizado_por, anterior_id, creado_en, transaccion::text AS transaccion FROM precio_especial ORDER BY id"),
     personas: await filas("SELECT id, nombre, rol, puede_autorizar, activo FROM usuario ORDER BY id"),
     credenciales: await filas("SELECT usuario_id, md5(huella) AS huella FROM credencial ORDER BY usuario_id"),
+    intentos: await filas("SELECT u.id, i.fallos, i.bloqueos, i.bloqueada_hasta FROM usuario u, intentos_de(u.id) i ORDER BY u.id"),
     equipos: await filas("SELECT id, nombre, md5(huella) AS huella, baja_en FROM equipo ORDER BY id"),
     impresiones: await filas("SELECT id, operacion_id, numero, motivo, impresa_por FROM impresion ORDER BY operacion_id, numero"),
     envios: await filas("SELECT id, clase, contenido, recibido_de FROM envio ORDER BY id"),

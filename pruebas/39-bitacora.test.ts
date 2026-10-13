@@ -36,7 +36,7 @@ test("GUARDIA: toda pareja anotada en las migraciones tiene frase propia", async
   // Los dos INSERT de 0001: anotar reenvía los argumentos; auditar usa lower(TG_OP)
   // y TG_TABLE_NAME. Sus disparadores están en usuario (0001) y material (0002).
   for (const pareja of ["insert usuario", "update usuario", "delete usuario", "insert material", "update material", "delete material"]) parejas.add(pareja);
-  assert.equal(parejas.size, 34);
+  assert.equal(parejas.size, 35);
   for (const pareja of parejas) assert.ok(CON_FRASE.has(pareja), `Falta frase: ${pareja}`);
 });
 
@@ -157,6 +157,8 @@ test("las parejas tienen frases completas y resuelven nombres sin revelar datos 
       ["alta", "cliente", { nombre: "Don Chuy" }, cliente, "dio de alta al cliente Don Chuy"],
       ["baja", "cliente", { nombre: "Don Chuy" }, cliente, "dio de baja al cliente Don Chuy"],
       ["reactivar", "cliente", { nombre: "Don Chuy" }, cliente, "reactivó al cliente Don Chuy"],
+      ["renombrar", "cliente", { anterior: "Don Chuy", nombre: "Jesús Pérez" }, cliente, "le cambió el nombre al cliente Don Chuy: ahora es Jesús Pérez"],
+      ["renombrar", "cliente", {}, cliente, "le cambió el nombre a un cliente"],
       ["merma", "material", { kg: "1.001", motivo: "Mojado" }, "999999999", "dio de baja 1.001 kg: Mojado"],
       ["precio_especial", "operacion", { clase: "dar", material: "inexistente", cliente: "inexistente", autoriza: "inexistente", queda: "2.6" }, null, "aplicó un precio especial de $2.60 por kilo"],
     ];

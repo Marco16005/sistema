@@ -19,7 +19,7 @@ const USO = `Órdenes:
   equipo baja <id>
   equipo lista
   cliente lista                                        los clientes con precio especial (se dan de alta en la pantalla: en los ajustes, o al darles el primero)
-  cliente renombrar <nombre|número> <nombre nuevo>
+  cliente renombrar <nombre|número> <nombre nuevo>     le cambia el nombre (también desde los ajustes); lo ya cobrado conserva el de antes
   cliente baja <nombre|número>                         ya no se le puede dar precio especial; su historia se conserva (también desde los ajustes)
   cliente reactivar <nombre|número>
   demo sembrar [--dias=56] [--semilla=1]               SOLO en desarrollo: le da a una base sin movimiento semanas de historia inventada

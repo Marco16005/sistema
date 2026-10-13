@@ -76,8 +76,8 @@ export interface PersonaEnLista {
 export async function listaDePersonas(db: pg.Client): Promise<PersonaEnLista[]> {
   const { rows } = await db.query(
     `SELECT u.id, u.nombre, u.rol, u.puede_autorizar AS autoriza, u.activo AS activa,
-            coalesce(c.bloqueada_hasta > clock_timestamp(), false) AS bloqueada
-     FROM usuario u LEFT JOIN credencial c ON c.usuario_id = u.id
+            coalesce((SELECT i.bloqueada_hasta FROM intentos_de(u.id) i) > clock_timestamp(), false) AS bloqueada
+     FROM usuario u
      ORDER BY u.id`,
   );
   return rows;
@@ -87,7 +87,7 @@ export async function listaDePersonas(db: pg.Client): Promise<PersonaEnLista[]> 
 //
 // Un cliente se da de alta en la pantalla: en los ajustes, o en el mostrador al darle su primer
 // precio especial. Darlo de baja y reactivarlo también se puede desde los ajustes (migración 0033).
-// Aquí se le corrige el nombre —que solo se hace aquí—, se le da de baja y se le reactiva.
+// Cambiarle el nombre, también (migración 0036). Aquí se puede hacer lo mismo, sin pantalla.
 
 export interface ClienteEnLista {
   id: string;

@@ -69,6 +69,22 @@ Sin confirmar: para correr aquí, (a) doble toque/Enter al cambiar clave con res
    contiene es que esa contraseña no salga del servidor —ya es así: vive en el entorno del servidor
    y la base no se publica a la red—. Va a la lista de lo que hay que cerrar antes de datos reales.
 
+   **Corregido el 13 de octubre de 2026 (migración 0035).** No hizo falta otra conexión ni un
+   servicio aparte: la cuenta de intentos vive, además, en una secuencia por persona, y una
+   secuencia no es de la transacción —lo que se le escribe se queda aunque todo lo demás se
+   deshaga—. `comprobar_clave` decide con lo que dice la secuencia; las tres columnas de la tabla
+   le siguen, y un disparador por columna lleva a la secuencia lo que se les escriba. La
+   aplicación no tiene ningún permiso sobre el esquema de las secuencias. Antes de corregir se
+   reprodujo el hallazgo aquí (cinco claves malas deshechas, y la buena entraba); ahora cinco
+   claves malas bloquean aunque las cinco se deshagan, juntas o una tras otra; un acierto limpia
+   la cuenta aunque lo que siga falle; la cuenta sobrevive a respaldar y restaurar; y la lista de
+   personas de los ajustes dice quién está bloqueado según la secuencia (`pruebas/11-identidad`,
+   `09-respaldo`). Lo que no cambia: quien tiene esa contraseña puede seguir bloqueando a alguien
+   a propósito, a fuerza de fallar —ya podía—, y el renglón de la bitácora que anota un bloqueo sí
+   es de la transacción: si quien pregunta la deshace, el bloqueo queda pero su renglón no. La
+   prueba de la credencial a la que le falta su secuencia se escribió junto con su arreglo: esa
+   no se vio fallar antes. **Esta corrección no la ha revisado Codex.**
+
 3. **[menor] La clave tecleada sigue en la pantalla hasta recibir respuesta** — *cierto, corregido*.
    La hoja la borraba al terminar; ahora, antes de esperar. Recorrido: «tocar dos veces el botón de
    la hoja…», que primero se vio fallar (seis puntos llenos mientras el servidor contestaba).

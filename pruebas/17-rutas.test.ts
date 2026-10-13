@@ -68,6 +68,7 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "GET clientes/[cliente]": DIRIGEN,
   "POST clientes": ["responsable"],
   "POST clientes/[cliente]": ["responsable"],
+  "POST clientes/[cliente]/nombre": ["responsable"],
   "GET exportar": DIRIGEN,
   "GET materiales": ["responsable"],
   "POST materiales": ["responsable"],
@@ -226,6 +227,7 @@ const BIEN_FORMADAS: Record<string, { cuerpo: (m: Mundo, carton: number, pet: nu
   // Los clientes: sin nombre no se da de alta a nadie, y el cliente 1 no existe.
   "POST clientes": { cuerpo: () => ({ nombre: "   " }), contesta: "RC005" },
   "POST clientes/[cliente]": { cuerpo: () => ({ activo: false }), contesta: "RC005" },
+  "POST clientes/[cliente]/nombre": { cuerpo: () => ({ nombre: "Alguien" }), contesta: "RC005" },
   // Personas y equipos: con la clave de quien lo pide. El nombre ya existe, y la persona y el equipo no.
   "POST administracion/personas": { cuerpo: () => ({ nombre: "De mostrador", rol: "mostrador", clave: CLAVES.responsable }), contesta: "RC005" },
   "POST administracion/personas/[persona]/clave": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },

@@ -41,7 +41,7 @@ pantalla (Panel → Ajustes): dar de alta, dar de baja y cambiarle la clave a pe
 de patio y de consulta, y dar de alta y de baja equipos. Lo pide un responsable facultado para
 autorizar, con su clave en ese momento (migración 0031). Desde el 13 de octubre, cualquier
 responsable da de alta, da de baja y reactiva ahí mismo a los clientes con precio especial
-(migraciones 0033 y 0034). La consola sigue sirviendo para todo.
+(migraciones 0033 y 0034), y les cambia el nombre (0036). La consola sigue sirviendo para todo.
 
 ```bash
 docker compose run --rm consola persona alta "Luis" mostrador          # genera la clave y la muestra
@@ -202,8 +202,8 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene siete partes, y una m
   facultado para autorizar y con su clave cada vez—; dar de alta, dar de baja, reactivar y marcar
   como frecuentes los **materiales**; y dar de alta, dar de baja y reactivar a los **clientes** a
   los que se les da precio especial (también siguen naciendo en el mostrador, al darles el
-  primero). Los responsables, quien administra y la facultad de autorizar siguen siendo de la
-  consola, a un material no se le cambia el nombre, y a un cliente, solo por la consola.
+  primero), y cambiarles el nombre. Los responsables, quien administra y la facultad de
+  autorizar siguen siendo de la consola, y a un material no se le cambia el nombre.
 
 El panel no lleva cuentas propias: todo sale de los comprobantes y del libro de inventario, con la
 regla del cierre —una cuenta es del día en que se asentó—, así que cada día del panel dice lo mismo
