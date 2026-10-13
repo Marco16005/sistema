@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type pg from "pg";
-import { comoApp, conBase, contar, equipoDeAlta, personaConClave, rechaza, una } from "./apoyo.ts";
+import { comoApp, conBase, contar, equipoDeAlta, esperarQueEspere, personaConClave, pidDe, rechaza, una } from "./apoyo.ts";
 import { CLAVES, conMundo, ruta } from "./mundo.ts";
 import type { Mundo } from "./mundo.ts";
 import type { Navegador } from "./navegador.ts";
@@ -16,6 +16,7 @@ const CLAVE = "481516";
 interface Patio {
   app: pg.Client;
   db: pg.Client;
+  base: string;
   /** La huella del equipo desde el que se pide. */
   h: string;
   /** La responsable que autoriza. */
@@ -30,7 +31,7 @@ const conPatio = (prueba: (p: Patio) => Promise<void>) =>
       const h = await equipoDeAlta(db);
       const elena = await personaConClave(db, "Elena", "responsable", CLAVE, true);
       const luis = await personaConClave(db, "Luis", "mostrador", "4815");
-      await prueba({ app, db, h, elena, luis });
+      await prueba({ app, db, base, h, elena, luis });
     } finally {
       await app.end();
     }
@@ -213,6 +214,34 @@ test("dar de baja un equipo: deja de valer y se cierra la sesión de quien atend
     await rechaza(p.app.query("SELECT baja_de_equipo($1, $2, $3, $4)", [p.h, p.elena, CLAVE, este]), "RC005");
     await rechaza(p.app.query("SELECT baja_de_equipo($1, $2, $3, $4)", [p.h, p.elena, CLAVE, equipo]), "RC005");
     await rechaza(p.app.query("SELECT baja_de_equipo($1, $2, $3, gen_random_uuid())", [p.h, p.elena, CLAVE]), "RC005");
+    assert.ok((await una(p.app, "SELECT equipo_vigente($1) AS e", [p.h])).e);
+  }));
+
+test("dos responsables que se dan de baja el equipo uno al otro a la vez: las bajas van en fila, la segunda ya no pasa porque su equipo dejó de valer, y el negocio no se queda sin equipos", () =>
+  conPatio(async (p) => {
+    // Lo encontró la revisión de Codex del 12 de octubre: cada baja veía vigente su propio equipo, las dos
+    // pasaban, y quedaban cero equipos: nadie podía volver a entrar sin la consola.
+    const ida = await personaConClave(p.db, "Ida", "responsable", "141421", true);
+    const codigo = (await una(p.app, "SELECT codigo_para_equipo($1, $2, $3, 'Oficina') AS c", [p.h, p.elena, CLAVE])).c;
+    const hB = "b".repeat(64);
+    const equipoB = (await una(p.app, "SELECT canjear_codigo($1, $2) AS e", [codigo, hB])).e;
+    const equipoA = (await una(p.app, "SELECT equipo_vigente($1) AS e", [p.h])).e;
+    const otra = await comoApp(p.base);
+    try {
+      // Desde A, Elena da de baja B: hecho, pero todavía sin terminar.
+      await p.app.query("BEGIN");
+      assert.equal((await una(p.app, "SELECT baja_de_equipo($1, $2, $3, $4) AS hecho", [p.h, p.elena, CLAVE, equipoB])).hecho, true);
+      // Desde B, Ida da de baja A: espera a la otra.
+      const pid = await pidDe(otra);
+      const laDeIda = otra.query("SELECT baja_de_equipo($1, $2, '141421', $3) AS hecho", [hB, ida, equipoA]);
+      await esperarQueEspere(p.db, pid);
+      await p.app.query("COMMIT");
+      // Al pasar, el equipo de Ida ya no vale: su baja no se hace.
+      assert.equal((await laDeIda).rows[0].hecho, false);
+    } finally {
+      await otra.end();
+    }
+    assert.equal(await contar(p.db, "equipo", "baja_en IS NULL"), 1);
     assert.ok((await una(p.app, "SELECT equipo_vigente($1) AS e", [p.h])).e);
   }));
 

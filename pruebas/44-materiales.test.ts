@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type pg from "pg";
 import {
-  conApp, conBase, conectar, cuenta, escenario, esperarQueEspere, pidDe, rechaza, renglon, una, urlApp, usuario,
+  abrirCuenta, agregarMaterial, comoApp, conApp, conBase, conectar, contar, cuenta, desenlace, escenario, esperarQueEspere, pidDe, rechaza, renglon, una, urlApp, usuario,
 } from "./apoyo.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import { catalogo } from "../src/servidor/dominio/catalogo.ts";
@@ -342,3 +342,47 @@ test("base: la baja con saldo cero conserva compras, ventas y movimientos anteri
   assert.equal((await cambio(app, e.responsable, id, true)).activo, true);
   assert.deepEqual(await historia(), antes);
 }));
+
+// ── a la vez ───────────────────────────────────────────────────────────────
+// Lo señaló la revisión de seguridad del guardado a9777c9: la baja comprobaba que el material no
+// estuviera en una cuenta abierta, pero quien lo agregaba en ese mismo instante ya había leído que
+// seguía activo, y entraba: quedaba una cuenta abierta con un material dado de baja.
+
+test("a la vez: dar de baja un material mientras alguien lo agrega a una cuenta — quien lo agrega espera a la baja, y ya no entra", () =>
+  conApp(async (app, db, e, base) => {
+    const otra = await comoApp(base);
+    try {
+      const cuenta = (await abrirCuenta(app, "compra", e.mostrador)).id;
+      // La baja, hecha pero sin terminar.
+      await otra.query("BEGIN");
+      await otra.query("SELECT cambiar_material($1, false, NULL, $2)", [e.mat["PET"], e.responsable]);
+      const pid = await pidDe(app);
+      const agrega = desenlace(agregarMaterial(app, cuenta, e.mat["PET"]!, "10", e.mostrador));
+      await esperarQueEspere(db, pid);
+      await otra.query("COMMIT");
+      assert.equal(await agrega, "RC005");
+      assert.equal(await contar(db, "operacion_linea"), 0);
+      assert.equal((await una(db, "SELECT activo FROM material WHERE id = $1", [e.mat["PET"]])).activo, false);
+    } finally {
+      await otra.end();
+    }
+  }));
+
+test("a la vez, al revés: el material entra a una cuenta mientras se le da de baja — la baja espera, y al mirar lo encuentra en una cuenta abierta", () =>
+  conApp(async (app, db, e, base) => {
+    const otra = await comoApp(base);
+    try {
+      const cuenta = (await abrirCuenta(app, "compra", e.mostrador)).id;
+      await app.query("BEGIN");
+      await agregarMaterial(app, cuenta, e.mat["PET"]!, "10", e.mostrador);
+      const pid = await pidDe(otra);
+      const baja = desenlace(otra.query("SELECT cambiar_material($1, false, NULL, $2)", [e.mat["PET"], e.responsable]));
+      await esperarQueEspere(db, pid);
+      await app.query("COMMIT");
+      assert.equal(await baja, "RC005");
+      assert.equal((await una(db, "SELECT activo FROM material WHERE id = $1", [e.mat["PET"]])).activo, true);
+      assert.equal(await contar(db, "operacion_linea"), 1);
+    } finally {
+      await otra.end();
+    }
+  }));

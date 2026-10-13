@@ -156,6 +156,34 @@ test("un equipo nuevo se da de alta con un código que se pide aquí y se teclea
   await otro.close();
 });
 
+test("tocar dos veces el botón de la hoja lo manda una sola vez, y la clave tecleada no se queda a la vista mientras se espera: la clave que se enseña es la que vale", async ({ page }) => {
+  // Lo pidió comprobar la revisión de Codex del 12 de octubre.
+  const g = await gente();
+  await enAjustes(page, g);
+  let pedidos = 0;
+  await page.route(/\/api\/administracion\/personas\/\d+\/clave$/, async (ruta) => {
+    pedidos += 1;
+    await new Promise((listo) => setTimeout(listo, 700));
+    await ruta.fallback();
+  });
+  await page.getByRole("button", { name: "Cambiar la clave de Luis" }).click();
+  await teclear(page, g.servando.clave);
+  await expect(hoja(page).locator(".puntos i.lleno")).toHaveCount(6);
+  await hoja(page).getByRole("button", { name: "Cambiar la clave", exact: true }).dblclick();
+  // Mientras llega la respuesta —tarda, y todavía no llegó—, la clave ya no está en la hoja. Se mira
+  // en el momento, sin esperar: esperando, la hoja se va sola y la pregunta se contesta sin querer.
+  expect(await page.locator(".unavez").count()).toBe(0);
+  expect(await hoja(page).locator(".puntos i.lleno").count()).toBe(0);
+  const unaVez = page.locator(".unavez");
+  await expect(unaVez).toContainText("Clave nueva de Luis");
+  await page.waitForTimeout(900);
+  expect(pedidos).toBe(1);
+  const nueva = (await unaVez.locator(".secreto").textContent())!;
+  await unaVez.getByRole("button", { name: "Ya la anoté" }).click();
+  await salir(page);
+  await entrar(page, { id: "", nombre: "Luis", clave: nueva });
+});
+
 // ── los materiales ─────────────────────────────────────────────────────────
 
 const enMateriales = (page: Page) => page.getByRole("group", { name: "Qué se ajusta" }).getByRole("button", { name: "Materiales" }).click();

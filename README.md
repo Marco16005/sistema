@@ -31,8 +31,15 @@ certificado, y eso llega con el plan de despliegue.
 
 ## La consola de administración
 
-Dar de alta y de baja personas y equipos, y cambiar claves, no se hace desde la pantalla: se hace
-aquí, con otras credenciales. La aplicación no puede hacerlo ni aunque quiera.
+Lo que toca a un **responsable** o a **quien administra** —darlos de alta o de baja, cambiarles la
+clave, conceder la facultad de autorizar— no se hace desde la pantalla: se hace aquí, con otras
+credenciales. La aplicación no puede hacerlo ni aunque quiera, y así quien se meta a ella no se
+fabrica un jefe.
+
+Desde el 12 de octubre de 2026, por decisión del dueño, lo de todos los días sí se puede desde la
+pantalla (Panel → Ajustes): dar de alta, dar de baja y cambiarle la clave a personas de mostrador,
+de patio y de consulta, y dar de alta y de baja equipos. Lo pide un responsable facultado para
+autorizar, con su clave en ese momento (migración 0031). La consola sigue sirviendo para todo.
 
 ```bash
 docker compose run --rm consola persona alta "Luis" mostrador          # genera la clave y la muestra
@@ -168,7 +175,7 @@ docs/revisiones/  las revisiones de Codex y la respuesta a cada hallazgo
 
 ### El panel de quien dirige
 
-Lo ven el responsable y quien consulta, en `/panel`. Tiene seis partes:
+Lo ven el responsable y quien consulta, en `/panel`. Tiene seis partes, y una más para el responsable:
 
 - el **resumen**: compras, ventas y cuentas de los últimos 7 días, 30 días o 3 meses, con sus
   gráficas, lo que más se movió, lo que hay en el patio y lo que conviene vigilar;
@@ -182,6 +189,11 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene seis partes:
 - los **reportes**: bajar los días, las cuentas, los materiales de cada cuenta o los precios de un
   periodo como archivo para Excel (CSV). Además, el resumen, cada día, los precios y la ficha de un
   cliente se imprimen desde su pantalla, en una hoja normal.
+- los **ajustes** (solo responsables): dar de alta y de baja **personas** de mostrador, de patio y
+  de consulta y cambiarles la clave, y dar de alta y de baja **equipos** —esto, el responsable
+  facultado para autorizar y con su clave cada vez—; y dar de alta, dar de baja, reactivar y marcar
+  como frecuentes los **materiales**. Los responsables, quien administra y la facultad de autorizar
+  siguen siendo de la consola, y a un material no se le cambia el nombre.
 
 El panel no lleva cuentas propias: todo sale de los comprobantes y del libro de inventario, con la
 regla del cierre —una cuenta es del día en que se asentó—, así que cada día del panel dice lo mismo
@@ -534,9 +546,9 @@ Faltan, en este orden:
    por Codex). Están hechos el entorno estricto, la migración con ventana, la restauración, el
    respaldo y el proxy con HTTPS (ensayado en local); faltan publicar una versión, la guía del
    servidor, la revisión de Codex del bloque y el servidor real.
-3. **Lo que falta del lado administrativo** (`docs/planes/2026-10-11-lado-administrativo.md`): dar de
-   alta personas, equipos y materiales desde la pantalla (hoy: consola y migración).
-4. Lectura de básculas, tabletas, trabajo sin conexión, caja —con ella, la ganancia de verdad— y crédito.
+3. **Caja y ganancia**: el corte del cajón, los gastos y el costo de lo vendido. Espera las
+   respuestas del negocio: `docs/planes/2026-10-12-caja-y-ganancia-preguntas.md`.
+4. Lectura de básculas, tabletas, trabajo sin conexión y crédito.
 
 **Corregir el inventario no corrige el dinero.** Si se pagó de más o de menos, eso se arregla fuera
 del sistema mientras no exista la caja.

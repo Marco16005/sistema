@@ -1,16 +1,16 @@
 # El lado administrativo: panel, días y bitácora
 
-> **Estado (12 de octubre de 2026):** hechas seis partes del panel —el resumen con sus gráficas, los
-> días que ha habido, la historia de precios, los clientes, la bitácora y sacar reportes (archivos
-> para Excel e imprimir)— y el sembrador de la demostración.
+> **Estado (12 de octubre de 2026, noche):** hechas siete partes del panel —el resumen con sus
+> gráficas, los días que ha habido, la historia de precios, los clientes, la bitácora, sacar
+> reportes (archivos para Excel e imprimir) y los ajustes (personas, equipos y materiales desde la
+> pantalla)— y el sembrador de la demostración.
 > Se construye repartido con Codex (`gpt-6-astra`, esfuerzo alto): él escribe el servidor de cada
 > parte en su copia, con las pruebas primero, y aquí se lee, se integra y se le pone la pantalla y
-> su recorrido. Suyos son el historial, la bitácora, la historia de precios, los clientes y exportar;
-> el sembrador lo empezó y se le acabó la cuota a medias. Sus informes están en
-> `docs/revisiones/*-codex-construccion-*.md`.
-> El usuario aprobó el 12 de octubre el orden de «Lo que sigue» y que se guarde en Git al cerrar
-> cada cosa. La revisión de Codex sobre lo que no escribió él está en
-> `docs/revisiones/2026-10-12-codex-revision-del-lado-administrativo.md`.
+> su recorrido. Suyos son el historial, la bitácora, la historia de precios, los clientes, exportar
+> y el catálogo de materiales (migración 0030); personas y equipos (migración 0031), por ser lo
+> delicado, se escribió aquí y él lo revisó. Sus informes están en `docs/revisiones/`.
+> Lo único que queda de la lista es **caja y ganancia**, que espera las respuestas del negocio:
+> las preguntas están en `2026-10-12-caja-y-ganancia-preguntas.md`.
 
 ## Lo que pidió el usuario
 
@@ -62,6 +62,18 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
   resumen, cada día, los precios y la ficha de un cliente llevan un botón «Imprimir», que saca en
   una hoja normal lo que se está viendo.
 
+- **Ajustes** (12 de octubre; solo responsables) — lo que antes era de la consola o de una
+  migración:
+  - **Personas:** el responsable facultado para autorizar, con su clave otra vez, da de alta a
+    alguien de mostrador, de patio o de consulta —el sistema le sortea la clave y la enseña una
+    sola vez—, le cambia la clave y lo da de baja. Los responsables y quien administra se ven, pero
+    no se tocan desde aquí.
+  - **Equipos:** pide el código para dar de alta un equipo nuevo (se ve una vez, sirve una vez,
+    vence en quince minutos) y da de baja el que ya no se usa; no el equipo desde el que se pide.
+  - **Materiales:** cualquier responsable da de alta un material, lo da de baja (si no hay nada de
+    él en el patio ni está en una cuenta abierta), lo reactiva y lo marca o no como frecuente. El
+    nombre no se cambia.
+
 ### Decisiones
 
 1. **El panel no lleva cuentas propias.** Todo sale de los comprobantes y del libro de inventario,
@@ -107,6 +119,29 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
     pantalla sale sin la barra ni lo que se toca, en claro aunque esté en oscuro, y con sus barras
     pintadas. El comprobante tiene su propio papel y nunca está a la vista junto con el panel.
 
+13. **Personas y equipos desde la pantalla: un punto medio, decidido por el dueño el 12 de octubre.**
+    La especificación (10.4 y su tabla de decisiones) dejaba esto solo a la consola, con otras
+    credenciales: «la aplicación no puede hacerlo». La razón era que quien se meta a la aplicación
+    no pueda fabricarse un jefe. Lo que cambió: la aplicación puede dar de alta, dar de baja y
+    cambiarle la clave a personas de mostrador, de patio y de consulta, y dar de alta y de baja
+    equipos, **solo** a pedido de un responsable facultado para autorizar que teclea su clave en
+    ese momento. Lo que no cambió: ninguna función que la aplicación pueda llamar crea a un
+    responsable ni a quien administra, les cambia la clave, los da de baja, ni concede la facultad
+    de autorizar. Con una sesión y una clave robadas se puede contratar o despedir a un cajero; no
+    nombrar a quien autoriza. **La especificación todavía dice lo de antes** (línea de «Administración»
+    en su tabla de decisiones): es un documento del usuario y no se tocó.
+14. **La clave de una persona la sortea el sistema, y se ve una sola vez.** Cuatro dígitos, de los
+    que la base no rechaza por adivinables. Quien da de alta no la elige: así no hay claves repetidas
+    ni «la de siempre». Si la respuesta se pierde en el camino, la persona queda dada de alta y nadie
+    vio su clave: se resuelve cambiándosela.
+15. **A un material no se le cambia el nombre, decidido por el dueño el 12 de octubre.** El
+    comprobante se rearma del libro y toma el nombre de hoy: renombrar cambiaría lo que dicen los
+    comprobantes viejos. Para otro nombre se da de baja uno y se da de alta otro. Ni la función ni
+    la aplicación pueden: no hay forma de pedirlo.
+16. **Las reglas del catálogo viven en la base**, como todo lo que escribe: quién, que el nombre no
+    se repita ni con otras mayúsculas, y que no se dé de baja lo que todavía hay en el patio o está
+    en una cuenta abierta. La aplicación sigue sin poder escribir directo en la tabla.
+
 ### El sembrador de la demostración (`consola/demo.ts`)
 
 Le da a una base de desarrollo ocho semanas de historia verosímil —días abiertos y cerrados,
@@ -142,7 +177,11 @@ repositorio); con ella se vuelve a como estaba.
 | Los clientes | `src/servidor/dominio/clientes.ts`, `src/app/api/clientes/resumen/` y `[cliente]/`, `src/app/panel/clientes/page.tsx` |
 | Sacar reportes | `src/servidor/dominio/exportar.ts`, `src/app/api/exportar/`, `src/app/panel/reportes/page.tsx` |
 | Imprimir | `src/componentes/panel/Imprimir.tsx`; `.imprimible`, al final de `src/estilo/panel.css` |
-| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`; `recorrido/panel.spec.ts` |
+| Las dos carreras que cerró la revisión | `db/migraciones/0032_los_ajustes_sin_carreras.sql` |
+| Personas y equipos | `db/migraciones/0031_personas_y_equipos_en_pantalla.sql`, `src/servidor/dominio/administracion.ts`, `src/servidor/clave.ts`, `src/app/api/administracion/` |
+| Materiales | `db/migraciones/0030_catalogo_en_pantalla.sql`, `src/servidor/dominio/materiales.ts`, `src/app/api/materiales/` |
+| La pantalla de ajustes | `src/app/panel/ajustes/page.tsx`, `src/componentes/ajustes/`, `src/estilo/ajustes.css` |
+| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
 
 ## Verificado
 
@@ -195,32 +234,23 @@ Lo que las corridas atraparon antes de darlo por bueno:
 - Dos recorridos viejos esperaban la barra de antes (cinco enlaces; quien consulta sin «Panel»):
   se actualizaron, porque el cambio es a propósito.
 
-## Lo que sigue, en orden
+## Lo que sigue
 
-El usuario aprobó este orden el 12 de octubre. Lo primero —historia de precios, clientes y sacar
-reportes— quedó hecho ese día. **Las dos que siguen se detuvieron antes de empezar, porque cada una
-toca una decisión del diseño original que le toca al usuario**, y la tercera pide decisiones del
-negocio:
+De la lista que el usuario aprobó el 12 de octubre ya solo queda lo último:
 
-1. **Personas y equipos desde la pantalla.** Hoy se dan de alta y de baja por la consola, y no por
-   descuido: la especificación lo decidió así (10.4 y la tabla de decisiones: «Personas y equipos
-   se dan de alta y de baja desde una consola con otras credenciales. La aplicación no puede
-   hacerlo»). La razón es de seguridad: si alguien se mete a la aplicación, no puede fabricarse un
-   responsable. Ponerlo en pantalla es cambiar esa decisión. Lo que se propone: desde la pantalla,
-   solo el responsable que autoriza y con su clave otra vez, dar de alta y de baja a personas de
-   mostrador, patio y consulta, cambiarles la clave, y dar de alta y de baja equipos; los
-   responsables y la facultad de autorizar siguen siendo de la consola. Pide una migración.
-2. **Catálogo desde la pantalla:** agregar un material, darlo de baja, reactivarlo, marcarlo como
-   frecuente. El rol de la aplicación ya puede escribir en `material` y cada cambio queda en la
-   bitácora (0011), pero sin ninguna regla en la base: habría que ponerlas ahí (quién, y que no se
-   dé de baja lo que tiene existencia), como todo lo demás que escribe. **Cambiarle el nombre a un
-   material es aparte**: el comprobante se rearma del libro y toma el nombre de hoy, así que
-   renombrar «Fierro» a «Cobre» cambiaría lo que dicen los comprobantes viejos. Lo que se propone:
-   que desde la pantalla no se renombre (se da de baja y se crea otro), o guardar el nombre en cada
-   renglón al cobrar, como ya se hace con el cliente.
-3. **Resultado y caja** (etapa posterior de la especificación): conteo del cajón y corte, gastos,
-   costo promedio y, con eso, la ganancia de verdad. Es lo único de esta lista que cambia el modelo
-   de datos, y pide decisiones del negocio.
+- **Resultado y caja**: conteo del cajón y corte, entradas y salidas, gastos, costo promedio y, con
+  eso, la ganancia de verdad. Cambia el modelo de datos y depende de cómo trabaja el negocio: las
+  preguntas, con lo que se propone para cada una, están en
+  `docs/planes/2026-10-12-caja-y-ganancia-preguntas.md`. Con las respuestas se escribe su plan.
+
+Y lo que hay que cerrar antes del servidor de verdad (`2026-10-03-despliegue.md`):
+
+- autenticar el respaldo antes de restaurarlo;
+- **que los intentos de clave se cuenten aunque quien pregunta deshaga su transacción** (lo
+  encontró Codex el 12 de octubre: con la contraseña con que la aplicación entra a la base se puede
+  adivinar una clave sin que se bloquee; ver
+  `docs/revisiones/2026-10-12-codex-revision-de-personas-y-equipos.md`, punto 2);
+- la guía de operación, y probar las pantallas en los equipos del patio.
 
 ## Lo que no se hizo
 

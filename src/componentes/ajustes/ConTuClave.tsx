@@ -27,11 +27,11 @@ function ConTuClave({ pedido, nombre, aviso, ocupado, alTeclear, alCancelar }: {
   const lista = clave.length >= 6;
   const mandar = async (): Promise<void> => {
     if (!lista || ocupado) return;
-    try {
-      await alTeclear(clave);
-    } finally {
-      setClave("");       // acertada o no, la clave no se queda en la pantalla
-    }
+    // La clave sale de la pantalla antes de esperar la respuesta, no después: acertada o no, mientras
+    // el servidor contesta ya no está aquí.
+    const tecleada = clave;
+    setClave("");
+    await alTeclear(tecleada);
   };
   return (
     <Hoja titulo={pedido.titulo} alCerrar={ocupado ? null : alCancelar}>
