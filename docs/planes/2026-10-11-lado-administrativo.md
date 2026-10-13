@@ -195,6 +195,10 @@ las dos revisiones:
   ajustes, con las medidas de patio en tres tamaños), sin fallas.
 
 Se corrió dos veces completo esa noche: antes de las correcciones (978, 213 y 206) y después.
+**Los dos simulacros** (operación y publicación) se repitieron al final, sobre el guardado
+`3e4b09b`, ya con las tres migraciones nuevas, y pasaron los dos. (El de publicación hubo que
+correrlo dos veces: la primera se quedó a medias porque Docker se cerró en la máquina; no fue una
+falla del sistema.)
 
 ### El 12 de octubre, por la tarde
 
