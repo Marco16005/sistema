@@ -61,6 +61,7 @@ const frases: Record<string, (r: Registro) => string> = {
   "descartar operacion": (r) => `descartó una ${tipo(r)} sin confirmar`,
   "bloquear credencial": (r) => `bloqueó temporalmente el acceso${de(r.persona)}`,
   "alta equipo": (r) => `dio de alta el equipo${nombre(r)}`,
+  "codigo equipo": (r) => `pidió un código para dar de alta el equipo${nombre(r)}`,
   "clave credencial": (r) => `cambió la clave${de(r.persona)}`,
   "baja usuario": (r) => `dio de baja${r.persona ? ` a ${r.persona}` : " a una persona"}`,
   "baja equipo": (r) => `dio de baja el equipo${r.equipo ? ` ${r.equipo}` : ""}`,

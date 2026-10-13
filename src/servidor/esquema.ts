@@ -4,7 +4,7 @@
 //
 // La imagen de la aplicación no lleva las migraciones, así que va escrita aquí. Una prueba la
 // compara con la carpeta: agregar una migración sin cambiar esta línea no pasa.
-export const ESQUEMA_ESPERADO = "0029_eleccion_del_respaldo_diario.sql";
+export const ESQUEMA_ESPERADO = "0031_personas_y_equipos_en_pantalla.sql";
 
 const DE_LA_APLICACION = "c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'S')";
 /** Cada tabla y secuencia que la marca conoció sigue existiendo, la misma. */

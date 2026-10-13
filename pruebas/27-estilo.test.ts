@@ -304,3 +304,27 @@ test("las pantallas usan los nombres del negocio: los valores del paquete solo s
   await mirar(join(RAIZ, "src"));
   assert.deepEqual(fuera, []);
 });
+
+// Dos veces una hoja nueva le puso su estilo, sin querer, a algo que ya existía, por llamar a una
+// clase con un nombre que ya estaba tomado: «.b» y «.compra» del panel deformaron el comprobante
+// impreso (11 de octubre), y «.ajuste» de los ajustes le cayó al interruptor de «más contraste»
+// de la barra (12 de octubre). Una regla cuyo selector es una clase sola le pega a todo lo que se
+// llame así, esté donde esté.
+test("una hoja nueva no le cae encima a lo que ya existía: lo que el panel y los ajustes definen con una clase sola no se nombra en ninguna otra hoja", async () => {
+  const carpeta = join(RAIZ, "src/estilo");
+  const hojas = new Map<string, string>();
+  for (const archivo of (await readdir(carpeta)).filter((f) => f.endsWith(".css"))) {
+    hojas.set(archivo, (await readFile(join(carpeta, archivo), "utf8")).replace(/\/\*[\s\S]*?\*\//g, ""));
+  }
+  const repetidas: string[] = [];
+  for (const nueva of ["panel.css", "ajustes.css"]) {
+    const solas = new Set([...hojas.get(nueva)!.matchAll(/(?:^|[},])\s*\.([a-z][a-z0-9-]*)\s*\{/g)].map((m) => m[1]!));
+    assert.ok(solas.size > 0, `${nueva} no tiene ninguna regla de una clase sola: ¿cambió cómo se escribe?`);
+    for (const clase of solas) {
+      for (const [otra, css] of hojas) {
+        if (otra !== nueva && new RegExp(`\\.${clase}(?![a-z0-9-])`).test(css)) repetidas.push(`.${clase}, de ${nueva}, ya se usa en ${otra}`);
+      }
+    }
+  }
+  assert.deepEqual(repetidas, []);
+});

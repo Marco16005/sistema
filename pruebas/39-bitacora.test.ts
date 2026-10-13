@@ -36,7 +36,7 @@ test("GUARDIA: toda pareja anotada en las migraciones tiene frase propia", async
   // Los dos INSERT de 0001: anotar reenvía los argumentos; auditar usa lower(TG_OP)
   // y TG_TABLE_NAME. Sus disparadores están en usuario (0001) y material (0002).
   for (const pareja of ["insert usuario", "update usuario", "delete usuario", "insert material", "update material", "delete material"]) parejas.add(pareja);
-  assert.equal(parejas.size, 30);
+  assert.equal(parejas.size, 31);
   for (const pareja of parejas) assert.ok(CON_FRASE.has(pareja), `Falta frase: ${pareja}`);
 });
 

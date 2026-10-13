@@ -148,11 +148,13 @@ test("todas las funciones del esquema fijan dónde buscan sus tablas", () =>
 
 // La lista completa. Una función nueva no entra aquí sola: si la aplicación puede ejecutarla, alguien lo decidió.
 const ENTRADAS = [
-  "abrir_cuenta", "abrir_jornada_de_hoy", "agregar_material", "cancelar_envio", "canjear_codigo", "cerrar_el_dia", "confirmar_cuenta",
-  "contar_material", "corregir_movimiento", "dar_merma", "dar_precio_especial", "descartar_cuenta", "entrar", "equipo_vigente", "estado_de_movimiento",
-  "etiquetar_cuenta", "fijar_precio", "hoy_en", "poner_descuento", "precios_especiales_del_dia", "previa_de_conteo", "previa_de_separacion",
-  "publicar_lista_de_hoy", "quitar_material", "quitar_precio", "quitar_precio_especial", "reabrir_jornada", "registrar_impresion", "salir", "segunda_pesada",
-  "separar_material", "sesion_vigente", "terminar_arranque", "terminar_vehiculo", "verificar_clave", "vida_vigente",
+  "abrir_cuenta", "abrir_jornada_de_hoy", "agregar_material", "alta_de_persona", "baja_de_equipo", "baja_de_persona", "cambiar_clave_de_persona",
+  "cancelar_envio", "canjear_codigo", "cerrar_el_dia", "codigo_para_equipo", "confirmar_cuenta", "contar_material", "corregir_movimiento",
+  "dar_merma", "dar_precio_especial", "descartar_cuenta", "entrar", "equipo_vigente", "equipos_para_administrar", "estado_de_movimiento",
+  "etiquetar_cuenta", "fijar_precio", "hoy_en", "personas_para_administrar", "poner_descuento", "precios_especiales_del_dia", "previa_de_conteo",
+  "previa_de_separacion", "publicar_lista_de_hoy", "quitar_material", "quitar_precio", "quitar_precio_especial", "reabrir_jornada",
+  "registrar_impresion", "salir", "segunda_pesada", "separar_material", "sesion_vigente", "terminar_arranque", "terminar_vehiculo",
+  "verificar_clave", "vida_vigente",
 ];
 
 test("la aplicación ejecuta las funciones de entrada y ninguna otra", () =>

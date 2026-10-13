@@ -65,6 +65,12 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "GET clientes/resumen": DIRIGEN,
   "GET clientes/[cliente]": DIRIGEN,
   "GET exportar": DIRIGEN,
+  "GET administracion": ["responsable"],
+  "POST administracion/personas": ["responsable"],
+  "POST administracion/personas/[persona]/clave": ["responsable"],
+  "POST administracion/personas/[persona]/baja": ["responsable"],
+  "POST administracion/equipos": ["responsable"],
+  "POST administracion/equipos/[equipo]/baja": ["responsable"],
   "POST envios/[envio]/cancelar": ARMAN,
   "GET inventario": TODOS,
   "GET inventario/materiales/[material]": TODOS,
@@ -94,7 +100,8 @@ async function rutasEnDisco(): Promise<Array<{ clave: string; camino: string; me
   return rutas;
 }
 
-const PARAMETROS = { cuenta: randomUUID(), operacion: randomUUID(), material: "1", envio: randomUUID(), jornada: "1", cliente: "1" };
+// La persona y el equipo no existen: basta para llegar a la base, que es quien lo dice.
+const PARAMETROS = { cuenta: randomUUID(), operacion: randomUUID(), material: "1", envio: randomUUID(), jornada: "1", cliente: "1", persona: "999999", equipo: randomUUID() };
 const CLAVES: Record<Rol, string> = { responsable: "481516", mostrador: "4815", patio: "2718", consulta: "3141", administracion: "271828" };
 
 interface Mundo {
@@ -206,6 +213,12 @@ const BIEN_FORMADAS: Record<string, { cuerpo: (m: Mundo, carton: number, pet: nu
   "POST inventario/merma": { cuerpo: (_m, carton) => ({ id: randomUUID(), material: carton, kg: "1", motivo: "Mojado" }), contesta: "RC002" },
   "POST inventario/separacion/previa": { cuerpo: (_m, carton, pet) => ({ origen: carton, kg: "2", productos: [{ material: pet, kg: "1" }] }), contesta: null },
   "POST inventario/separacion": { cuerpo: (_m, carton, pet) => ({ id: randomUUID(), origen: carton, kg: "2", productos: [{ material: pet, kg: "1" }] }), contesta: "RC002" },
+  // Personas y equipos: con la clave de quien lo pide. El nombre ya existe, y la persona y el equipo no.
+  "POST administracion/personas": { cuerpo: () => ({ nombre: "De mostrador", rol: "mostrador", clave: CLAVES.responsable }), contesta: "RC005" },
+  "POST administracion/personas/[persona]/clave": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },
+  "POST administracion/personas/[persona]/baja": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },
+  "POST administracion/equipos": { cuerpo: () => ({ nombre: "Oficina", clave: CLAVES.responsable }), contesta: null },
+  "POST administracion/equipos/[equipo]/baja": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },
   "POST inventario/correccion": {
     cuerpo: (m, carton) => ({ id: randomUUID(), movimiento: "999999", material: carton, kg: "1", vistas: 0, motivo: "Se capturó mal", autoriza: m.personas.responsable, clave: CLAVES.responsable }),
     contesta: "RC005",
