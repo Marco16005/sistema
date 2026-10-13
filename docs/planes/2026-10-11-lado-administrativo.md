@@ -283,8 +283,8 @@ decir de cuándo es el respaldo, y la llave pública y el sello saliendo juntos)
 copia. El detalle, hallazgo por hallazgo:
 `docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md`. Lo corregido después de
 su revisión no lo ha vuelto a ver. Se corrió completo dos veces: antes de su revisión (1045, 221 y
-214) y después (1052, 221 y 214). **Los dos simulacros** pasaron sobre el guardado `c371cee`
-(antes de la revisión) y se repiten sobre el guardado final.
+214) y después (1052, 221 y 214). **Los dos simulacros** (operación y publicación) pasaron dos
+veces: sobre el guardado `c371cee`, antes de la revisión, y sobre `1bf5d1e`, con todo lo corregido.
 
 **El 13 de octubre de 2026, por la tarde**, con los materiales en el panel y el resumen ampliado
 (la cuenta promedio, el día de la semana, lo de cada persona, los kilos descontados y el periodo
