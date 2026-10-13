@@ -348,6 +348,8 @@ test("nombres, en el mostrador: un cliente nuevo hecho de puros blancos no es na
   });
 });
 
+const DESDE_LA_0033 = ["0033_clientes_en_pantalla.sql", "0034_nombres_de_cliente_sin_resquicios.sql"];
+
 test("al migrar, los clientes que ya existían pasan por la regla nueva: se limpian; al que quedaría sin nombre o igual a otro se le pone uno que dice cuál es; ninguno se pierde, y la tabla ya no admite los de antes", () =>
   conBaseVacia(async (base) => {
     const MIGRACIONES = fileURLToPath(new URL("../db/migraciones", import.meta.url));
@@ -355,14 +357,14 @@ test("al migrar, los clientes que ya existían pasan por la regla nueva: se limp
     const db = await conectar(base);
     try {
       await cp(MIGRACIONES, antes, { recursive: true });
-      await rm(join(antes, "0033_clientes_en_pantalla.sql"));
+      for (const nueva of DESDE_LA_0033) await rm(join(antes, nueva));
       await migrar(db, antes);
       // Todos estos los dejaba pasar la regla de la 0025.
       const viejos = ["Don Chuy", " ", "Ana\u00A0Paz", "Ana Paz", "\u200B", "Jose\u0301", "\u200BDon\u200B Chuy"];
       for (const nombre of viejos) await db.query("INSERT INTO cliente (nombre) VALUES ($1)", [nombre]);
       await db.query("UPDATE cliente SET activo = false WHERE nombre = ' '");
 
-      assert.deepEqual(await migrar(db), ["0033_clientes_en_pantalla.sql"]);
+      assert.deepEqual(await migrar(db), DESDE_LA_0033);
       assert.deepEqual((await db.query("SELECT id::int, nombre, activo FROM cliente ORDER BY id")).rows, [
         { id: 1, nombre: "Don Chuy", activo: true },
         { id: 2, nombre: "Cliente sin nombre (2)", activo: false },
@@ -373,6 +375,95 @@ test("al migrar, los clientes que ya existían pasan por la regla nueva: se limp
         { id: 7, nombre: "Don Chuy (7)", activo: true },
       ]);
       for (const nombre of viejos.slice(1)) await rechaza(db.query("INSERT INTO cliente (nombre) VALUES ($1)", [nombre + "\u200B x"]), "23514");
+    } finally {
+      await db.end();
+      await rm(antes, { recursive: true, force: true });
+    }
+  }));
+
+// ── los nombres, sin resquicios ─────────────────────────────────────────────
+//
+// La revisión de seguridad del guardado 1f6f489 señaló que la regla de la 0033 todavía dejaba
+// hacerse pasar por otro cliente. Comprobado: quitaba lo invisible DESPUÉS de juntar las letras
+// con sus acentos, así que un invisible metido entre la «e» y su acento dejaba una «é» escrita en
+// dos piezas —distinta para la base, igual a la vista, y que la propia tabla rechazaba con un
+// error crudo—; no conocía lo invisible de fuera del plano básico (selectores de variación,
+// etiquetas), ni los caracteres de control, ni el blanco braille. La 0034 lo cierra.
+
+const DISFRACES: Array<[string, string]> = [
+  ["Jose\u034F\u0301", "Jos\u00E9"],                  // un invisible entre la «e» y su acento
+  ["Jose\u200B\u0301", "Jos\u00E9"],
+  ["Don Chuy\u{E0100}", "Don Chuy"],                   // selector de variación del plano 14
+  ["Don\u{E0041}\u{E007F} Chuy", "Don Chuy"],          // etiquetas
+  ["\u{1D173}Don Chuy\uFFF9", "Don Chuy"],             // marcas de formato
+  ["Don\u2800Chuy", "Don Chuy"],                       // blanco braille
+  ["Don\u0001 Chu\u009Fy", "Don Chuy"],                // caracteres de control
+  ["\u0085Don\u0085\u0085Chuy\u0085", "Don Chuy"],     // el salto de línea de otros sistemas
+];
+
+test("nombres, sin resquicios: ningún disfraz hace un nombre distinto —ni un invisible entre una letra y su acento, ni los de fuera del plano básico, ni los de control, ni el blanco braille—, y la regla aplicada dos veces da lo mismo", () =>
+  conBase(async (db) => {
+    const q = await usuario(db, "Dueño", "responsable");
+    const limpio = async (t: string) => (await una(db, "SELECT nombre_de_cliente($1) AS n", [t])).n as string | null;
+    for (const [disfraz, nombre] of DISFRACES) {
+      const una = await limpio(disfraz);
+      assert.equal(una, nombre, JSON.stringify(disfraz));
+      assert.equal(await limpio(una!), una, `estable: ${JSON.stringify(disfraz)}`);
+    }
+    for (const nada of ["\u{E0100}", "\u2800", "\u0001\u{E0020}", "\u034F"]) assert.equal(await limpio(nada), null, JSON.stringify(nada));
+
+    await alta(db, q, "Jos\u00E9");
+    await alta(db, q, "Don Chuy");
+    for (const [disfraz, nombre] of DISFRACES) await falla(alta(db, q, disfraz), `Ya hay un cliente que se llama «${nombre}»`);
+    assert.equal((await una(db, "SELECT count(*)::int AS n FROM cliente")).n, 2);
+    // Ni escribiendo directo en la tabla.
+    for (const [disfraz] of DISFRACES) await rechaza(db.query("INSERT INTO cliente (nombre) VALUES ($1)", [disfraz + " 2"]), "23514");
+  }));
+
+test("nombres, sin resquicios, en el mostrador: el disfraz de un cliente que ya existe es ese cliente, no uno nuevo", async () => {
+  const { conMundo, ruta, CLAVES } = await import("./mundo.ts");
+  await conMundo(async (m) => {
+    const carton = await material(m.db, "Cartón");
+    const jefe = await m.adentro("responsable");
+    await jefe.bien(await ruta("arranque/terminar", "POST"), "POST", "/api/arranque/terminar", { saldos: [{ material: carton, kg: "500", origen: "contado" }] });
+    await jefe.bien(await ruta("jornada/abrir", "POST"), "POST", "/api/jornada/abrir");
+    await jefe.bien(await ruta("precios", "POST"), "POST", "/api/precios", { cambios: [{ material: carton, compra: "2.1", venta: "2.5" }] });
+    await jefe.bien(await ruta("precios/publicar", "POST"), "POST", "/api/precios/publicar");
+    const { cliente } = await jefe.bien(await ruta("clientes", "POST"), "POST", "/api/clientes", { nombre: "Jos\u00E9" });
+    const caja = await m.adentro("mostrador");
+    const [cuenta, linea] = [randomUUID(), randomUUID()];
+    const p = { parametros: { cuenta } };
+    await caja.bien(await ruta("cuentas", "POST"), "POST", "/api/cuentas", { id: cuenta, tipo: "compra", etiqueta: null });
+    await caja.bien(await ruta("cuentas/[cuenta]/materiales", "POST"), "POST", `/api/cuentas/${cuenta}/materiales`, { linea, captura: randomUUID(), material: carton, bascula: 2, kg: "100" }, p);
+    const dada = await caja.pedir(await ruta("cuentas/[cuenta]/precio-especial", "POST"), "POST", `/api/cuentas/${cuenta}/precio-especial`,
+      { id: randomUUID(), linea, visto: null, cliente: null, clienteNuevo: "Jose\u034F\u0301\u{E0100}", diferencia: "0.5", autoriza: m.personas.responsable, clave: CLAVES.responsable }, p);
+    assert.equal(dada.status, 200);
+    assert.deepEqual((await dada.json()).cuenta.cliente, { id: cliente.id, nombre: "Jos\u00E9" });
+    assert.equal((await una(m.db, "SELECT count(*)::int AS n FROM cliente")).n, 1);
+  });
+});
+
+test("al migrar a la 0034, los clientes que la 0033 dejó pasar con un disfraz se limpian, y el que quedaría igual a otro lleva su número", () =>
+  conBaseVacia(async (base) => {
+    const MIGRACIONES = fileURLToPath(new URL("../db/migraciones", import.meta.url));
+    const antes = await mkdtemp(join(tmpdir(), "antes-de-0034-"));
+    const db = await conectar(base);
+    try {
+      await cp(MIGRACIONES, antes, { recursive: true });
+      await rm(join(antes, "0034_nombres_de_cliente_sin_resquicios.sql"));
+      await migrar(db, antes);
+      // Todos estos pasaban la regla de la 0033.
+      for (const nombre of ["Don Chuy", "Don Chuy\u{E0100}", "Don\u2800Chuy", "Taller\u0001 L\u00F3pez", "\u{E0041}"]) await db.query("INSERT INTO cliente (nombre) VALUES ($1)", [nombre]);
+
+      assert.deepEqual(await migrar(db), ["0034_nombres_de_cliente_sin_resquicios.sql"]);
+      assert.deepEqual((await db.query("SELECT id::int, nombre FROM cliente ORDER BY id")).rows, [
+        { id: 1, nombre: "Don Chuy" },
+        { id: 2, nombre: "Don Chuy (2)" },
+        { id: 3, nombre: "Don Chuy (3)" },
+        { id: 4, nombre: "Taller L\u00F3pez" },
+        { id: 5, nombre: "Cliente sin nombre (5)" },
+      ]);
+      await rechaza(db.query("INSERT INTO cliente (nombre) VALUES ($1)", ["Otro\u{E0100}"]), "23514");
     } finally {
       await db.end();
       await rm(antes, { recursive: true, force: true });

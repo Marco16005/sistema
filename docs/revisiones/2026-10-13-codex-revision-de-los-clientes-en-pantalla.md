@@ -79,6 +79,35 @@ nombre; alta contra precio con el mismo nombre; dos cambios opuestos) terminan b
 a la persona de la sesión, y la aplicación sigue sin escribir la tabla ni llamar las funciones de la
 consola.
 
+### Aparte: lo que señaló la revisión de seguridad del guardado
+
+Al guardar lo anterior (`1f6f489`), la revisión automática de seguridad del guardado señaló en la
+migración 0033 una diferencia entre lo que la regla de nombres deja y lo que la tabla comprueba,
+con la que alguien podía hacerse pasar por otro cliente. El aviso llegó sin el detalle, así que se
+buscó y se comprobó contra la base:
+
+- La regla quitaba lo invisible **después** de juntar cada letra con su acento. Un invisible entre
+  la «e» y su acento impedía juntarlos, y al quitarlo quedaba una «é» en dos piezas: distinta de
+  «José» para la base, igual a la vista. Ni siquiera era estable —aplicada otra vez daba otra
+  cosa—: la tabla la rechazaba con un error crudo y el mostrador contestaba 500.
+- No conocía lo invisible de fuera del plano básico (selectores de variación del plano 14,
+  etiquetas, marcas de formato), ni los caracteres de control, ni el blanco braille: «Don Chuy»
+  con uno de esos era otro cliente.
+
+*Corregido en la migración 0034* (aparte, porque la 0033 ya estaba aplicada en la demostración):
+primero se quita todo lo que Unicode manda no pintar y los caracteres de control, después los
+blancos, y al final se juntan las letras con sus acentos; en ese orden la regla aplicada a su
+propio resultado no cambia nada. Los clientes que ya existían vuelven a pasar por ella. Las pruebas
+se escribieron primero y fallaron como se esperaba («nombres, sin resquicios…», tres pruebas en
+`pruebas/46-clientes-en-pantalla`).
+
+**Lo que no se cierra, a propósito:** letras de otro alfabeto que se dibujan igual (una «а»
+cirílica por una «a») y las formas de compatibilidad (la ligadura «ﬁ», las letras de ancho
+completo). Juntarlas cambiaría también lo que alguien sí quiso escribir («Nº» pasaría a «No»), o
+pediría una tabla de parecidos. Un cliente en la lista no da nada por sí solo —cada precio especial
+pide la clave de quien autoriza, que lee el nombre antes de teclearla—; lo que un nombre parecido
+puede hacer es repartir en dos renglones lo que se le dio a uno, y eso se ve en Clientes.
+
 ## El encargo
 
 ```

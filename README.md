@@ -41,7 +41,7 @@ pantalla (Panel → Ajustes): dar de alta, dar de baja y cambiarle la clave a pe
 de patio y de consulta, y dar de alta y de baja equipos. Lo pide un responsable facultado para
 autorizar, con su clave en ese momento (migración 0031). Desde el 13 de octubre, cualquier
 responsable da de alta, da de baja y reactiva ahí mismo a los clientes con precio especial
-(migración 0033). La consola sigue sirviendo para todo.
+(migraciones 0033 y 0034). La consola sigue sirviendo para todo.
 
 ```bash
 docker compose run --rm consola persona alta "Luis" mostrador          # genera la clave y la muestra
@@ -80,7 +80,7 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 996 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 999 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
 docker compose --profile recorrido run --rm recorrido     # 216 recorridos en un navegador real (Chromium)
 docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 209

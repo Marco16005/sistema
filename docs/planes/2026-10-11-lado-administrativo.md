@@ -155,6 +155,13 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
     está; lo que la baja impide es darle otro. Y no se borra a nadie: «borrar» es dar de baja,
     porque los comprobantes y el registro de precios lo nombran. Cambiarle el nombre se quedó en
     la consola: nadie lo pidió para la pantalla.
+18. **Un nombre de cliente, una sola manera de escribirlo** (migraciones 0033 y 0034). Con dos
+    puertas para dar de alta a un cliente hacía falta una sola regla, en la base, para los ajustes,
+    el mostrador y la consola: se quita lo que no se ve, todo blanco es un espacio, y la misma
+    letra escrita de dos maneras queda de una. Así lo que se ve igual es el mismo cliente, y lo
+    que no se ve no es un nombre. «Jose» y «José» siguen siendo dos. No se juntan las letras de
+    otro alfabeto que se dibujan igual ni las formas de compatibilidad: está dicho, con su porqué,
+    al principio de la 0034.
 
 ### El sembrador de la demostración (`consola/demo.ts`)
 
@@ -194,22 +201,27 @@ repositorio); con ella se vuelve a como estaba.
 | Las dos carreras que cerró la revisión | `db/migraciones/0032_los_ajustes_sin_carreras.sql` |
 | Personas y equipos | `db/migraciones/0031_personas_y_equipos_en_pantalla.sql`, `src/servidor/dominio/administracion.ts`, `src/servidor/clave.ts`, `src/app/api/administracion/` |
 | Materiales | `db/migraciones/0030_catalogo_en_pantalla.sql`, `src/servidor/dominio/materiales.ts`, `src/app/api/materiales/` |
-| Clientes desde los ajustes | `db/migraciones/0033_clientes_en_pantalla.sql`, `altaDeCliente` y `cambiarCliente` en `src/servidor/dominio/clientes.ts`, `POST` en `src/app/api/clientes/` y en `[cliente]/`, `src/componentes/ajustes/Clientes.tsx` |
+| Clientes desde los ajustes | `db/migraciones/0033_clientes_en_pantalla.sql` y `0034_nombres_de_cliente_sin_resquicios.sql` (la regla de los nombres), `altaDeCliente` y `cambiarCliente` en `src/servidor/dominio/clientes.ts`, `POST` en `src/app/api/clientes/` y en `[cliente]/`, `src/componentes/ajustes/Clientes.tsx` |
 | La pantalla de ajustes | `src/app/panel/ajustes/page.tsx`, `src/componentes/ajustes/`, `src/estilo/ajustes.css` |
 | Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`, `46-clientes-en-pantalla`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
 
 ## Verificado
 
-**El 13 de octubre de 2026**, con los clientes en los ajustes y la migración 0033 (que además deja
-una sola regla para los nombres de cliente), y después de corregir lo que encontró la revisión de
-Codex (`docs/revisiones/2026-10-13-codex-revision-de-los-clientes-en-pantalla.md`):
+**El 13 de octubre de 2026**, con los clientes en los ajustes y las migraciones 0033 y 0034 (una
+sola regla para los nombres de cliente), y después de corregir lo que encontraron la revisión de
+Codex y la de seguridad del guardado
+(`docs/revisiones/2026-10-13-codex-revision-de-los-clientes-en-pantalla.md`):
 
-- tipos y **996 pruebas** (eran 981; las 15 nuevas son las de `46-clientes-en-pantalla`), sin fallas;
+- tipos y **999 pruebas** (eran 981; las 18 nuevas son las de `46-clientes-en-pantalla`), sin fallas;
 - **216 recorridos en Chromium** y **209 en WebKit** (eran 214 y 207; los 2 nuevos son los de los
   clientes en los ajustes; las medidas de patio de los ajustes ahora incluyen a los clientes, con
   un nombre de ochenta letras sin espacios), sin fallas.
 
-Se corrió dos veces completo: antes de corregir los nombres (993, 216 y 209) y después.
+Se corrió tres veces completo: antes de corregir los nombres (993, 216 y 209), después de la
+revisión de Codex (996, 216 y 209) y con la 0034 (999, 216 y 209). En la última, cuatro recorridos
+de inventario fallaron en Chromium por tiempo —la máquina se durmió a media corrida—; repetidos
+completos con la máquina despierta, pasaron los 216. **Los dos simulacros** (operación y
+publicación) pasaron sobre el guardado `1f6f489`, con la 0033.
 
 **El 12 de octubre de 2026, por la noche**, con los ajustes (personas, equipos y materiales) y las
 tres migraciones nuevas (0030, 0031 y 0032) ya integrados, y después de corregir lo que encontraron
