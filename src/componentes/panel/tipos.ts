@@ -24,16 +24,21 @@ export interface Tramo extends Totales {
 export interface Panel {
   desde: string;
   hasta: string;
-  dias: Periodo;
+  /** Cuántos días tiene el periodo. */
+  dias: number;
   totales: Totales;
   antes: Totales;
   /** En por ciento, respecto del periodo anterior; nada si antes no hubo. */
   cambio: { cuentas: string | null; pagado: string | null; cobrado: string | null };
-  paso: "dia" | "semana";
+  /** Lo que promedia una cuenta de compra y una de venta, en pesos y en kilos; nada donde no hubo. */
+  promedio: { pagado: string | null; kgComprado: string | null; cobrado: string | null; kgVendido: string | null };
+  paso: "dia" | "semana" | "cuatro-semanas";
   serie: Tramo[];
   materiales: Array<{ nombre: string; kgComprado: string; importeComprado: string; kgVendido: string; importeVendido: string }>;
-  personas: Array<{ nombre: string; cuentas: number }>;
+  personas: PersonaDelPanel[];
   horas: Array<{ hora: number; cuentas: number }>;
+  /** Cada día de la semana que cae en el periodo (1 es lunes): cuántos hay, sus cuentas y las que tocan por día. */
+  semana: Array<{ dia: number; dias: number; cuentas: number; porDia: string }>;
   inventario: {
     listaDel: string | null;
     valor: string;
@@ -50,7 +55,27 @@ export interface Panel {
     diferenciaEnCompras: string;
     diferenciaEnVentas: string;
     reaperturas: number;
+    /** Renglones con kilos que se pesaron y no se pagaron o no se cobraron. */
+    descuentos: number;
+    descuentoEnComprasKg: string;
+    descuentoEnVentasKg: string;
+    descontados: Array<{ nombre: string; kg: string }>;
   };
+}
+
+/** Lo que hizo una persona en el periodo: lo que cobró y lo que conviene vigilar. */
+export interface PersonaDelPanel {
+  nombre: string;
+  cuentas: number;
+  compras: number;
+  ventas: number;
+  pagado: string;
+  cobrado: string;
+  kg: string;
+  descuentoKg: string;
+  descartadas: number;
+  correcciones: number;
+  reimpresiones: number;
 }
 
 // ── la historia de precios (src/servidor/dominio/historia-de-precios.ts) ──

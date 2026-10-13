@@ -52,7 +52,7 @@ export async function recorrer(db: pg.Client, desde: Date, destino: Date): Promi
 
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import { crearBd } from "../src/servidor/bd.ts";
-import { abrirCuenta, agregarMaterial, confirmar } from "../src/servidor/dominio/cuentas.ts";
+import { abrirCuenta, agregarMaterial, confirmar, descartar, ponerDescuento } from "../src/servidor/dominio/cuentas.ts";
 import { cerrarJornada } from "../src/servidor/dominio/cierre.ts";
 import { estadoDelDia, terminarArranque } from "../src/servidor/dominio/dia.ts";
 import { contar, darMerma, previaDeConteo } from "../src/servidor/dominio/inventario.ts";
@@ -111,6 +111,9 @@ export async function sembrarDemo(o: {
   const semilla = o.semilla ?? 1;
   if (!Number.isSafeInteger(semilla)) throw new Error('La semilla debe ser un entero seguro');
   const azar = generador(semilla);
+  // Lo que conviene vigilar —kilos descontados y cuentas descartadas— se sortea aparte: así no
+  // cambia qué se compra y qué se vende con cada semilla.
+  const aparte = generador((semilla ^ 0x9E3779B9) >>> 0);
   const entero = (min: number, max: number): number => min + Math.floor(azar() * (max - min + 1));
   const elegir = <T>(lista: T[]): T => lista[entero(0, lista.length - 1)]!;
   const db = new pg.Client({ connectionString: o.url, connectionTimeoutMillis: 10000 });
@@ -308,11 +311,25 @@ export async function sembrarDemo(o: {
             renglones.push({ material: j.material, kg: kg.toFixed(3), bascula: entero(2, 3) });
           }
         }
+        const [seDescarta, seDescuenta, cuanto] = [aparte() < 0.03, aparte() < 0.08, aparte()];
         await llevar(destino, async () => {
+          if (turno.tipo === 'compra' && seDescarta) {
+            // De vez en cuando alguien arma una cuenta y la descarta sin cobrarla: queda en la bitácora.
+            const descartada = await abrirCuenta(bd, quien, { id: randomUUID(), tipo: 'compra', etiqueta: 'Demostración' });
+            await agregarMaterial(bd, quien, descartada.id, { linea: randomUUID(), captura: randomUUID(), ...renglones[0]! });
+            await descartar(bd, quien, descartada.id);
+          }
           let c = await abrirCuenta(bd, quien, { id: randomUUID(), tipo: turno.tipo, etiqueta: 'Demostración' });
           for (const renglon of renglones) c = await agregarMaterial(bd, quien, c.id, {
             linea: randomUUID(), captura: randomUUID(), ...renglon,
           });
+          if (turno.tipo === 'compra' && seDescuenta) {
+            // Material mojado o sucio: se pesa todo y se descuenta del 2 al 7 por ciento, en décimas de kilo.
+            const ultimo = c.materiales.at(-1)!;
+            const pesado = Number(ultimo.bruto);
+            const descuento = Math.max(0.1, Math.round(pesado * (0.02 + cuanto * 0.05) * 10) / 10);
+            if (descuento < pesado) c = await ponerDescuento(bd, quien, c.id, ultimo.id, descuento.toFixed(3));
+          }
           if (!hoy && turno.tipo === 'compra' && indice % 3 === 0 && !especialDelDia) {
             const nombre = ['Don Chuy (demostración)', 'Doña Lupita (demostración)', 'Taller López (demostración)'][especiales % 3]!;
             const cliente = (await db.query('SELECT id FROM cliente WHERE nombre = $1', [nombre])).rows[0];

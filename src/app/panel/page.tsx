@@ -1,7 +1,8 @@
 "use client";
-// El panel: cómo va el negocio en los últimos días, para quien lo dirige. Solo lee. Lo que muestra
-// llega sumado del servidor (src/servidor/dominio/panel.ts), con la misma regla del cierre, y aquí
-// se le da formato y se dibuja: cada día del panel dice lo mismo que el cierre de ese día.
+// El panel: cómo va el negocio en los últimos días, o de tal día a tal día, para quien lo dirige.
+// Solo lee. Lo que muestra llega sumado del servidor (src/servidor/dominio/panel.ts), con la misma
+// regla del cierre, y aquí se le da formato y se dibuja: cada día del panel dice lo mismo que el
+// cierre de ese día.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { pedir } from "../../componentes/cliente.ts";
@@ -9,15 +10,21 @@ import { diaCorto, fechaCorta, kilosCortos, pesos, pesosCerrados, precio } from 
 import { Barras, Tira } from "../../componentes/panel/Graficas.tsx";
 import { Imprimir } from "../../componentes/panel/Imprimir.tsx";
 import { Secciones, SoloQuienDirige } from "../../componentes/panel/Secciones.tsx";
-import type { Panel, Periodo, Tramo } from "../../componentes/panel/tipos.ts";
+import type { Panel, Periodo, PersonaDelPanel, Tramo } from "../../componentes/panel/tipos.ts";
 import { DIRIGEN, useSesion } from "../../componentes/Sesion.tsx";
 
-/** Cada periodo: cómo se llama en su botón y cómo se nombra el anterior, con el que se compara. */
+/** Cada periodo de un toque: cómo se llama en su botón y cómo se nombra el anterior, con el que se compara. */
 const PERIODOS: Array<{ dias: Periodo; nombre: string; anterior: string }> = [
   { dias: 7, nombre: "7 días", anterior: "los 7 días anteriores" },
   { dias: 30, nombre: "30 días", anterior: "los 30 días anteriores" },
   { dias: 91, nombre: "3 meses", anterior: "los 3 meses anteriores" },
 ];
+/** Lo más largo que se puede pedir de tal día a tal día: un año y un día. */
+const TOPE = 366;
+const DIAS_DE_LA_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+const PASOS: Record<Panel["paso"], { cada: string; columna: string }> = {
+  dia: { cada: "Por día", columna: "Día" }, semana: { cada: "Por semana", columna: "Semana" }, "cuatro-semanas": { cada: "Cada cuatro semanas", columna: "Cuatro semanas" },
+};
 /** Cuántos renglones de una lista se ven sin pedir más. */
 const A_LA_VISTA = 6;
 /** Cada cuánto se vuelve a preguntar mientras la pantalla está a la vista. */
@@ -29,6 +36,33 @@ const kg = (t: string): string => `${Number(t) >= 100 ? Math.round(Number(t)).to
 /** Una diferencia en pesos cerrados, con el signo a la vista cuando es negativa: «−$57». */
 const conSigno = (t: string): string => (Number(t) < 0 ? "−" : "") + pesosCerrados(String(Math.abs(Number(t))));
 const delTramo = (t: Tramo, paso: Panel["paso"]): string => (paso === "dia" ? fechaCorta(t.desde) : `${diaCorto(t.desde)} – ${diaCorto(t.hasta)}`);
+/** Un promedio se lee redondo: kilos con un decimal cuando mucho. */
+const kgRedondos = (t: string): string => `${Number(t).toLocaleString("es-MX", { maximumFractionDigits: 1 })} kg`;
+const primeroDelMes = (f: string): string => `${f.slice(0, 8)}01`;
+const diasEntre = (desde: string, hasta: string): number => Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000) + 1;
+/** Por qué ese periodo no se puede pedir; nada si sí se puede. */
+function loQueFalta(desde: string, hasta: string): string {
+  if (!desde || !hasta) return "Falta decir de qué día a qué día.";
+  if (desde > hasta) return "El primer día no puede ser posterior al último.";
+  if (diasEntre(desde, hasta) > TOPE) return "En el resumen cabe hasta un año. Elige un periodo más corto.";
+  return "";
+}
+/** Lo que cobró una persona, en un renglón. */
+const loQueCobro = (p: PersonaDelPanel): string => [
+  p.compras > 0 ? `${cuantas(p.compras, "compra", "compras")} por ${pesosCerrados(p.pagado)}` : "",
+  p.ventas > 0 ? `${cuantas(p.ventas, "venta", "ventas")} por ${pesosCerrados(p.cobrado)}` : "",
+  `${kg(p.kg)} pesados`,
+].filter(Boolean).join(" · ");
+/** Lo que conviene vigilar de una persona; nada si no hay nada. */
+function loQueVigilar(p: PersonaDelPanel): string {
+  const t = [
+    Number(p.descuentoKg) > 0 ? `descontó ${kg(p.descuentoKg)}` : "",
+    p.descartadas > 0 ? `descartó ${cuantas(p.descartadas, "cuenta", "cuentas")}` : "",
+    p.correcciones > 0 ? `corrigió ${cuantas(p.correcciones, "movimiento", "movimientos")}` : "",
+    p.reimpresiones > 0 ? `reimprimió ${cuantas(p.reimpresiones, "comprobante", "comprobantes")}` : "",
+  ].filter(Boolean).join(" · ");
+  return t.slice(0, 1).toUpperCase() + t.slice(1);
+}
 
 function Cambio({ valor, anterior }: { valor: string | null; anterior: string }) {
   if (valor === null) return <small>Sin nada antes con qué comparar</small>;
@@ -53,22 +87,30 @@ function Lista<T>({ filas, que, children }: { filas: T[]; que: string; children:
 }
 
 export default function PantallaDelPanel() {
-  const { persona } = useSesion();
-  const [dias, setDias] = useState<Periodo>(7);
+  const { persona, dia } = useSesion();
+  // El periodo: uno de los de un toque o, sin ninguno, de tal día a tal día.
+  const [dias, setDias] = useState<Periodo | null>(7);
+  const [desde, setDesde] = useState(primeroDelMes(dia.hoy));
+  const [hasta, setHasta] = useState(dia.hoy);
   const [panel, setPanel] = useState<Panel | null>(null);
+  /** De qué pedido es el panel que está a la vista. */
+  const [visto, setVisto] = useState("");
   const [aviso, setAviso] = useState("");
   const [enKilos, setEnKilos] = useState(false);
   const dirige = DIRIGEN.includes(persona.rol);
+  const falta = dias === null ? loQueFalta(desde, hasta) : "";
+  /** Lo que se pide; nada mientras al periodo elegido le falte algo. */
+  const pedido = dias !== null ? `dias=${dias}` : falta ? "" : `desde=${desde}&hasta=${hasta}`;
 
   /** Cuál fue la última petición: una respuesta que llega después de haber pedido otra cosa ya no se pinta. */
   const ultima = useRef(0);
   const cargar = useCallback(() => {
-    if (!dirige) return;
+    if (!dirige || !pedido) return;
     const esta = ++ultima.current;
-    pedir<{ panel: Panel }>("GET", `/api/panel?dias=${dias}`)
-      .then((r) => { if (esta === ultima.current) { setPanel(r.panel); setAviso(""); } })
+    pedir<{ panel: Panel }>("GET", `/api/panel?${pedido}`)
+      .then((r) => { if (esta === ultima.current) { setPanel(r.panel); setVisto(pedido); setAviso(""); } })
       .catch((e: Error) => { if (esta === ultima.current) setAviso(e.message); });
-  }, [dias, dirige]);
+  }, [dirige, pedido]);
 
   // Al llegar, al cambiar de periodo, al volver a la pestaña y cada minuto mientras está a la vista:
   // un panel que se deja abierto en la oficina no se queda en lo de la mañana.
@@ -82,13 +124,30 @@ export default function PantallaDelPanel() {
 
   if (!dirige) return <SoloQuienDirige />;
 
-  const periodo = PERIODOS.find((p) => p.dias === dias)!;
   const elegir = (
-    <div className="chips" role="group" aria-label="Periodo">
-      {PERIODOS.map((p) => (
-        <button key={p.dias} type="button" className="chip" aria-pressed={p.dias === dias} onClick={() => setDias(p.dias)}>{p.nombre}</button>
-      ))}
-    </div>
+    <>
+      <div className="chips" role="group" aria-label="Periodo">
+        {PERIODOS.map((p) => (
+          <button key={p.dias} type="button" className="chip" aria-pressed={p.dias === dias} onClick={() => setDias(p.dias)}>{p.nombre}</button>
+        ))}
+        <button type="button" className="chip" aria-pressed={dias === null} onClick={() => setDias(null)}>Otro periodo</button>
+      </div>
+      {dias === null ? (
+        <>
+          <div className="filtros">
+            <label>
+              <span className="lbl">Desde</span>
+              <input className="campo" type="date" value={desde} max={dia.hoy} onChange={(e) => setDesde(e.target.value)} />
+            </label>
+            <label>
+              <span className="lbl">Hasta</span>
+              <input className="campo" type="date" value={hasta} max={dia.hoy} onChange={(e) => setHasta(e.target.value)} />
+            </label>
+          </div>
+          {falta ? <p className="note" role="status">{falta}</p> : null}
+        </>
+      ) : null}
+    </>
   );
   // Mientras llega otro periodo se queda a la vista el anterior, con su propio rótulo: no se mezclan.
   if (!panel) {
@@ -103,8 +162,10 @@ export default function PantallaDelPanel() {
   }
 
   const t = panel.totales;
-  const visto = PERIODOS.find((p) => p.dias === panel.dias)!;
+  // Con qué se compara: el periodo de antes, del mismo largo.
+  const anterior = PERIODOS.find((p) => `dias=${p.dias}` === visto)?.anterior ?? (panel.dias === 1 ? "el día anterior" : `los ${panel.dias} días anteriores`);
   const vacio = t.cuentas === 0;
+  const fuerte = panel.semana.reduce<Panel["semana"][number] | null>((mas, d) => (Number(d.porDia) > Number(mas?.porDia ?? 0) ? d : mas), null);
   const mayorKg = Math.max(0, ...panel.materiales.flatMap((m) => [Number(m.kgComprado), Number(m.kgVendido)]));
   const mayorValor = Math.max(0, ...panel.inventario.materiales.map((m) => Number(m.valor ?? 0)));
   // De la primera hora con cuentas a la última, sin saltarse las de en medio.
@@ -121,7 +182,7 @@ export default function PantallaDelPanel() {
       {elegir}
       {aviso ? <div className="flag" role="alert">{aviso}</div> : null}
       <p className="note periodo" role="status">
-        Del {fechaCorta(panel.desde)} al {fechaCorta(panel.hasta)}{panel.dias !== periodo.dias ? " · cargando el otro periodo…" : ""}
+        Del {fechaCorta(panel.desde)} al {fechaCorta(panel.hasta)}{pedido && visto !== pedido ? " · cargando el otro periodo…" : ""}
       </p>
 
       <div className="indicadores">
@@ -129,13 +190,15 @@ export default function PantallaDelPanel() {
           <p className="lbl">Compras</p>
           <b className="cifra">{pesosCerrados(t.pagado)}</b>
           <small>{cuantas(t.compras, "cuenta", "cuentas")} · {kg(t.kgComprado)}</small>
-          <Cambio valor={panel.cambio.pagado} anterior={visto.anterior} />
+          {panel.promedio.pagado !== null ? <small>En promedio, {pesosCerrados(panel.promedio.pagado)} y {kgRedondos(panel.promedio.kgComprado!)} por cuenta</small> : null}
+          <Cambio valor={panel.cambio.pagado} anterior={anterior} />
         </div>
         <div className="indicador">
           <p className="lbl">Ventas</p>
           <b className="cifra">{pesosCerrados(t.cobrado)}</b>
           <small>{cuantas(t.ventas, "cuenta", "cuentas")} · {kg(t.kgVendido)}</small>
-          <Cambio valor={panel.cambio.cobrado} anterior={visto.anterior} />
+          {panel.promedio.cobrado !== null ? <small>En promedio, {pesosCerrados(panel.promedio.cobrado)} y {kgRedondos(panel.promedio.kgVendido!)} por cuenta</small> : null}
+          <Cambio valor={panel.cambio.cobrado} anterior={anterior} />
         </div>
         <div className="indicador">
           <p className="lbl">Ventas menos compras</p>
@@ -145,12 +208,12 @@ export default function PantallaDelPanel() {
         <div className="indicador">
           <p className="lbl">Cuentas terminadas</p>
           <b className="cifra">{t.cuentas.toLocaleString("es-MX")}</b>
-          <Cambio valor={panel.cambio.cuentas} anterior={visto.anterior} />
+          <Cambio valor={panel.cambio.cuentas} anterior={anterior} />
         </div>
       </div>
 
       <div className="card">
-        <header><h2>Compras y ventas</h2><small>{panel.paso === "dia" ? "Por día" : "Por semana"}</small></header>
+        <header><h2>Compras y ventas</h2><small>{PASOS[panel.paso].cada}</small></header>
         <div className="pad">
           <div className="chips" role="group" aria-label="Qué se mide">
             <button type="button" className="chip" aria-pressed={!enKilos} onClick={() => setEnKilos(false)}>En dinero</button>
@@ -171,7 +234,7 @@ export default function PantallaDelPanel() {
                 <summary>Ver los números</summary>
                 <div className="scroll">
                   <table>
-                    <thead><tr><th>{panel.paso === "dia" ? "Día" : "Semana"}</th><th>Compras</th><th>Ventas</th><th>Entró</th><th>Salió</th><th>Cuentas</th></tr></thead>
+                    <thead><tr><th>{PASOS[panel.paso].columna}</th><th>Compras</th><th>Ventas</th><th>Entró</th><th>Salió</th><th>Cuentas</th></tr></thead>
                     <tbody>
                       {panel.serie.map((s) => (
                         <tr key={s.desde}>
@@ -257,13 +320,36 @@ export default function PantallaDelPanel() {
         </div>
 
         <div className="card">
-          <header><h2>Quién atendió</h2><small>Cuentas que terminó cada quien</small></header>
+          <header><h2>Qué día de la semana</h2><small>Cuentas por día, en promedio</small></header>
           <div className="pad">
-            {panel.personas.length === 0 ? <p className="empty">Nadie terminó cuentas en este periodo.</p> : null}
-            {panel.personas.map((p) => (
-              <div className="tot" key={p.nombre}><span>{p.nombre}</span><span className="n">{cuantas(p.cuentas, "cuenta", "cuentas")}</span></div>
-            ))}
+            {fuerte === null ? <p className="empty">No se terminó ninguna cuenta en este periodo.</p> : (
+              <>
+                <Barras
+                  clases={["neutra"]} tope={(mayor) => `${mayor.toLocaleString("es-MX")} por día`}
+                  columnas={panel.semana.map((d) => ({ clave: String(d.dia), rotulo: DIAS_DE_LA_SEMANA[d.dia - 1]!.slice(0, 3), valores: [Number(d.porDia)] }))}
+                />
+                <ul className="oculto">
+                  {panel.semana.map((d) => <li key={d.dia}>Los {DIAS_DE_LA_SEMANA[d.dia - 1]}, {Number(d.porDia).toLocaleString("es-MX")} por día: {cuantas(d.cuentas, "cuenta", "cuentas")} en {cuantas(d.dias, "día", "días")}</li>)}
+                </ul>
+                <p className="note">El más fuerte es el {DIAS_DE_LA_SEMANA[fuerte.dia - 1]}: {Number(fuerte.porDia).toLocaleString("es-MX")} {Number(fuerte.porDia) === 1 ? "cuenta" : "cuentas"} por día. Cada día de la semana se promedia entre las veces que cae en el periodo.</p>
+              </>
+            )}
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <header><h2>Quién atendió</h2><small>Lo que cobró cada quien, y lo que conviene vigilar</small></header>
+        <div className="pad">
+          {panel.personas.length === 0 ? <p className="empty">Nadie terminó cuentas en este periodo.</p> : null}
+          {panel.personas.map((p) => (
+            <div className="mov" key={p.nombre}>
+              <div className="tot"><b>{p.nombre}</b><span className="n">{cuantas(p.cuentas, "cuenta", "cuentas")}</span></div>
+              {p.cuentas > 0 ? <small>{loQueCobro(p)}</small> : null}
+              {loQueVigilar(p) ? <small>{loQueVigilar(p)}</small> : null}
+            </div>
+          ))}
+          {panel.personas.length > 0 ? <p className="note">Los kilos descontados son de las cuentas que cobró. Lo descartado, lo corregido y lo reimpreso salen de la bitácora, en el día en que pasó cada cosa.</p> : null}
         </div>
       </div>
 
@@ -282,6 +368,12 @@ export default function PantallaDelPanel() {
           {c.preciosEspeciales > 0 && Number(c.diferenciaEnVentas) !== 0 ? (
             <div className="tot adj"><span>En ventas se cobró de {Number(c.diferenciaEnVentas) > 0 ? "más" : "menos"}</span><span className="n">{pesos(String(Math.abs(Number(c.diferenciaEnVentas)).toFixed(2)))}</span></div>
           ) : null}
+          <div className="tot"><span>Kilos descontados en el mostrador</span><span className="n">{c.descuentos === 0 ? "Ninguno" : `en ${cuantas(c.descuentos, "renglón", "renglones")}`}</span></div>
+          {Number(c.descuentoEnComprasKg) > 0 ? <div className="tot adj"><span>En compras, se pesaron y no se pagaron</span><span className="n">{kg(c.descuentoEnComprasKg)}</span></div> : null}
+          {Number(c.descuentoEnVentasKg) > 0 ? <div className="tot adj"><span>En ventas, se pesaron y no se cobraron</span><span className="n">{kg(c.descuentoEnVentasKg)}</span></div> : null}
+          {c.descontados.slice(0, 3).map((d) => (
+            <div className="tot adj" key={d.nombre}><span>De {d.nombre}</span><span className="n">{kg(d.kg)}</span></div>
+          ))}
           <div className="tot"><span>Veces que se reabrió un día</span><span className="n">{c.reaperturas === 0 ? "Ninguna" : c.reaperturas}</span></div>
           <p className="note">Los ajustes son lo que cambió un conteo o una corrección. Si alguno de estos crece de un periodo a otro, conviene preguntar por qué.</p>
         </div>

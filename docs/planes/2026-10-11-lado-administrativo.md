@@ -1,9 +1,12 @@
 # El lado administrativo: panel, días y bitácora
 
-> **Estado (13 de octubre de 2026):** hechas siete partes del panel —el resumen con sus
-> gráficas, los días que ha habido, la historia de precios, los clientes, la bitácora, sacar
+> **Estado (13 de octubre de 2026):** hechas ocho partes del panel —el resumen con sus
+> gráficas, los días que ha habido, los materiales (qué se está quedando en el patio y la ficha de
+> cada uno, desde el 13 de octubre), la historia de precios, los clientes, la bitácora, sacar
 > reportes (archivos para Excel e imprimir) y los ajustes (personas, equipos, materiales y, desde
-> el 13 de octubre, clientes desde la pantalla)— y el sembrador de la demostración.
+> el 13 de octubre, clientes desde la pantalla)— y el sembrador de la demostración. El resumen
+> creció ese mismo día: la cuenta promedio, el día de la semana, lo que hizo cada persona, los
+> kilos descontados y un periodo que se elige de tal día a tal día.
 > Se construye repartido con Codex (`gpt-6-astra`, esfuerzo alto): él escribe el servidor de cada
 > parte en su copia, con las pruebas primero, y aquí se lee, se integra y se le pone la pantalla y
 > su recorrido. Suyos son el historial, la bitácora, la historia de precios, los clientes, exportar
@@ -32,19 +35,38 @@ Tenía razón en las dos cosas, y por dos causas distintas:
 ### El panel (`/panel`)
 
 Lo ven quien dirige (responsable) y quien consulta. El mostrador, el patio y la administración
-técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Panel», con tres partes.
+técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Panel», con sus partes.
 
-- **Resumen** — por 7 días, 30 días o 3 meses (trece semanas), siempre terminando hoy:
+- **Resumen** — por 7 días, 30 días o 3 meses (trece semanas), terminando hoy, o —desde el 13
+  de octubre— por «otro periodo», de tal día a tal día, hasta un año:
   - cuatro indicadores: compras, ventas, ventas menos compras y cuentas terminadas, cada uno con
-    cuánto cambió respecto del periodo anterior del mismo largo;
-  - compras y ventas por día (o por semana, a tres meses), en dinero o en kilos, con sus números
-    en una tabla para quien los quiere exactos;
+    cuánto cambió respecto del periodo anterior del mismo largo; y en compras y en ventas, lo que
+    promedia una cuenta, en pesos y en kilos;
+  - compras y ventas por día (por semana cuando el periodo pasa de un mes, y de cuatro en cuatro
+    semanas cuando pasa de siete meses), en dinero o en kilos, con sus números en una tabla para
+    quien los quiere exactos;
   - lo que más se movió, material por material; lo que hay en el patio ahora y lo que valdría
-    volver a comprarlo con la última lista publicada; a qué hora se atiende; quién atendió;
+    volver a comprarlo con la última lista publicada; a qué hora se atiende y qué día de la
+    semana es el fuerte;
+  - quién atendió: de cada persona, sus cuentas, lo que pagó y cobró, los kilos que pesó, y lo
+    que conviene vigilar —lo que descontó, las cuentas que descartó, lo que corrigió y lo que
+    reimprimió—;
   - «para vigilar»: lo dado de baja, lo que ajustaron conteos y correcciones, los precios
-    especiales y las veces que se reabrió un día.
+    especiales, los kilos descontados en el mostrador (en compras, en ventas y de qué materiales)
+    y las veces que se reabrió un día.
 - **Días** — cada día que ha habido, con sus cuentas y lo que sumaron; al tocar uno, el mismo
   reporte de su cierre y sus cuentas una por una, cada una con su comprobante (sin reimprimir).
+- **Materiales** (13 de octubre) — lo que el resto del panel no decía: cómo va cada material.
+  - La lista: de cada material que alguna vez se ha movido, cuánto hay, cuánto lleva sin salir y
+    para cuántos días alcanza al ritmo de las últimas cuatro semanas. Lo que lleva treinta días o
+    más sin salir va aparte, arriba: «se está quedando». Cuatro indicadores: lo que vale lo que
+    hay, cuántos materiales tienen existencia, cuántos se están quedando (y lo que valen) y el
+    que más lleva.
+  - La ficha de un material, por 30 días o por 3 meses: lo que se pagó y lo que se cobró por
+    kilo en promedio, y su diferencia; lo que entró y lo que salió, por día o por semana, con sus
+    números; su precio de lista encima de sus kilos, de compra o de venta, para ver si entra más
+    cuando se paga más; lo que ha habido en el patio al terminar cada día; y lo que se le perdió,
+    se le ajustó, se le descontó o se separó.
 - **Precios** (12 de octubre) — la historia de precios, por 30 días, 3 meses o 1 año: cuántas listas
   se publicaron, qué materiales cambiaron, la compra que más subió y la que más bajó; cada material
   con una rayita de su precio de compra, lo que vale hoy y cuánto varió; y al tocarlo, su gráfica
@@ -162,6 +184,31 @@ técnica no: es el dinero de todos los días. Una sola entrada en la barra, «Pa
     que no se ve no es un nombre. «Jose» y «José» siguen siendo dos. No se juntan las letras de
     otro alfabeto que se dibujan igual ni las formas de compatibilidad: está dicho, con su porqué,
     al principio de la 0034.
+19. **Qué es «salir» y qué es «quedarse»** (13 de octubre). Un material sale cuando se vende o
+    cuando se separa en otros materiales; lo que se da de baja no cuenta, porque no es movimiento
+    del negocio. Lo que nunca ha salido cuenta desde el día en que llegó: así algo que entró ayer
+    no aparece como quedado. «Se está quedando» es llevar treinta días o más sin salir teniendo
+    existencia, y «alcanza para» es lo que hay entre lo que salió en las últimas cuatro semanas.
+    Los dos números —30 y 28— están al principio de `materiales-del-panel.ts`.
+20. **El precio por kilo de la ficha es lo pagado entre los kilos pesados**, no entre los kilos
+    pagados: un descuento baja lo que costó cada kilo que entró al patio. La diferencia entre lo
+    cobrado y lo pagado por kilo **no es la ganancia**, y la pantalla lo dice: lo que se vendió
+    pudo comprarse antes, a otro precio. La ganancia de verdad es de caja y ganancia.
+21. **Lo que hay en el patio, día por día, sale del libro de inventario**, con el día de la
+    jornada de cada movimiento (sin jornada, el día en que se asentó): la misma regla con que el
+    resumen coloca las bajas y los ajustes.
+22. **De cada persona, dos fuentes.** Lo que cobró —cuentas, dinero, kilos y kilos descontados—
+    sale de las cuentas que terminó, con la regla del cierre; el descuento es de quien cobra,
+    porque es quien lo decide. Lo que descartó, corrigió o reimprimió sale de la bitácora, en el
+    día en que pasó cada cosa, porque no es de ninguna jornada. Por eso una persona que no cobró
+    ninguna cuenta puede salir en la lista.
+23. **El periodo que se elige** va de tal día a tal día, hasta un año y un día. Se compara con
+    los mismos días de antes. Para que las columnas se lean en un teléfono nunca son más de
+    treinta y una: día por día hasta un mes, por semana hasta unos siete meses y de cuatro en
+    cuatro semanas más allá; el último tramo termina el último día aunque quede corto.
+24. **La demostración trae descuentos y cuentas descartadas**, inventados como todo lo demás, y
+    sorteados aparte para que no cambie qué se compra y se vende con cada semilla. Una
+    demostración sembrada antes del 13 de octubre no los tiene: no se le agregan después.
 
 ### El sembrador de la demostración (`consola/demo.ts`)
 
@@ -190,6 +237,7 @@ repositorio); con ella se vuelve a como estaba.
 | Qué | Dónde |
 |---|---|
 | El resumen | `src/servidor/dominio/panel.ts`, `src/app/api/panel/`, `src/app/panel/page.tsx`, `src/componentes/panel/` |
+| Los materiales del panel | `src/servidor/dominio/materiales-del-panel.ts`, `src/app/api/panel/materiales/` y `[material]/`, `src/app/panel/materiales/page.tsx` |
 | Los días | `src/servidor/dominio/historial.ts`, `src/app/api/historial/`, `src/app/panel/dias/page.tsx` |
 | El reporte de un día, compartido con el cierre | `src/componentes/cierre/Reporte.tsx` |
 | La bitácora | `src/servidor/dominio/bitacora.ts`, `src/app/api/bitacora/`, `src/app/panel/bitacora/page.tsx` |
@@ -203,11 +251,30 @@ repositorio); con ella se vuelve a como estaba.
 | Materiales | `db/migraciones/0030_catalogo_en_pantalla.sql`, `src/servidor/dominio/materiales.ts`, `src/app/api/materiales/` |
 | Clientes desde los ajustes | `db/migraciones/0033_clientes_en_pantalla.sql` y `0034_nombres_de_cliente_sin_resquicios.sql` (la regla de los nombres), `altaDeCliente` y `cambiarCliente` en `src/servidor/dominio/clientes.ts`, `POST` en `src/app/api/clientes/` y en `[cliente]/`, `src/componentes/ajustes/Clientes.tsx` |
 | La pantalla de ajustes | `src/app/panel/ajustes/page.tsx`, `src/componentes/ajustes/`, `src/estilo/ajustes.css` |
-| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`, `46-clientes-en-pantalla`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
+| Las pruebas | `pruebas/37-panel`, `38-historial`, `39-bitacora`, `40-demo`, `41-historia-de-precios`, `42-clientes`, `43-exportar`, `44-materiales`, `45-administracion`, `46-clientes-en-pantalla`, `47-materiales-del-panel`; `recorrido/panel.spec.ts`, `recorrido/ajustes.spec.ts` |
 
 ## Verificado
 
-**El 13 de octubre de 2026**, con los clientes en los ajustes y las migraciones 0033 y 0034 (una
+**El 13 de octubre de 2026, por la tarde**, con los materiales en el panel y el resumen ampliado
+(la cuenta promedio, el día de la semana, lo de cada persona, los kilos descontados y el periodo
+que se elige), sin migración nueva:
+
+- tipos y **1022 pruebas** (eran 999; las 23 nuevas son 16 de `47-materiales-del-panel` y 7 del
+  resumen, en `37-panel`), sin fallas;
+- **220 recorridos en Chromium** y **213 en WebKit** (eran 216 y 209; los 4 nuevos son la lista y
+  la ficha de los materiales, lo que se está quedando, la ficha que llega tarde y el resumen de
+  otro periodo), sin fallas. Las medidas de patio del panel ahora incluyen los materiales —con un
+  material de cuarenta letras sin un espacio—, el resumen a treinta días y el resumen eligiendo
+  de qué día a qué día.
+
+Al medir salieron dos cosas que ya estaban y nadie había medido, y se corrigieron: el rótulo de
+una columna ensanchaba la página en un teléfono cuando las columnas son treinta (pasaba en el
+resumen a 30 días), y un nombre de material sin espacios ensanchaba la pantalla, hasta en
+escritorio. La primera no se vio fallar en el resumen antes de corregirla: se vio en la ficha del
+material, que usa la misma gráfica; la segunda sí se vio fallar. **Los simulacros no se
+repitieron**: no cambiaron la base ni los guiones de operación.
+
+**El 13 de octubre de 2026, por la mañana**, con los clientes en los ajustes y las migraciones 0033 y 0034 (una
 sola regla para los nombres de cliente), y después de corregir lo que encontraron la revisión de
 Codex y la de seguridad del guardado
 (`docs/revisiones/2026-10-13-codex-revision-de-los-clientes-en-pantalla.md`):
@@ -310,8 +377,10 @@ Y lo que hay que cerrar antes del servidor de verdad (`2026-10-03-despliegue.md`
 
 ## Lo que no se hizo
 
-- Elegir un periodo cualquiera en el resumen (de tal día a tal día): hay tres, y todos terminan
-  hoy. En los reportes sí se elige.
+- En la ficha de un material no se elige el periodo de tal día a tal día: hay dos, y terminan
+  hoy. En el resumen y en los reportes sí se elige.
+- Los mejores proveedores: el sistema solo guarda el nombre de quien tiene precio especial.
+- La ganancia y el margen de verdad: son de caja y ganancia.
 - Comparar contra el mismo periodo del año pasado.
 - Llevar a todos los clientes, no solo a los de precio especial (decisión 10).
 - Anotar en la bitácora quién bajó qué archivo.

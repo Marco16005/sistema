@@ -80,10 +80,10 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 999 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 1022 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 216 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 209
+docker compose --profile recorrido run --rm recorrido     # 220 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 213
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
@@ -177,12 +177,18 @@ docs/revisiones/  las revisiones de Codex y la respuesta a cada hallazgo
 
 ### El panel de quien dirige
 
-Lo ven el responsable y quien consulta, en `/panel`. Tiene seis partes, y una más para el responsable:
+Lo ven el responsable y quien consulta, en `/panel`. Tiene siete partes, y una más para el responsable:
 
-- el **resumen**: compras, ventas y cuentas de los últimos 7 días, 30 días o 3 meses, con sus
-  gráficas, lo que más se movió, lo que hay en el patio y lo que conviene vigilar;
+- el **resumen**: compras, ventas y cuentas de los últimos 7 días, 30 días o 3 meses —o de tal día
+  a tal día, hasta un año—, con sus gráficas, la cuenta promedio, lo que más se movió, lo que hay
+  en el patio, a qué hora y qué día de la semana se atiende más, lo que hizo cada persona y lo que
+  conviene vigilar (bajas, ajustes, precios especiales, kilos descontados, días reabiertos);
 - los **días**: cada día que ha habido, con el reporte de su cierre y sus cuentas, cada una con su
   comprobante;
+- los **materiales**: cuánto hay de cada uno, cuánto lleva sin salir y para cuántos días alcanza
+  —lo que lleva treinta días o más sin salir va aparte: se está quedando—; y la ficha de cada
+  material: a cuánto se pagó y se cobró el kilo, lo que entró y salió, su precio junto a sus
+  kilos, lo que ha habido en el patio y lo que se le perdió;
 - los **precios**: cómo se ha movido el precio de compra y de venta de cada material en 30 días,
   3 meses o 1 año, con su gráfica y sus cambios uno por uno;
 - los **clientes**: a quién se le da precio especial, cuánto se le ha comprado y vendido en esas

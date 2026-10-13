@@ -109,10 +109,24 @@ test("quien dirige ve el resumen de la semana: lo comprado, lo vendido, día por
   await expect(hay.locator(".mov").nth(0)).toContainText("590 kg × $2.10");
   await expect(hay).toContainText(`con la lista del ${fechaCorta(dias.hoy)}, no lo que costó`);
 
-  // Quién atendió, y lo que conviene vigilar.
-  await expect(tarjeta(page, "Quién atendió")).toContainText("Luis3 cuentas");
-  await expect(tarjeta(page, "Quién atendió")).toContainText("Servando1 cuenta");
+  // La cuenta promedio: tres compras por $348 y 140 kg; una venta.
+  await expect(indicador(page, "Compras")).toContainText("En promedio, $116 y 46.7 kg por cuenta");
+  await expect(indicador(page, "Ventas")).toContainText("En promedio, $100 y 40 kg por cuenta");
+
+  // Qué día de la semana: antier hubo dos cuentas, y ayer y hoy, una. En siete días cada día cae una vez.
+  const semana = tarjeta(page, "Qué día de la semana");
+  await expect(semana.locator(".col")).toHaveCount(7);
+  await expect(semana.locator(".tope")).toHaveText("2 por día");
+  const elFuerte = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date(`${dias.antier}T00:00:00Z`).getUTCDay()]!;
+  await expect(semana).toContainText(`El más fuerte es el ${elFuerte}: 2 cuentas por día.`);
+  await expect(semana.locator("ul.oculto li")).toHaveCount(7);
+  await expect(semana.locator("ul.oculto")).toContainText(`Los ${elFuerte}, 2 por día: 2 cuentas en 1 día`);
+
+  // Quién atendió —con lo que cobró cada quien—, y lo que conviene vigilar.
+  const atendio = tarjeta(page, "Quién atendió").locator(".mov");
+  await expect(atendio).toHaveText(["Luis3 cuentas2 compras por $285 · 1 venta por $100 · 150 kg pesados", "Servando1 cuenta1 compra por $63 · 30 kg pesados"]);
   await expect(tarjeta(page, "Para vigilar")).toContainText("Material dado de bajaNada");
+  await expect(tarjeta(page, "Para vigilar")).toContainText("Kilos descontados en el mostradorNinguno");
 
   // Otro periodo: el rótulo dice de cuándo a cuándo.
   await page.getByRole("group", { name: "Periodo" }).getByRole("button", { name: "3 meses" }).click();
@@ -120,6 +134,55 @@ test("quien dirige ve el resumen de la semana: lo comprado, lo vendido, día por
   await expect(serie.locator(".col")).toHaveCount(13);
   await expect(serie.locator("header")).toContainText("Por semana");
   await expect(indicador(page, "Compras")).toContainText("$348");
+});
+
+test("el resumen de otro periodo, de tal día a tal día: lo suyo, y se compara con los mismos días de antes", async ({ page }) => {
+  const g = await gente();
+  const dias = await tresDias(g);
+  await darDeAltaEquipo(page);
+  await adentro(page, g.servando);
+  await page.goto("/panel");
+  await expect(indicador(page, "Compras")).toContainText("$348");
+  const periodo = page.getByRole("group", { name: "Periodo" });
+  await periodo.getByRole("button", { name: "Otro periodo" }).click();
+  await expect(periodo.getByRole("button", { name: "Otro periodo" })).toHaveAttribute("aria-pressed", "true");
+  await expect(periodo.getByRole("button", { name: "7 días" })).toHaveAttribute("aria-pressed", "false");
+
+  // Solo antier: la compra de $210 y la venta de $100. Antes de ese día no hubo nada.
+  await page.getByLabel("Desde").fill(dias.antier);
+  await page.getByLabel("Hasta").fill(dias.antier);
+  await expect(page.locator(".periodo")).toHaveText(`Del ${fechaCorta(dias.antier)} al ${fechaCorta(dias.antier)}`);
+  await expect(indicador(page, "Compras")).toContainText("$2101 cuenta · 100 kg");
+  await expect(indicador(page, "Compras")).toContainText("Sin nada antes con qué comparar");
+  await expect(indicador(page, "Ventas")).toContainText("$1001 cuenta · 40 kg");
+  await expect(tarjeta(page, "Compras y ventas").locator(".col")).toHaveCount(1);
+
+  // Solo ayer: una compra de $75, y se compara con el día anterior, que tuvo $210.
+  await page.getByLabel("Desde").fill(dias.ayer);
+  await page.getByLabel("Hasta").fill(dias.ayer);
+  await expect(indicador(page, "Compras")).toContainText("$751 cuenta · 10 kg");
+  await expect(indicador(page, "Compras")).toContainText("▼ 64.3 % menos que el día anterior");
+
+  // De antier a hoy: tres días, y se compara con los tres de antes.
+  await page.getByLabel("Desde").fill(dias.antier);
+  await page.getByLabel("Hasta").fill(dias.hoy);
+  await expect(indicador(page, "Compras")).toContainText("$3483 cuentas · 140 kg");
+  await expect(tarjeta(page, "Compras y ventas").locator(".col")).toHaveCount(3);
+  await expect(page.locator(".periodo")).toHaveText(`Del ${fechaCorta(dias.antier)} al ${fechaCorta(dias.hoy)}`);
+
+  // Al revés no se pide: se dice qué falta, y lo que estaba a la vista —solo hoy— se queda.
+  await page.getByLabel("Desde").fill(dias.hoy);
+  await expect(indicador(page, "Compras")).toContainText("$631 cuenta · 30 kg");
+  await page.getByLabel("Hasta").fill(dias.antier);
+  await expect(page.getByText("El primer día no puede ser posterior al último.")).toBeVisible();
+  await expect(indicador(page, "Compras")).toContainText("$631 cuenta · 30 kg");
+  await expect(page.locator(".periodo")).toHaveText(`Del ${fechaCorta(dias.hoy)} al ${fechaCorta(dias.hoy)}`);
+
+  // De vuelta a un periodo de un toque: ya no se pregunta de qué día a qué día.
+  await periodo.getByRole("button", { name: "7 días" }).click();
+  await expect(page.getByLabel("Desde")).toHaveCount(0);
+  await expect(page.locator(".periodo")).toHaveText(`Del ${fechaCorta(dias.semana)} al ${fechaCorta(dias.hoy)}`);
+  await expect(indicador(page, "Compras")).toContainText("Sin nada antes con qué comparar");
 });
 
 test("si la respuesta de un periodo llega cuando ya se eligió otro, no se queda a la vista la que ya no se pidió", async ({ page }) => {
@@ -766,6 +829,10 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await page.getByRole("group", { name: "Periodo" }).getByRole("button", { name: "30 días" }).click();
     await expect(tarjeta(page, "Compras y ventas").locator(".col")).toHaveCount(30);
     await medir("el resumen, a treinta días");
+    await page.getByRole("group", { name: "Periodo" }).getByRole("button", { name: "Otro periodo" }).click();
+    await expect(page.getByLabel("Desde")).toBeVisible();
+    await expect(page.locator(".periodo")).not.toContainText("cargando");
+    await medir("el resumen, eligiendo de qué día a qué día");
 
     await page.getByRole("link", { name: "Días" }).click();
     await expect(page.locator(".exrow.dia")).toHaveCount(3);

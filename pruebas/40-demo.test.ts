@@ -226,6 +226,13 @@ test('C.8 mermas, conteos semanales y precios especiales aparecen en el panel', 
       FROM conteo c, sucursal s GROUP BY 1 HAVING count(*) > 1) x`)).n, 0);
     assert.equal((await una(db, 'SELECT count(*)::int AS n FROM existencia WHERE kg < 0')).n, 0);
     assert.ok(Number(p.control.mermaKg) > 0 && Number(p.control.diferenciaEnCompras) > 0);
+    // Lo que el resumen enseña para vigilar de cada persona: kilos descontados en el mostrador y cuentas descartadas.
+    assert.ok(p.control.descuentos >= 1 && Number(p.control.descuentoEnComprasKg) > 0);
+    assert.equal(p.control.descuentos, (await una(db, 'SELECT count(*)::int AS n FROM operacion_linea WHERE descuento_kg > 0')).n);
+    assert.ok(p.personas.some((x) => Number(x.descuentoKg) > 0));
+    assert.ok(p.personas.some((x) => x.descartadas > 0));
+    assert.equal(p.personas.reduce((n, x) => n + x.descartadas, 0), (await una(db, "SELECT count(*)::int AS n FROM bitacora WHERE accion = 'descartar'")).n);
+    assert.equal((await una(db, "SELECT count(*)::int AS n FROM operacion WHERE estado <> 'confirmada'")).n, 0);
     assert.ok((await una(db, 'SELECT count(*)::int AS n FROM equipo')).n > 0);
     for (const { tabla, columna } of await columnas(db)) {
       assert.equal((await una(db, `SELECT count(*)::int AS n FROM ${identificador(tabla)} WHERE ${identificador(columna)} > clock_timestamp()`)).n, 0, `${tabla}.${columna}`);

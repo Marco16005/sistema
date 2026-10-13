@@ -55,6 +55,15 @@ export const material = (valor: unknown): number => enteroHasta(valor, "el mater
 /** El identificador de una báscula. */
 export const bascula = (valor: unknown): number => enteroHasta(valor, "la báscula", 32_767);
 
+/** Un día del calendario, AAAA-MM-DD, que exista. */
+export function dia(valor: unknown, nombre: string): string {
+  const fecha = typeof valor === "string" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(valor) && !valor.startsWith("0000") ? new Date(`${valor}T00:00:00Z`) : null;
+  if (fecha === null || !Number.isFinite(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== valor) {
+    throw new ErrorDeForma(`Falta ${nombre} o no es un día que exista, escrito AAAA-MM-DD`);
+  }
+  return valor as string;
+}
+
 export function unoDe<T extends string>(valor: unknown, nombre: string, opciones: readonly T[]): T {
   if (typeof valor !== "string" || !(opciones as readonly string[]).includes(valor)) {
     throw new ErrorDeForma(`Falta ${nombre} o no tiene la forma esperada`);

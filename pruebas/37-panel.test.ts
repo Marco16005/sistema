@@ -13,7 +13,7 @@ import type { Navegador } from "./navegador.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
 import { cerrarJornada, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
-import { abrirCuenta, agregarMaterial, confirmar } from "../src/servidor/dominio/cuentas.ts";
+import { abrirCuenta, agregarMaterial, confirmar, descartar, ponerDescuento } from "../src/servidor/dominio/cuentas.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
 import { panel } from "../src/servidor/dominio/panel.ts";
 
@@ -145,7 +145,12 @@ test("los materiales salen del que más kilos movió al que menos, con lo compra
 test("quién atendió, del que más cuentas terminó al que menos; y a qué hora, sin perder ninguna cuenta", () =>
   conDosDias(async ({ bd }) => {
     const p = await panel(bd, { dias: 7, hasta: "2026-10-02" });
-    assert.deepEqual(p.personas, [{ nombre: "Luis", cuentas: 4 }, { nombre: "Servando", cuentas: 1 }]);
+    const sinNovedad = { descuentoKg: "0.000", descartadas: 0, correcciones: 0, reimpresiones: 0 };
+    assert.deepEqual(p.personas, [
+      // Luis: tres compras ($93 + $21 + $75) y la venta de Cartón; por sus manos pasaron 34.2 + 10 + 200.3 + 10 kg.
+      { nombre: "Luis", cuentas: 4, compras: 3, ventas: 1, pagado: "189", cobrado: "501", kg: "254.500", ...sinNovedad },
+      { nombre: "Servando", cuentas: 1, compras: 0, ventas: 1, pagado: "0", cobrado: "18", kg: "2.000", ...sinNovedad },
+    ]);
     assert.equal(p.horas.reduce((s, h) => s + h.cuentas, 0), 5);
     assert.ok(p.horas.every((h) => Number.isInteger(h.hora) && h.hora >= 0 && h.hora <= 23));
     assert.deepEqual(p.horas.map((h) => h.hora), [...p.horas.map((h) => h.hora)].sort((a, b) => a - b));
@@ -179,10 +184,13 @@ test("sin ningún día todavía, el panel sale vacío y no truena", () =>
       assert.deepEqual(p.totales, SIN_NADA);
       assert.equal(p.serie.length, 30);
       assert.deepEqual({ materiales: p.materiales, personas: p.personas, horas: p.horas }, { materiales: [], personas: [], horas: [] });
+      assert.deepEqual(p.promedio, { pagado: null, kgComprado: null, cobrado: null, kgVendido: null });
+      assert.deepEqual(p.semana.map((d) => [d.dia, d.cuentas, d.porDia]), [1, 2, 3, 4, 5, 6, 7].map((d) => [d, 0, "0.0"]));
       assert.deepEqual(p.inventario, { listaDel: null, valor: "0.00", sinPrecio: 0, materiales: [] });
       assert.deepEqual(p.control, {
         mermas: 0, mermaKg: "0.000", ajustes: 0, ajusteEntroKg: "0.000", ajusteSalioKg: "0.000",
         preciosEspeciales: 0, diferenciaEnCompras: "0.00", diferenciaEnVentas: "0.00", reaperturas: 0,
+        descuentos: 0, descuentoEnComprasKg: "0.000", descuentoEnVentasKg: "0.000", descontados: [],
       });
     } finally {
       await bd.cerrar();
@@ -195,6 +203,111 @@ test("sin decir hasta cuándo, el periodo termina hoy, en la fecha del patio", (
     const p = await panel(bd, { dias: 7 });
     assert.equal(p.hasta, hoy);
     assert.equal(p.serie.at(-1)!.desde, hoy);
+  }));
+
+
+// ── la cuenta promedio, el día de la semana, los descuentos y cada persona ──
+
+test("la cuenta promedio: lo que se paga y lo que entra por cuenta de compra, y lo que se cobra y sale por cuenta de venta", () =>
+  conDosDias(async ({ bd }) => {
+    // Tres compras: $189 y 54.2 kg. Dos ventas: $519 y 202.3 kg.
+    assert.deepEqual((await panel(bd, { dias: 7, hasta: "2026-10-02" })).promedio, { pagado: "63.00", kgComprado: "18.067", cobrado: "259.50", kgVendido: "101.150" });
+    // Con solo el día 2 a la vista: una compra y una venta.
+    assert.deepEqual((await panel(bd, { dias: 7, hasta: "2026-10-08" })).promedio, { pagado: "75.00", kgComprado: "10.000", cobrado: "18.00", kgVendido: "2.000" });
+  }));
+
+test("por día de la semana: cuántas cuentas hubo y cuántas por cada día de ese nombre que cae en el periodo", () =>
+  conDosDias(async ({ bd }) => {
+    // El 1 de octubre de 2026 es jueves y el 2, viernes. En siete días cada día de la semana cae una vez.
+    const semana = (await panel(bd, { dias: 7, hasta: "2026-10-02" })).semana;
+    assert.deepEqual(semana, [
+      { dia: 1, dias: 1, cuentas: 0, porDia: "0.0" }, { dia: 2, dias: 1, cuentas: 0, porDia: "0.0" }, { dia: 3, dias: 1, cuentas: 0, porDia: "0.0" },
+      { dia: 4, dias: 1, cuentas: 3, porDia: "3.0" }, { dia: 5, dias: 1, cuentas: 2, porDia: "2.0" },
+      { dia: 6, dias: 1, cuentas: 0, porDia: "0.0" }, { dia: 7, dias: 1, cuentas: 0, porDia: "0.0" },
+    ]);
+    // En treinta días, del 3 de septiembre al 2 de octubre, caen cinco jueves y cinco viernes, y cuatro de los demás.
+    const mes = (await panel(bd, { dias: 30, hasta: "2026-10-02" })).semana;
+    assert.deepEqual(mes.map((d) => d.dias), [4, 4, 4, 5, 5, 4, 4]);
+    assert.deepEqual([mes[3], mes[4]], [{ dia: 4, dias: 5, cuentas: 3, porDia: "0.6" }, { dia: 5, dias: 5, cuentas: 2, porDia: "0.4" }]);
+  }));
+
+test("los kilos descontados: cuántos renglones, cuántos kilos en compras y en ventas, de qué materiales, y quién cobró esas cuentas", () =>
+  conDosDias(async ({ bd, e }) => {
+    const conDescuento = async (quien: string, tipo: "compra" | "venta", material: string, kg: string, descuento: string): Promise<void> => {
+      const linea = randomUUID();
+      let c = await abrirCuenta(bd, quien, { id: randomUUID(), tipo, etiqueta: null });
+      c = await agregarMaterial(bd, quien, c.id, { linea, captura: randomUUID(), material: e.mat[material]!, bascula: 2, kg });
+      c = await ponerDescuento(bd, quien, c.id, linea, descuento);
+      await confirmar(bd, quien, c.id, c.revision);
+    };
+    await conDescuento(e.mostrador, "compra", "Cartón", "20", "1.5");
+    await conDescuento(e.mostrador, "compra", "PET", "5", "0.25");
+    await conDescuento(e.mostrador, "compra", "Cartón", "10", "2");
+    await conDescuento(e.responsable, "venta", "Cartón", "50", "3");
+    const p = await panel(bd, { dias: 7, hasta: "2026-10-02" });
+    const { descuentos, descuentoEnComprasKg, descuentoEnVentasKg, descontados } = p.control;
+    assert.deepEqual({ descuentos, descuentoEnComprasKg, descuentoEnVentasKg }, { descuentos: 4, descuentoEnComprasKg: "3.750", descuentoEnVentasKg: "3.000" });
+    // Del que más kilos se le descontaron al que menos, sumando compras y ventas.
+    assert.deepEqual(descontados, [{ nombre: "Cartón", kg: "6.500" }, { nombre: "PET", kg: "0.250" }]);
+    assert.deepEqual(p.personas.map((x) => [x.nombre, x.descuentoKg]), [["Luis", "3.750"], ["Servando", "3.000"]]);
+    // Lo que entró son los kilos pesados; el descuento baja lo que se paga, no lo que entra al patio.
+    assert.equal(p.totales.kgComprado, "89.200");
+  }));
+
+test("de cada persona, lo que conviene vigilar: las cuentas que descartó, lo que corrigió y lo que reimprimió, aunque no haya cobrado nada", () =>
+  conDosDias(async ({ bd, db, e }) => {
+    const abierta = await abrirCuenta(bd, e.mostrador, { id: randomUUID(), tipo: "compra", etiqueta: null });
+    await agregarMaterial(bd, e.mostrador, abierta.id, { linea: randomUUID(), captura: randomUUID(), material: e.mat["Cartón"]!, bascula: 2, kg: "40" });
+    await descartar(bd, e.mostrador, abierta.id);
+    // Una corrección y dos reimpresiones piden clave e impresora: aquí se asientan en la bitácora como las asienta la base.
+    await db.query(`INSERT INTO bitacora (usuario_id, accion, entidad) VALUES
+      ($1, 'corregir', 'movimiento_inventario'), ($1, 'corregir_material', 'movimiento_inventario'),
+      ($2, 'reimprimir', 'operacion'), ($2, 'reimprimir', 'operacion'), ($2, 'cerrar', 'jornada')`, [e.responsable, e.patio]);
+    // La bitácora va por el día en que pasó cada cosa: se lleva todo al 2 de octubre.
+    await db.query("BEGIN");
+    await db.query("SET LOCAL session_replication_role = replica");
+    await db.query("UPDATE bitacora SET ocurrido_en = '2026-10-02 18:00+00'");
+    await db.query("COMMIT");
+    const de = (await panel(bd, { dias: 7, hasta: "2026-10-02" })).personas.map((x) => ({ nombre: x.nombre, cuentas: x.cuentas, descartadas: x.descartadas, correcciones: x.correcciones, reimpresiones: x.reimpresiones }));
+    assert.deepEqual(de, [
+      { nombre: "Luis", cuentas: 4, descartadas: 1, correcciones: 0, reimpresiones: 0 },
+      { nombre: "Servando", cuentas: 1, descartadas: 0, correcciones: 2, reimpresiones: 0 },
+      // Beto, del patio, no cobró ninguna cuenta: sale por lo que reimprimió.
+      { nombre: "Beto", cuentas: 0, descartadas: 0, correcciones: 0, reimpresiones: 2 },
+    ]);
+    // Fuera del periodo, nada de eso cuenta; y quien no hizo nada de esto no sale.
+    assert.deepEqual((await panel(bd, { dias: 7, hasta: "2026-09-25" })).personas, []);
+  }));
+
+// ── el periodo que se elige ─────────────────────────────────────────────────
+
+test("un periodo elegido de tal día a tal día: lo suyo, día por día, y se compara con los mismos días de antes", () =>
+  conDosDias(async ({ bd }) => {
+    const p = await panel(bd, { desde: "2026-10-02", hasta: "2026-10-02" });
+    assert.deepEqual({ desde: p.desde, hasta: p.hasta, dias: p.dias, paso: p.paso, tramos: p.serie.length }, { desde: "2026-10-02", hasta: "2026-10-02", dias: 1, paso: "dia", tramos: 1 });
+    assert.deepEqual(p.totales, { cuentas: 2, compras: 1, ventas: 1, pagado: "75", cobrado: "18", diferencia: "-57", kgComprado: "10.000", kgVendido: "2.000" });
+    // El día de antes: el 1 de octubre.
+    assert.deepEqual({ cuentas: p.antes.cuentas, pagado: p.antes.pagado }, { cuentas: 3, pagado: "114" });
+    const dos = await panel(bd, { desde: "2026-10-01", hasta: "2026-10-02" });
+    assert.deepEqual({ dias: dos.dias, cuentas: dos.totales.cuentas, antes: dos.antes }, { dias: 2, cuentas: 5, antes: SIN_NADA });
+    assert.deepEqual(dos.serie.map((t) => [t.desde, t.hasta, t.cuentas]), [["2026-10-01", "2026-10-01", 3], ["2026-10-02", "2026-10-02", 2]]);
+  }));
+
+test("un periodo largo va por semanas, y uno de muchos meses, de cuatro en cuatro semanas: el último tramo termina el último día y no se pierde ninguno", () =>
+  conDosDias(async ({ bd }) => {
+    // Hasta 31 días, día por día.
+    assert.deepEqual((({ paso, serie }) => [paso, serie.length])(await panel(bd, { desde: "2026-09-02", hasta: "2026-10-02" })), ["dia", 31]);
+    // Cuarenta días: cinco semanas enteras y un tramo de cinco días, del 28 de septiembre al 2 de octubre.
+    const p = await panel(bd, { desde: "2026-08-24", hasta: "2026-10-02" });
+    assert.deepEqual({ dias: p.dias, paso: p.paso, tramos: p.serie.length }, { dias: 40, paso: "semana", tramos: 6 });
+    assert.deepEqual({ desde: p.serie[0]!.desde, hasta: p.serie[0]!.hasta }, { desde: "2026-08-24", hasta: "2026-08-30" });
+    assert.deepEqual(p.serie[5], { desde: "2026-09-28", hasta: "2026-10-02", ...p.totales });
+    assert.equal(p.totales.cuentas, 5);
+    // Trescientos días: diez tramos de cuatro semanas y uno de veinte días.
+    const largo = await panel(bd, { desde: "2025-12-07", hasta: "2026-10-02" });
+    assert.deepEqual({ dias: largo.dias, paso: largo.paso, tramos: largo.serie.length }, { dias: 300, paso: "cuatro-semanas", tramos: 11 });
+    assert.deepEqual({ desde: largo.serie[10]!.desde, hasta: largo.serie[10]!.hasta, cuentas: largo.serie[10]!.cuentas }, { desde: "2026-09-13", hasta: "2026-10-02", cuentas: 5 });
+    assert.equal(largo.serie.reduce((n, t) => n + t.cuentas, 0), 5);
   }));
 
 // ── por las rutas: quién lo ve, y el control ────────────────────────────────
@@ -271,7 +384,29 @@ test("el control cuenta lo que se dio de baja, lo que ajustó un conteo, los pre
     assert.deepEqual(p.control, {
       mermas: 1, mermaKg: "10.000", ajustes: 1, ajusteEntroKg: "0.000", ajusteSalioKg: "19.500",
       preciosEspeciales: 1, diferenciaEnCompras: "50.00", diferenciaEnVentas: "0.00", reaperturas: 1,
+      descuentos: 0, descuentoEnComprasKg: "0.000", descuentoEnVentasKg: "0.000", descontados: [],
     });
     assert.deepEqual({ cuentas: p.totales.cuentas, pagado: p.totales.pagado, kgComprado: p.totales.kgComprado }, { cuentas: 1, pagado: "260", kgComprado: "100.000" });
     assert.deepEqual(p.inventario.materiales, [{ nombre: "Cartón", kg: "570.500", precio: "2.1000", valor: "1198.05" }]);
+  }));
+
+test("el periodo también se elige de tal día a tal día; con fechas que no son, al revés o de más de un año, no pasa", () =>
+  conPatio(async ({ jefe, m }) => {
+    const hoy = (await una(m.db, "SELECT to_char(hoy_en(1::smallint), 'YYYY-MM-DD') AS f, to_char(hoy_en(1::smallint) - 9, 'YYYY-MM-DD') AS antes"));
+    const p = (await (await verPanel(jefe, `?desde=${hoy.antes}&hasta=${hoy.f}`)).json()).panel;
+    assert.deepEqual({ desde: p.desde, hasta: p.hasta, dias: p.dias, tramos: p.serie.length }, { desde: hoy.antes, hasta: hoy.f, dias: 10, tramos: 10 });
+    for (const mala of [
+      `?desde=${hoy.f}&hasta=${hoy.antes}`,          // al revés
+      `?desde=${hoy.antes}`, `?hasta=${hoy.f}`,       // falta uno
+      "?desde=2026-02-30&hasta=2026-03-02",            // un día que no existe
+      "?desde=ayer&hasta=hoy", "?desde=&hasta=",
+      "?desde=2025-01-01&hasta=2026-01-02",            // 367 días
+      `?dias=7&desde=${hoy.antes}&hasta=${hoy.f}`,     // las dos maneras a la vez
+    ]) {
+      const r = await verPanel(jefe, mala);
+      assert.equal(r.status, 400, mala);
+      assert.equal(await codigoDe(r), "FORMA", mala);
+    }
+    // Un año justo sí cabe.
+    assert.equal((await (await verPanel(jefe, "?desde=2025-10-03&hasta=2026-10-02")).json()).panel.dias, 365);
   }));
