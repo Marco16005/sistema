@@ -13,7 +13,9 @@
 .note.primera{margin-top:0}
 
 /* Lo que se ve una sola vez: grande, para copiarlo a mano sin equivocarse. */
-.unavez{border:var(--borde-marcado) solid var(--bien)}
 .unavez .secreto{display:block;margin:var(--espacio-1) 0 var(--espacio-2);font-family:var(--numeros);font-size:clamp(34px,9vw,48px);font-weight:700;
   letter-spacing:.08em;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;
   -webkit-user-select:text;user-select:text}
+.administrado .detiene{margin-top:var(--espacio-2)}
+.btn.arriba{margin:0 0 var(--espacio-3)}
+.administrado :is(.okmsg,.flag){margin:var(--espacio-2) 0 0}

@@ -65,6 +65,9 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "GET clientes/resumen": DIRIGEN,
   "GET clientes/[cliente]": DIRIGEN,
   "GET exportar": DIRIGEN,
+  "GET materiales": ["responsable"],
+  "POST materiales": ["responsable"],
+  "POST materiales/[material]": ["responsable"],
   "GET administracion": ["responsable"],
   "POST administracion/personas": ["responsable"],
   "POST administracion/personas/[persona]/clave": ["responsable"],
@@ -213,6 +216,9 @@ const BIEN_FORMADAS: Record<string, { cuerpo: (m: Mundo, carton: number, pet: nu
   "POST inventario/merma": { cuerpo: (_m, carton) => ({ id: randomUUID(), material: carton, kg: "1", motivo: "Mojado" }), contesta: "RC002" },
   "POST inventario/separacion/previa": { cuerpo: (_m, carton, pet) => ({ origen: carton, kg: "2", productos: [{ material: pet, kg: "1" }] }), contesta: null },
   "POST inventario/separacion": { cuerpo: (_m, carton, pet) => ({ id: randomUUID(), origen: carton, kg: "2", productos: [{ material: pet, kg: "1" }] }), contesta: "RC002" },
+  // El catálogo: el Cartón ya existe, y pedir que el material 1 quede como está no cambia nada.
+  "POST materiales": { cuerpo: () => ({ familia: 5, nombre: "cartón", nombreCorto: "Cartón", frecuente: false }), contesta: "RC005" },
+  "POST materiales/[material]": { cuerpo: () => ({}), contesta: null },
   // Personas y equipos: con la clave de quien lo pide. El nombre ya existe, y la persona y el equipo no.
   "POST administracion/personas": { cuerpo: () => ({ nombre: "De mostrador", rol: "mostrador", clave: CLAVES.responsable }), contesta: "RC005" },
   "POST administracion/personas/[persona]/clave": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },

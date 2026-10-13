@@ -33,6 +33,10 @@ interface Registro extends Omit<Asiento, "que"> {
   cliente: string | null;
   autoriza: string | null;
   equipo: string | null;
+  activoAntes: string | null;
+  activoDespues: string | null;
+  frecuenteAntes: string | null;
+  frecuenteDespues: string | null;
 }
 
 const numero = (t: string | null, minimo: number, maximo: number): string =>
@@ -80,7 +84,13 @@ const frases: Record<string, (r: Registro) => string> = {
   "update usuario": (r) => `actualizó los datos${de(r.nombre)}`,
   "delete usuario": (r) => `eliminó${r.nombre ? ` a ${r.nombre}` : " a una persona"}`,
   "insert material": (r) => `dio de alta el material${nombre(r)}`,
-  "update material": (r) => `actualizó el material${nombre(r)}`,
+  "update material": (r) => {
+    if (r.activoAntes === "true" && r.activoDespues === "false") return `dio de baja el material${nombre(r)}`;
+    if (r.activoAntes === "false" && r.activoDespues === "true") return `reactivó el material${nombre(r)}`;
+    if (r.frecuenteAntes === "false" && r.frecuenteDespues === "true") return `marcó como frecuente el material${nombre(r)}`;
+    if (r.frecuenteAntes === "true" && r.frecuenteDespues === "false") return `quitó de frecuentes el material${nombre(r)}`;
+    return `actualizó el material${nombre(r)}`;
+  },
   "delete material": (r) => `eliminó el material${nombre(r)}`,
 };
 
@@ -121,6 +131,8 @@ export async function bitacora(
             b.detalle->>'cierre' AS cierre, b.detalle->>'tipo' AS tipo,
             b.detalle->>'clase' AS clase, b.detalle->>'paso' AS paso,
             b.detalle->>'motivo' AS motivo,
+            b.detalle #>> '{antes,activo}' AS "activoAntes", b.detalle #>> '{despues,activo}' AS "activoDespues",
+            b.detalle #>> '{antes,frecuente}' AS "frecuenteAntes", b.detalle #>> '{despues,frecuente}' AS "frecuenteDespues",
             CASE WHEN b.accion IN ('insert', 'update', 'delete')
               THEN coalesce(b.detalle #>> '{despues,nombre}', b.detalle #>> '{antes,nombre}')
               ELSE b.detalle->>'nombre' END AS nombre,

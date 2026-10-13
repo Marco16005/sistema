@@ -92,16 +92,20 @@ export function usePedidoConClave(nombre: string, alTerminar: () => void): { ped
   };
 }
 
-/** Lo que se ve una sola vez —una clave, un código—, grande y con lo que hay que hacer con ello. */
+/**
+ * Lo que se ve una sola vez —una clave, un código—, grande y con lo que hay que hacer con ello. Va
+ * en una hoja, que tapa lo demás: quien lo pidió pudo haber bajado en la lista, y esto no se puede
+ * quedar fuera de la vista. No se cierra sola ni con Escape: se cierra al decir que ya se anotó.
+ */
 export function SeVeUnaVez({ titulo, valor, nota, entendido, alEntender }: { titulo: string; valor: string; nota: string; entendido: string; alEntender: () => void }) {
   return (
-    <div className="card unavez" role="status">
-      <div className="pad">
+    <Hoja titulo={titulo} alCerrar={null}>
+      <div className="pad unavez" role="status">
         <p className="lbl">{titulo}</p>
         <b className="secreto">{valor}</b>
         <p className="note">{nota}</p>
         <button className="btn" type="button" onClick={alEntender}>{entendido}</button>
       </div>
-    </div>
+    </Hoja>
   );
 }

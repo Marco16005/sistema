@@ -36,7 +36,10 @@ cambios sin efecto no escriban en la bitácora.»
 
 ## Cómo siguió
 
-PENDIENTE-DE-ESCRIBIR
+Esa noche, ya con cuota, se le volvió a pasar el mismo encargo con una nota de continuación (lo que
+había quedado: su archivo de pruebas, y nada más). La segunda corrida terminó completa: está en
+`2026-10-12-codex-construccion-del-catalogo.md`. Lo que alcanzó a escribir en esta —las pruebas de
+la base— fue su punto de partida, y lo conservó.
 
 ## El encargo
 
