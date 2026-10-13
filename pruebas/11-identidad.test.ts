@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
-import { comoApp, conBase, conectar, contar, desenlace, esperarQueEspere, esperarQueEsperen, pidDe, rechaza, una } from "./apoyo.ts";
+import {
+  abrirCuenta, comoApp, conBase, conectar, contar, desenlace, equipoDeAlta, escenario, esperarQueEspere, esperarQueEsperen, pidDe, rechaza, una,
+} from "./apoyo.ts";
 
 const SIN_PERMISO = "42501";
 const huellaDe = (secreto: string) => createHash("sha256").update(secreto).digest("hex");
@@ -688,6 +690,81 @@ test("una credencial a la que le falta su cuenta —datos cargados con los dispa
     assert.deepEqual(await intentosDe(db, luis), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
   }));
 
+// Lo encontró Codex al revisar la 0035 (docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md):
+// en una transacción SERIALIZABLE, otra conexión puede hacer que la base aborte a la primera justo
+// cuando escribe —en el UPDATE de la credencial, antes de que los disparadores lleven la cuenta a la
+// secuencia—, y el contexto del error dice qué UPDATE era: el de «acertó» o el de «falló». Así se
+// probaban claves sin que contara ninguna. El intento se aparta ahora en la secuencia ANTES de comparar.
+test("ni cuando la base aborta la transacción a media comprobación se prueba una clave sin que cuente: el intento queda apartado antes de comparar", () =>
+  conBase(async (db, base) => {
+    const e = await escenario(db);
+    await db.query("SELECT fijar_clave($1, '481516')", [e.responsable]);
+    const h = await equipoDeAlta(db);
+    const [a, b] = [await comoApp(base), await comoApp(base)];
+    try {
+      /** Prueba una clave como lo hizo la sonda de Codex. Devuelve lo que supo: la respuesta, o el error con su contexto. */
+      const probar = async (clave: string): Promise<{ bien?: boolean; codigo?: string; contexto?: string }> => {
+        await a.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+        await a.query("SELECT count(*) FROM operacion");
+        // Otra conexión escribe lo que la primera leyó, y lee lo que la primera va a escribir: la base abortará a una de las dos.
+        await b.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+        await b.query("SELECT verificar_clave($1, $2, NULL)", [h, e.responsable]);
+        await abrirCuenta(b, "compra", e.mostrador);
+        await b.query("COMMIT");
+        try {
+          return { bien: (await a.query("SELECT verificar_clave($1, $2, $3) AS bien", [h, e.responsable, clave])).rows[0].bien };
+        } catch (error) {
+          const x = error as { code: string; where?: string };
+          return { codigo: x.code, contexto: x.where ?? "" };
+        } finally {
+          await a.query("ROLLBACK");
+        }
+      };
+      const supo = [];
+      for (const clave of ["000000", "111111", "222222", "333333"]) supo.push(await probar(clave));
+      // La prueba vale si de verdad pasó lo que se quiere cubrir: la base abortó a media comprobación.
+      assert.ok(supo.some((r) => r.codigo === "40001"), `la base no abortó ninguna: ${JSON.stringify(supo)}`);
+      // Abortadas o no, las cuatro contaron…
+      assert.deepEqual(await intentosDe(db, e.responsable), { fallos: 4, bloqueos: 0, bloqueada_hasta: null });
+      // …y la quinta bloquea: desde ahí ni la buena pasa, por ningún camino.
+      await probar("444444");
+      const i = await intentosDe(db, e.responsable);
+      assert.deepEqual({ fallos: i.fallos, bloqueos: i.bloqueos }, { fallos: 0, bloqueos: 1 });
+      assert.ok(i.bloqueada_hasta > new Date());
+      const conLaBuena = await probar("481516");
+      assert.notEqual(conLaBuena.bien, true);
+      assert.equal((await una(a, "SELECT verificar_clave($1, $2, '481516') AS bien", [h, e.responsable])).bien, false);
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  }));
+
+test("una clave buena cuya transacción la base aborta a media comprobación deja la cuenta en cero, no un fallo de más", () =>
+  conBase(async (db, base) => {
+    const e = await escenario(db);
+    await db.query("SELECT fijar_clave($1, '481516')", [e.responsable]);
+    const h = await equipoDeAlta(db);
+    const [a, b] = [await comoApp(base), await comoApp(base)];
+    try {
+      for (let k = 0; k < 4; k++) assert.equal((await una(a, "SELECT verificar_clave($1, $2, '000000') AS bien", [h, e.responsable])).bien, false);
+      await a.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await a.query("SELECT count(*) FROM operacion");
+      await b.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await b.query("SELECT verificar_clave($1, $2, NULL)", [h, e.responsable]);
+      await abrirCuenta(b, "compra", e.mostrador);
+      await b.query("COMMIT");
+      const r = await a.query("SELECT verificar_clave($1, $2, '481516') AS bien", [h, e.responsable]).then((x) => x.rows[0].bien, (x: { code: string }) => x.code);
+      await a.query("ROLLBACK");
+      assert.ok(r === true || r === "40001", String(r));
+      // Era la quinta, y era la buena: ni queda bloqueada ni con cuatro fallos a cuestas.
+      assert.deepEqual(await intentosDe(db, e.responsable), { fallos: 0, bloqueos: 0, bloqueada_hasta: null });
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  }));
+
 test("la aplicación no lee ni toca la cuenta de intentos: ni la secuencia ni la función que la lee", () =>
   conIdentidad(async (app, db) => {
     const luis = await alta(db, "Luis", "mostrador", "4815");
@@ -699,6 +776,7 @@ test("la aplicación no lee ni toca la cuenta de intentos: ni la secuencia ni la
     ]) await rechaza(app.query(consulta), SIN_PERMISO);
     await rechaza(app.query("SELECT * FROM intentos_de($1)", [luis]), SIN_PERMISO);
     await rechaza(app.query("SELECT intento_guardado($1)", [luis]), SIN_PERMISO);
+    await rechaza(app.query("SELECT guardar_intento($1, 0)", [luis]), SIN_PERMISO);
     await rechaza(app.query("SELECT intento_empacado(0, 0, NULL)"), SIN_PERMISO);
   }));
 

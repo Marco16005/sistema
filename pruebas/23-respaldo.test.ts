@@ -18,6 +18,7 @@ import { comoApp, compraDe, contar as cuantos, una, urlDe } from "./apoyo.ts";
 import { LIMPIO, administradorConClave, basesCon, conDestino, conPatio, correr as programa, llaves, procesos, retrato, urlEn } from "./patio.ts";
 import type { Patio, Proceso } from "./patio.ts";
 import { claveDeSello, destinoRclone, leerManifiesto, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, traer, ultimoUtilizable } from "../operacion/destino.ts";
+import { identidadDe } from "../operacion/llave.ts";
 import type { Destino, Manifiesto } from "../operacion/destino.ts";
 import { ESQUEMA_ESPERADO } from "../src/servidor/esquema.ts";
 import { leerHorario, siguiente, toca, ultimoDebido } from "../operacion/horario.ts";
@@ -774,17 +775,40 @@ test("la clave del sello sale de la llave privada: siempre la misma, otra con ot
   assert.equal(claveDeSello(`  ${renglon}\r\n`), clave);
   for (const mala of ["", a.publica, "AGE-SECRET-KEY-1", "no es una llave", renglon.toLowerCase()]) assert.throws(() => claveDeSello(mala), /llave privada de age/, mala.slice(0, 20));
   // La receta para sacarla sin este programa —la que dicen la guía y el .env— da lo mismo.
-  const receta = "grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' | head -1 | tr -d '\\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1";
+  const receta = "grep -v '^#' | grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' | head -1 | tr -d '\\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1";
   const conOpenssl = spawnSync("sh", ["-c", receta], { input: a.privada, encoding: "utf8" });
   assert.equal(conOpenssl.status, 0, conOpenssl.stderr);
   assert.equal(conOpenssl.stdout.trim(), clave);
-  // Y el programa: la llave entra por la entrada estándar, y sale la clave y nada más.
+  // Y el programa: la llave entra por la entrada estándar, y salen los dos renglones que van al .env, juntos:
+  // la llave pública de ESA llave y su sello. Así no se pone el sello de una con la pública de otra.
   const hecho = await consola("operacion/sello.ts", [], {}, a.privada);
-  assert.deepEqual({ codigo: hecho.codigo, salida: hecho.salida.trim() }, { codigo: 0, salida: clave });
+  assert.deepEqual({ codigo: hecho.codigo, salida: hecho.salida.trim().split("\n") }, { codigo: 0, salida: [`RESPALDO_LLAVE_PUBLICA=${a.publica}`, `RESPALDO_SELLO=${clave}`] });
   const sinLlave = await consola("operacion/sello.ts", [], {}, "esto no es una llave\n");
   assert.equal(sinLlave.codigo, 1);
   assert.match(sinLlave.queja, /llave privada de age/);
   assert.equal((await consola("operacion/sello.ts", ["de más"], {}, a.privada)).codigo, 2);
+});
+
+// Lo encontró Codex (docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md, B3): la
+// primera versión tomaba el primer texto con forma de llave, aunque estuviera en un comentario o
+// mal escrito; con un archivo así, `age` descifraba con una llave y el sello salía de otra.
+test("la llave se lee como la lee age: una sola identidad, sin contar los comentarios, y bien escrita hasta su última letra; y de ella sale su llave pública", async () => {
+  const [a, b] = [await llaves(), await llaves()];
+  const renglonDe = (privada: string): string => /AGE-SECRET-KEY-1[0-9A-Z]+/.exec(privada)![0];
+  // La llave pública que se saca aquí es la que dijo age-keygen.
+  for (const l of [a, b]) assert.deepEqual(identidadDe(l.privada), { secreta: renglonDe(l.privada), publica: l.publica });
+  // Un comentario que nombra otra llave no cuenta: la identidad es la que age usaría.
+  const conComentario = `# la de antes era ${renglonDe(a.privada)}\n# public key: ${a.publica}\n${renglonDe(b.privada)}\n`;
+  assert.equal(claveDeSello(conComentario), claveDeSello(b.privada));
+  assert.equal(identidadDe(conComentario).publica, b.publica);
+  // Dos identidades en un archivo: no se adivina cuál.
+  assert.throws(() => claveDeSello(`${renglonDe(a.privada)}\n${renglonDe(b.privada)}\n`), /una sola llave privada de age/);
+  // Una letra cambiada, una de menos o una de más: no es una llave, aunque lo parezca.
+  const r = renglonDe(a.privada);
+  const otraLetra = r.slice(0, 30) + (r[30] === "Q" ? "P" : "Q") + r.slice(31);
+  for (const mala of [otraLetra, r.slice(0, -1), `${r}Q`, `${r} ${r}`, `x${r}`]) assert.throws(() => claveDeSello(mala), /llave privada de age/, mala.slice(0, 24));
+  // Y lo que no es una identidad de las de age-keygen (otra clase de llave) se dice, no se deriva.
+  assert.throws(() => claveDeSello("AGE-PLUGIN-YUBIKEY-1QQQQQQQQQQQQQQQQ"), /llave privada de age/);
 });
 
 test("el sello cubre todo lo que el manifiesto dice: cambiarle cualquier cosa después de sellado, quitarle el sello o ponerle el de otra clave, y ya no acredita el respaldo", () => {
@@ -854,6 +878,35 @@ test("restaurar comprueba el sello con la clave que sale de la llave con que des
     const delOtro = await pedir(destinoRclone(cubo.destino, cubo.entorno(cubo.recuperacion), { sello: claveDeSello(otra.privada) }), otra.privada);
     assert.match(delOtro.r, /sin el sello de este negocio/);
     assert.ok(!delOtro.dicho.some((linea) => /descifr/i.test(linea)), delOtro.dicho.join(" | "));
+  }));
+
+// Lo señaló Codex (B2): el sello dice que un respaldo es auténtico, no que sea el más nuevo que se
+// tomó. Si alguien escondiera los últimos, «el último» sería uno viejo y auténtico. No se puede saber
+// desde el depósito; lo que sí se puede es decir de cuándo es lo que se va a restaurar.
+test("al restaurar se dice de cuándo es el respaldo; y si «el último» tiene más de un día, se advierte que auténtico no es lo mismo que reciente", () =>
+  conTodo(async ({ cubo, llave, con, correr }) => {
+    const { manifiesto } = await correr();
+    const pedir = (reloj: () => Date, cual?: string) =>
+      conDestino(async (base) => {
+        const dicho: string[] = [];
+        await restaurarDelDestino({
+          destino: con(cubo.recuperacion), servidor: LIMPIO, base, llave: llave.privada, usuarioWeb: "feruga_prueba", claveWeb: "prueba",
+          decir: (linea) => dicho.push(linea), reloj, ...(cual ? { cual } : {}),
+        });
+        return dicho.join("\n");
+      });
+    const tomado = new Date(manifiesto.instantanea).getTime();
+    const reciente = await pedir(() => new Date(tomado + 40 * 60_000));
+    assert.match(reciente, /Respaldo del .* \(de hace 40 minutos\)/);
+    assert.ok(!/OJO/.test(reciente), reciente);
+    // Tres días después, «el último» es ese mismo: se dice, con todas sus letras.
+    const viejo = await pedir(() => new Date(tomado + 3 * 24 * 3_600_000 + 5 * 3_600_000));
+    assert.match(viejo, /\(de hace 3 días\)/);
+    assert.match(viejo, /OJO: es el respaldo más nuevo que el depósito enseña, y tiene más de un día\. El sello dice que es auténtico, no que sea el último que se tomó/);
+    // Pedido por su nombre no se advierte: quien lo pide ya sabe cuál quiere. La edad se dice igual.
+    const porNombre = await pedir(() => new Date(tomado + 3 * 24 * 3_600_000), manifiesto.objeto);
+    assert.match(porNombre, /\(de hace 3 días\)/);
+    assert.ok(!/OJO/.test(porNombre), porNombre);
   }));
 
 // ── por la consola, como se usa ────────────────────────────────────────────

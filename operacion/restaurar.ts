@@ -200,12 +200,22 @@ export async function restaurar(o: Restauracion): Promise<{ respaldoDe: Date; fo
   }
 }
 
+/** Hace cuánto fue eso, dicho como se dice: minutos, horas o días enteros. */
+function haceCuanto(desde: Date, ahora: Date): string {
+  const minutos = Math.max(0, Math.floor((ahora.getTime() - desde.getTime()) / 60_000));
+  if (minutos < 60) return minutos === 1 ? "de hace 1 minuto" : `de hace ${minutos} minutos`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return horas === 1 ? "de hace 1 hora" : `de hace ${horas} horas`;
+  const dias = Math.floor(horas / 24);
+  return dias === 1 ? "de hace 1 día" : `de hace ${dias} días`;
+}
+
 /**
  * Lo mismo, con el respaldo traído del almacenamiento: el último, o el que se pida por su nombre.
  * Se baja, se comprueba contra su manifiesto, y de él sale el momento exacto del respaldo.
  */
 export async function restaurarDelDestino(
-  o: Omit<Restauracion, "archivo" | "respaldoDe"> & { destino: Destino; cual?: string },
+  o: Omit<Restauracion, "archivo" | "respaldoDe"> & { destino: Destino; cual?: string; /** El reloj con que se dice de hace cuánto es el respaldo. */ reloj?: () => Date },
 ): Promise<{ respaldoDe: Date; folioDespues: number; comprobado: true; objeto: string }> {
   const decir = o.decir ?? (() => {});
   // El sello se comprueba con la clave que sale de la llave con que se va a descifrar, y con ninguna
@@ -217,7 +227,17 @@ export async function restaurarDelDestino(
   try {
     decir("Bajando el respaldo y comprobando su sello y su huella contra su manifiesto…");
     const { archivo, manifiesto } = await traer(o.destino, carpeta, o.cual);
-    decir(`Respaldo del ${manifiesto.instantanea}: ${manifiesto.objeto}`);
+    const [tomado, ahora] = [new Date(manifiesto.instantanea), (o.reloj ?? (() => new Date()))()];
+    decir(`Respaldo del ${manifiesto.instantanea} (${haceCuanto(tomado, ahora)}): ${manifiesto.objeto}`);
+    // El sello acredita lo que el respaldo trae, no que el depósito los enseñe todos: si faltaran los
+    // últimos, «el último» sería uno viejo y auténtico. Eso no se sabe desde aquí; se dice, para que
+    // quien restaura lo compare con lo que sabe por fuera.
+    if (o.cual === undefined && ahora.getTime() - tomado.getTime() > 24 * 3_600_000) {
+      decir(
+        "OJO: es el respaldo más nuevo que el depósito enseña, y tiene más de un día. El sello dice que es auténtico, no que sea el último que se tomó: " +
+          "si esperabas uno posterior, compáralo con el último «terminó bien» que recibió el vigilante antes de dar esto por bueno.",
+      );
+    }
     // Si el manifiesto ya dice que es de una versión más nueva, ni se intenta. (Lo que decide, de
     // todos modos, es lo que traiga la base restaurada: eso lo mira `restaurar`.)
     if (manifiesto.esquema > ESQUEMA_ESPERADO) {
@@ -226,7 +246,7 @@ export async function restaurarDelDestino(
           "Se restaura con la versión del sistema que lo tomó, o una posterior.",
       );
     }
-    const { destino: _destino, cual: _cual, ...resto } = o;
+    const { destino: _destino, cual: _cual, reloj: _reloj, ...resto } = o;
     const r = await restaurar({
       ...resto, archivo, respaldoDe: new Date(manifiesto.instantanea), nota: o.nota ?? `Respaldo ${manifiesto.objeto}`,
     });

@@ -266,15 +266,25 @@ repositorio); con ella se vuelve a como estaba.
 **El 13 de octubre de 2026, por la noche**, con las migraciones 0035 (los intentos de clave que no
 se deshacen) y 0036 (el nombre de un cliente desde la pantalla) y el sello de los respaldos:
 
-- tipos y **1045 pruebas** (eran 1022: 10 de los intentos en `11-identidad`, 8 del nombre del
-  cliente en `46-clientes-en-pantalla` y 5 del sello en `23-respaldo`), sin fallas;
+- tipos y **1052 pruebas** (eran 1022: 12 de los intentos en `11-identidad`, 8 del nombre del
+  cliente en `46-clientes-en-pantalla`, 7 del sello y la llave en `23-respaldo`, 2 de las
+  anotaciones del diario en `28-respaldo-diario` y 1 del tope de «alcanza para» en
+  `47-materiales-del-panel`), sin fallas;
 - **221 recorridos en Chromium** y **214 en WebKit** (eran 220 y 213; el nuevo es el del cambio de
   nombre, y las medidas de patio de los ajustes lo incluyen), sin fallas.
 
 Las dos correcciones de seguridad se vieron fallar antes de corregirlas: cinco claves malas
 deshechas, y la buena entraba; y un respaldo sustituido en el almacenamiento, con su manifiesto
-rehecho, llegaba a `pg_restore`. Los simulacros y la revisión de Codex de las dos, más abajo en
-cuanto terminen.
+rehecho, llegaba a `pg_restore`. **Codex las revisó en dos pasadas** (la primera se le cortó a la
+mitad; la segunda terminó): encontró que los intentos todavía se podían probar sin contar con dos
+conexiones en SERIALIZABLE —corregido: el intento se aparta antes de comparar— y, del sello, cinco
+puntos que se atendieron (la llave leída como la lee `age`, las anotaciones del diario selladas,
+decir de cuándo es el respaldo, y la llave pública y el sello saliendo juntos) y uno que era de su
+copia. El detalle, hallazgo por hallazgo:
+`docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md`. Lo corregido después de
+su revisión no lo ha vuelto a ver. Se corrió completo dos veces: antes de su revisión (1045, 221 y
+214) y después (1052, 221 y 214). **Los dos simulacros** pasaron sobre el guardado `c371cee`
+(antes de la revisión) y se repiten sobre el guardado final.
 
 **El 13 de octubre de 2026, por la tarde**, con los materiales en el panel y el resumen ampliado
 (la cuenta promedio, el día de la semana, lo de cada persona, los kilos descontados y el periodo

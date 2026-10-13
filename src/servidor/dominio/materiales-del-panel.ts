@@ -14,6 +14,8 @@ export type PeriodoDeMaterial = (typeof PERIODOS_DE_MATERIAL)[number];
 const RITMO = 28;
 /** Cuántos días sin salir hacen que un material se esté quedando. */
 const SE_QUEDA = 30;
+/** Lo más que se dice que alcanza: diez años. De ahí en adelante es «diez años o más», y el número ya no importa. */
+const ALCANZA_A_LO_MAS = 3650;
 
 export interface MaterialDelPatio {
   id: number;
@@ -31,7 +33,10 @@ export interface MaterialDelPatio {
   diasSinSalir: number | null;
   /** Lo que salió en las últimas cuatro semanas, contando hoy. */
   kgSalio: string;
-  /** Para cuántos días alcanza lo que hay, a ese ritmo. Nada si no hay existencia o si en cuatro semanas no salió nada. */
+  /**
+   * Para cuántos días alcanza lo que hay, a ese ritmo. Nada si no hay existencia o si en cuatro
+   * semanas no salió nada. Tiene tope: 3650 quiere decir «diez años o más».
+   */
   alcanzaPara: number | null;
 }
 
@@ -137,7 +142,7 @@ const DEL_PATIO = `
         'valor', round(coalesce(x.kg, 0) * p.compra, 2)::numeric(14,2)::text,
         'ultimaSalida', to_char(x.ultima, 'YYYY-MM-DD'), 'diasSinSalir', greatest(r.hoy - coalesce(x.ultima, x.primera), 0),
         'kgSalio', x.salio::numeric(14,3)::text,
-        'alcanzaPara', CASE WHEN x.kg > 0 AND x.salio > 0 THEN ceil(x.kg * ${RITMO} / x.salio)::int END) AS fila
+        'alcanzaPara', CASE WHEN x.kg > 0 AND x.salio > 0 THEN least(ceil(x.kg * ${RITMO} / x.salio), ${ALCANZA_A_LO_MAS})::int END) AS fila
     FROM material m JOIN familia f ON f.id = m.familia_id CROSS JOIN r
     CROSS JOIN LATERAL (
       SELECT count(*) AS n, sum(mov.cantidad_kg) AS kg, min(mov.fecha) AS primera,

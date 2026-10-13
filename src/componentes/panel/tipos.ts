@@ -183,7 +183,7 @@ export interface MaterialDelPatio {
   diasSinSalir: number | null;
   /** Lo que salió en las últimas cuatro semanas. */
   kgSalio: string;
-  /** Para cuántos días alcanza lo que hay, a ese ritmo; nada si no hay o si no salió nada. */
+  /** Para cuántos días alcanza lo que hay, a ese ritmo; nada si no hay o si no salió nada. 3650 quiere decir «diez años o más». */
   alcanzaPara: number | null;
 }
 

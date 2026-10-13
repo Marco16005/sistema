@@ -55,19 +55,25 @@ tarea 6 del plan). Hasta que exista y se pruebe, esto se hace a mano y se anota 
 En la computadora del dueño o de soporte, **no en el servidor**:
 
 ```bash
-age-keygen -o llave-privada.txt              # dice la llave pública (empieza con age1…)
-node operacion/sello.ts < llave-privada.txt  # dice el sello: 64 letras
+age-keygen -o llave-privada.txt              # la llave; el archivo se guarda, no se le cambia nada
+node operacion/sello.ts < llave-privada.txt  # dice los dos renglones que van al .env del servidor
 ```
 
-Si en esa computadora no está este sistema, el sello sale igual con herramientas comunes:
+`sello.ts` contesta dos renglones, `RESPALDO_LLAVE_PUBLICA=age1…` y `RESPALDO_SELLO=…` (64
+letras). **Van juntos y de la misma llave:** con el sello de una llave y la pública de otra, el
+servidor tomaría respaldos que después nadie podría acreditar, y avisaría «bien». El programa lee la
+llave como la lee `age` —una sola, sin contar los comentarios, y bien escrita— y se niega si no.
+
+Si en esa computadora no está este sistema, salen igual con herramientas comunes (la pública la
+dice `age-keygen -y llave-privada.txt`; el sello, esto):
 
 ```bash
-grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' llave-privada.txt | head -1 | tr -d '\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1
+grep -v '^#' llave-privada.txt | grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' | head -1 | tr -d '\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1
 ```
 
-(Una prueba comprueba que las dos maneras dan lo mismo.) La llave pública y el sello van al `.env`
-del servidor; **la llave privada, al paquete de recuperación y a ningún otro lado**. Del sello no
-se vuelve a la llave.
+(Una prueba comprueba que las dos maneras dan el mismo sello; la de `openssl` no revisa que la
+llave esté bien escrita.) Esos dos renglones van al `.env` del servidor; **la llave privada, al
+paquete de recuperación y a ningún otro lado**. De ninguno de los dos se vuelve a la llave.
 
 ### 2.3 El almacenamiento y los vigilantes — *por probar en el servidor*
 
@@ -102,6 +108,19 @@ sh operacion/compose.sh run --rm consola arranque      # el primer responsable y
 
 El arranque escribe en la terminal, **una sola vez**, la clave del primer responsable y el código
 para dar de alta el primer equipo. Correrlo otra vez no hace daño.
+
+**Antes de dar la instalación por buena, comprobar el sello desde fuera** — *por probar en el
+servidor.* Publicar ya tomó un respaldo. En la computadora donde está la llave, con la credencial
+de recuperación:
+
+```bash
+node operacion/version-del-respaldo.ts < llave-privada.txt   # dice el respaldo, su publicación y su commit
+```
+
+Si contesta, el respaldo lleva el sello de esa llave: la pública y el sello del servidor son los
+suyos. Si dice que no lleva el sello de este negocio, el `.env` tiene el sello de otra llave: se
+corrige (2.2), `sh operacion/levantar.sh`, y se toma otro respaldo. Hasta no ver esto, los
+respaldos no cuentan.
 
 Si el certificado no se emite, el sitio no se da por disponible y la operación no se abre. La
 salida nunca es quitar la cookie segura ni servir por HTTP: se revisa que el dominio apunte al
@@ -150,6 +169,9 @@ levanta. Y se actualiza la copia del paquete.
   privada antes de bajar nada. Un respaldo sin sello, o con el de otra llave, no se restaura.
 - Lo que el sello no cubre: quien se haga del servidor entero tiene la clave con que se sella.
   Contra eso, el remedio es restaurar un respaldo anterior, pedido por su nombre.
+- **Auténtico no es lo mismo que reciente.** El sello no dice que el depósito enseñe todos los
+  respaldos. Al restaurar se dice de hace cuánto es el que se va a usar, y si es «el último» y
+  tiene más de un día, se advierte. Con qué compararlo: el último «terminó bien» del vigilante.
 - `respaldo lista` dice además cuál es el último con su manifiesto en orden, si en el entorno está
   el sello; sin él, enseña lo que hay y dice que no lo comprobó.
 

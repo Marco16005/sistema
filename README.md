@@ -80,7 +80,7 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 1045 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 1052 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
 docker compose --profile recorrido run --rm recorrido     # 221 recorridos en un navegador real (Chromium)
 docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 214
@@ -350,13 +350,17 @@ sh operacion/compose.sh run --rm --no-deps respaldo lista --diario   # los que s
   las dos cosas (cifrar solo pide la llave pública). El sello es un HMAC de todo lo que el
   manifiesto dice —el archivo, su tamaño y su huella, de cuándo es, y qué publicación corría—,
   con una clave que no está en el almacenamiento. Esa clave **se saca de la llave privada**, fuera
-  del servidor (`node operacion/sello.ts < llave-privada.txt`, o la receta con `openssl` que trae
-  ese archivo), y al servidor va solo lo que sale (`RESPALDO_SELLO`): con eso sella, y de ahí no
-  se vuelve a la llave. Quien restaura no guarda nada más: la saca otra vez de la llave con que
+  del servidor: `node operacion/sello.ts < llave-privada.txt` dice los dos renglones que van al
+  `.env`, juntos y de la misma llave —`RESPALDO_LLAVE_PUBLICA` y `RESPALDO_SELLO`— (el sello solo
+  sale también con `openssl`: la receta está en ese archivo). La llave se lee como la lee `age`:
+  una sola identidad, sin contar comentarios, y bien escrita. Con el sello el servidor sella, y de
+  ahí no se vuelve a la llave. Quien restaura no guarda nada más: la saca otra vez de la llave con que
   va a descifrar, y **comprueba el sello antes de bajar, descifrar o restaurar nada**. Un
   manifiesto sin sello, con el de otra llave, o al que le cambiaron algo después, no acredita
   ningún respaldo: ni para restaurar, ni para saber de qué versión instalar, ni para que el
-  servidor dé por tomado el respaldo de la hora.
+  servidor dé por tomado el respaldo de la hora. Las dos anotaciones que el diario deja en su
+  depósito —qué respaldo se eligió para cada día, y de qué día sin diario ya se avisó— van
+  selladas igual, cada una con su nombre.
 - **El nombre de cada respaldo lleva su momento al milisegundo**, y ese es su orden. `respaldar
   ahora` dice el nombre de lo que tomó (`respaldo: …`): para volver a uno en particular se pide
   por su nombre, no «el último».
@@ -453,9 +457,17 @@ mismo después de una actualización mayor de PostgreSQL.
 esa clave vive en el servidor: quien solo pueda escribir en el almacenamiento ya no puede hacer
 pasar un respaldo suyo, pero **un servidor comprometido entero sí puede sellar** uno falso más
 nuevo, y el remedio sigue siendo restaurar uno anterior por su nombre o ver el almacenamiento como
-estaba antes. Cambiar la llave privada cambia el sello: los respaldos sellados con la anterior se
-restauran con la anterior. Los respaldos tomados por una versión de antes del sello no lo llevan:
-esta versión no los restaura del almacenamiento. Los permisos y la
+estaba antes. **El sello dice que un respaldo es auténtico, no que sea el último que se tomó:** si
+alguien escondiera los más nuevos, «el último» sería uno anterior y auténtico. Por eso al restaurar
+se dice de hace cuánto es, y si tiene más de un día se advierte; lo que hay para comparar, fuera del
+depósito, es el último «terminó bien» que recibió el vigilante. El servidor no puede comprobar que
+su sello y su llave pública salieron de la misma privada: por eso salen juntos de `sello.ts`, y una
+instalación se da por buena cuando, desde fuera y con la llave, se ve que su primer respaldo lleva
+su sello. Cambiar la llave privada cambia el sello: los respaldos sellados con la anterior se
+restauran con la anterior. Los respaldos tomados por una versión de antes del sello no lo llevan, y
+esta versión no los restaura del almacenamiento; tampoco los comprobaría, al volver de una
+migración fallida, el programa de una versión de antes del sello (no existe ninguna instalación
+así: la primera de verdad ya lo trae). Los permisos y la
 retención están probados contra MinIO; contra el almacenamiento que se contrate se repiten en el
 servidor real. El cifrado protege los respaldos, no la base viva.
 
@@ -467,7 +479,7 @@ renueva; el servicio que respalda a su hora; y una comprobación del entorno que
 
 ```bash
 sh operacion/entorno.sh patio.ejemplo.mx     # una vez: genera .env con claves nuevas; falta llenar lo del respaldo
-node operacion/sello.ts < llave-privada.txt  # FUERA del servidor: el sello de los respaldos, que va al .env (RESPALDO_SELLO)
+node operacion/sello.ts < llave-privada.txt  # FUERA del servidor: la llave pública y el sello de los respaldos, los dos renglones que van al .env
 sh operacion/publicar.sh                     # publica el commit de esta carpeta (también la primera vez)
 sh operacion/levantar.sh                     # levanta lo publicado, o lo pone al día después de cambiar el .env
 sh operacion/compose.sh ps                   # «docker compose», sobre lo publicado: registros, consola, respaldar a mano

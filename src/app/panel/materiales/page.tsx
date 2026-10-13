@@ -25,9 +25,12 @@ function salio(m: MaterialDelPatio): string {
   if (m.ultimaSalida === null) return d === 0 ? "Llegó hoy y no ha salido" : d === 1 ? "Llegó ayer y no ha salido" : `No ha salido desde que llegó, hace ${d.toLocaleString("es-MX")} días`;
   return d === 0 ? "Salió hoy" : d === 1 ? "Salió ayer" : `Lleva ${d.toLocaleString("es-MX")} días sin salir`;
 }
+/** Lo más que el servidor dice que alcanza: de ahí en adelante es «diez años o más». */
+const DIEZ_ANOS = 3650;
 /** Para cuánto alcanza lo que hay; nada que decir si no hay existencia. */
 const alcanza = (m: MaterialDelPatio): string =>
-  m.alcanzaPara !== null ? `Alcanza para ${cuantas(m.alcanzaPara, "día", "días")}` : Number(m.kg) > 0 ? "Sin salidas en cuatro semanas" : "";
+  m.alcanzaPara === null ? (Number(m.kg) > 0 ? "Sin salidas en cuatro semanas" : "")
+    : m.alcanzaPara >= DIEZ_ANOS ? "Alcanza para más de diez años" : `Alcanza para ${cuantas(m.alcanzaPara, "día", "días")}`;
 const delTramo = (t: TramoDeMaterial, paso: FichaDeMaterial["paso"]): string => (paso === "dia" ? fechaCorta(t.desde) : `${diaCorto(t.desde)} – ${diaCorto(t.hasta)}`);
 
 function Renglon({ m, alTocar }: { m: MaterialDelPatio; alTocar: () => void }) {

@@ -141,6 +141,21 @@ test("separar un material en otros también es salir: no se está quedando", () 
     assert.equal(p.materiales.find((m) => m.nombre === "Magnesio")!.kgSalio, "3.000");
   }));
 
+// Lo encontró Codex (docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md, D2):
+// con muchísimo de un material y una salida diminuta, los días para los que alcanza no cabían en
+// un entero, y ni el patio ni la ficha salían.
+test("si de algo hay muchísimo y casi no sale, «alcanza para» se queda en diez años o más: no revienta el patio ni la ficha", () =>
+  conPatio(async ({ bd, db, e }) => {
+    const cobre = e.mat["Cobre de primera"]!;
+    await db.query("SELECT registrar_apertura($1, 1000000, 'estimado', $2)", [cobre, e.responsable]);
+    await hecha(bd, e.mostrador, e, "venta", [["Cobre de primera", "0.01"]]);
+    const delPatio = (await materialesDelPatio(bd, { hoy: "2026-10-20" })).materiales.find((m) => m.nombre === "Cobre de primera")!;
+    assert.deepEqual({ kg: delPatio.kg, salio: delPatio.kgSalio, alcanza: delPatio.alcanzaPara }, { kg: "999999.990", salio: "0.010", alcanza: 3650 });
+    assert.equal((await fichaDeMaterial(bd, cobre, { dias: 30, hasta: "2026-10-20" }))!.material.alcanzaPara, 3650);
+    // Lo que alcanza para menos de eso sigue saliendo exacto.
+    assert.equal((await materialesDelPatio(bd, { hoy: "2026-10-20" })).materiales.find((m) => m.nombre === "PET")!.alcanzaPara, 168);
+  }));
+
 test("lo dado de baja no cuenta como salida", () =>
   conPatio(async ({ bd }) => {
     // Al Cartón se le dieron de baja 5 kg el 2 de octubre: su última salida sigue siendo la venta del 1.

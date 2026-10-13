@@ -16,6 +16,14 @@
 -- fallo, el bloqueo, el acierto que limpia, la clave nueva que la consola o los ajustes ponen—,
 -- aunque se le escriba lo mismo que ya decía: el renglón puede haberse quedado atrás.
 --
+-- Y el intento se aparta ANTES de comparar la clave. Lo encontró Codex al revisar la primera versión
+-- de esta migración, el 13 de octubre: si la cuenta se escribía después de comparar, bastaba con que
+-- la base abortara la transacción en ese renglón —se consigue con dos conexiones en SERIALIZABLE—
+-- para que no se contara nada, y el contexto del error decía cuál de los dos UPDATE era: el de
+-- «acertó» o el de «falló». Ahora la secuencia ya trae el fallo contado (o el bloqueo, si es el
+-- quinto) cuando se compara; si la clave resulta ser la buena, se pone en cero ahí mismo. Lo que
+-- pueda fallar después ya no cambia la cuenta.
+--
 -- Con eso: cinco claves malas bloquean aunque las cinco se hayan deshecho; un acierto limpia la
 -- cuenta aunque lo que siga falle por otra cosa (nadie queda bloqueado por un error que no fue de
 -- su clave), y la lista de personas de los ajustes dice quién está bloqueado según la secuencia.
@@ -61,28 +69,36 @@ LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
   FROM (SELECT intento_guardado(p_usuario) AS v) x;
 $$;
 
--- Lo que se escribe en cada una de las tres columnas pasa a la secuencia, que es la que no se
--- deshace. Va un disparador por columna, y cada uno cambia solo su parte: así escribir una —la
--- consola que levanta un bloqueo— no pisa las otras dos con lo que el renglón traía, que puede
--- haberse quedado atrás. La secuencia nace con la credencial; si el alta se deshace, se deshace
--- con ella. Si a una credencial le faltara la suya —datos cargados con los disparadores apagados—,
--- nace en cuanto se le escribe: nadie se queda sin poder entrar por eso.
-CREATE FUNCTION credencial_cuenta() RETURNS trigger
+-- Deja ese número en la secuencia de esa persona. Si a la credencial le faltara la suya —datos
+-- cargados con los disparadores apagados—, nace aquí: nadie se queda sin poder entrar por eso.
+CREATE FUNCTION guardar_intento(p_usuario bigint, p_empacado bigint) RETURNS void
 LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 DECLARE
-  v_nombre text := format('intentos.%I', 'c' || NEW.usuario_id);
-  v_nuevo  bigint := intento_empacado(NEW.fallos, NEW.bloqueos, NEW.bloqueada_hasta);
-  v        bigint;
+  v_nombre text := format('intentos.%I', 'c' || p_usuario);
 BEGIN
   IF to_regclass(v_nombre) IS NULL THEN
     EXECUTE format('CREATE SEQUENCE %s AS bigint MINVALUE 0 START 0 NO CYCLE', v_nombre);
   END IF;
+  PERFORM setval(v_nombre::regclass, p_empacado);
+END $$;
+
+-- Lo que se escribe en cada una de las tres columnas pasa a la secuencia, que es la que no se
+-- deshace. Va un disparador por columna, y cada uno cambia solo su parte: así escribir una —la
+-- consola que levanta un bloqueo— no pisa las otras dos con lo que el renglón traía, que puede
+-- haberse quedado atrás. La secuencia nace con la credencial; si el alta se deshace, se deshace
+-- con ella.
+CREATE FUNCTION credencial_cuenta() RETURNS trigger
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+DECLARE
+  v_nuevo bigint := intento_empacado(NEW.fallos, NEW.bloqueos, NEW.bloqueada_hasta);
+  v       bigint;
+BEGIN
   IF TG_OP = 'INSERT' THEN
-    PERFORM setval(v_nombre::regclass, v_nuevo);
+    PERFORM guardar_intento(NEW.usuario_id, v_nuevo);
     RETURN NULL;
   END IF;
-  v := intento_guardado(NEW.usuario_id);
-  PERFORM setval(v_nombre::regclass, CASE TG_ARGV[0]
+  v := coalesce(intento_guardado(NEW.usuario_id), 0);
+  PERFORM guardar_intento(NEW.usuario_id, CASE TG_ARGV[0]
     WHEN 'fallos' THEN v - v % 10 + v_nuevo % 10
     WHEN 'bloqueos' THEN v - (v / 10) % 10 * 10 + (v_nuevo / 10) % 10 * 10
     ELSE v % 100 + v_nuevo / 100 * 100 END);
@@ -103,15 +119,15 @@ DECLARE
   r credencial;
 BEGIN
   FOR r IN SELECT * FROM credencial ORDER BY usuario_id LOOP
-    EXECUTE format('CREATE SEQUENCE intentos.%I AS bigint MINVALUE 0 START 0 NO CYCLE', 'c' || r.usuario_id);
-    PERFORM setval(format('intentos.%I', 'c' || r.usuario_id)::regclass, intento_empacado(r.fallos, r.bloqueos, r.bloqueada_hasta));
+    PERFORM guardar_intento(r.usuario_id, intento_empacado(r.fallos, r.bloqueos, r.bloqueada_hasta));
   END LOOP;
 END $$;
 
 -- Comprueba una clave y lleva la cuenta de los fallos. Nunca lanza error por una clave mala:
 -- contesta falso. Bloquea la credencial mientras decide: cinco intentos a la vez cuentan cinco.
--- Es la de la 0013 con un solo cambio: los fallos, los bloqueos seguidos y el bloqueo vigente se
--- leen de la secuencia de la persona, que no se deshace, y no del renglón, que sí.
+-- Es la de la 0013 con dos cambios: los fallos, los bloqueos seguidos y el bloqueo vigente se leen
+-- de la secuencia de la persona, que no se deshace, y no del renglón, que sí; y el intento se
+-- aparta en la secuencia antes de comparar la clave, no después.
 CREATE OR REPLACE FUNCTION comprobar_clave(p_equipo uuid, p_usuario bigint, p_clave text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -119,6 +135,7 @@ DECLARE
   v_fallos    int;
   v_bloqueos  int;
   v_bloqueada timestamptz;
+  v_bloquea   boolean;
   v_hasta     timestamptz;
 BEGIN
   SELECT cr.* INTO c
@@ -135,19 +152,31 @@ BEGIN
     RETURN false;
   END IF;
 
+  -- El intento se aparta ya, como si fuera a fallar: el quinto bloquea. Va directo a la secuencia
+  -- —no espera al renglón ni a sus disparadores— y antes de comparar: de aquí en adelante, lo que
+  -- la base aborte, se cancele o se deshaga ya no se lleva la cuenta, ni dice nada que no esté contado.
+  v_bloquea := v_fallos + 1 >= 5;
+  IF v_bloquea THEN
+    v_hasta := clock_timestamp() + CASE v_bloqueos WHEN 0 THEN interval '5 minutes'
+                                                   WHEN 1 THEN interval '15 minutes'
+                                                   ELSE interval '60 minutes' END;
+    PERFORM guardar_intento(p_usuario, intento_empacado(0, v_bloqueos + 1, v_hasta));
+  ELSE
+    PERFORM guardar_intento(p_usuario, intento_empacado(v_fallos + 1, v_bloqueos, NULL));
+  END IF;
+
   IF c.huella = extensiones.crypt(p_clave, c.huella) THEN
-    -- Se escribe aunque el renglón ya diga ceros: la secuencia puede traer fallos que alguien deshizo.
+    -- Era la buena: la cuenta, en cero, también directo a la secuencia. El renglón le sigue.
+    PERFORM guardar_intento(p_usuario, 0);
     UPDATE credencial SET fallos = 0, bloqueos = 0, bloqueada_hasta = NULL WHERE usuario_id = p_usuario;
     RETURN true;
   END IF;
 
-  IF v_fallos + 1 < 5 THEN
+  -- No lo era. La secuencia ya lo tiene contado; el renglón dice lo mismo.
+  IF NOT v_bloquea THEN
     UPDATE credencial SET fallos = v_fallos + 1, bloqueos = v_bloqueos, bloqueada_hasta = NULL WHERE usuario_id = p_usuario;
     RETURN false;
   END IF;
-  v_hasta := clock_timestamp() + CASE v_bloqueos WHEN 0 THEN interval '5 minutes'
-                                                 WHEN 1 THEN interval '15 minutes'
-                                                 ELSE interval '60 minutes' END;
   UPDATE credencial SET fallos = 0, bloqueos = v_bloqueos + 1, bloqueada_hasta = v_hasta WHERE usuario_id = p_usuario;
   PERFORM anotar(p_usuario, 'bloquear', 'credencial', p_usuario::text,
                  jsonb_build_object('equipo', p_equipo, 'hasta', v_hasta, 'bloqueos_seguidos', v_bloqueos + 1));

@@ -22,6 +22,7 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { identidadDe } from "./llave.ts";
 import { correr } from "./programas.ts";
 
 export interface Entrada {
@@ -103,15 +104,15 @@ const ETIQUETA_DEL_MANIFIESTO = "feruga: manifiesto de respaldo, v1";
 
 /**
  * La clave del sello, derivada de la llave privada de age tal como la guarda el dueño (el archivo
- * de age-keygen, con sus comentarios, o el renglón solo). Es un HMAC-SHA256 con la etiqueta como
- * clave y la llave como mensaje: de la derivada no se vuelve a la llave. Lo mismo, sin este
- * programa:
- *   grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' llave-privada.txt | head -1 | tr -d '\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1
+ * de age-keygen, con sus comentarios, o el renglón solo). La llave se lee como la lee age
+ * (operacion/llave.ts): una sola identidad, sin contar comentarios, y bien escrita; así el sello
+ * es el de la llave con que se va a descifrar, y no el de un texto parecido. Es un HMAC-SHA256
+ * con la etiqueta como clave y el renglón de la llave como mensaje: de la derivada no se vuelve a
+ * la llave. Lo mismo, sin este programa (no comprueba que la llave esté bien escrita):
+ *   grep -v '^#' llave-privada.txt | grep -o 'AGE-SECRET-KEY-1[0-9A-Z]*' | head -1 | tr -d '\n' | openssl dgst -sha256 -hmac 'feruga: sello de los respaldos, v1' -r | cut -d' ' -f1
  */
 export function claveDeSello(llavePrivada: string): string {
-  const secreta = /AGE-SECRET-KEY-1[0-9A-Z]{40,}/.exec(llavePrivada)?.[0];
-  if (!secreta) throw new Error("Eso no es una llave privada de age (el renglón que empieza con AGE-SECRET-KEY-1)");
-  return createHmac("sha256", ETIQUETA_DE_LA_CLAVE).update(secreta).digest("hex");
+  return createHmac("sha256", ETIQUETA_DE_LA_CLAVE).update(identidadDe(llavePrivada).secreta).digest("hex");
 }
 
 /** El sello de lo que dice ese manifiesto, con esa clave. Todo lo que el manifiesto dice entra, en un orden fijo. */
@@ -120,6 +121,20 @@ export function selloDe(m: Omit<Manifiesto, "sello">, clave: string): string {
   const dicho = JSON.stringify([m.formato, m.corrida, m.instantanea, m.objeto, m.bytes, m.sha256, m.pgDump, m.llavePublica, m.esquema, m.publicacion ?? null]);
   return createHmac("sha256", Buffer.from(clave, "hex")).update(`${ETIQUETA_DEL_MANIFIESTO}\n${dicho}`).digest("hex");
 }
+
+/**
+ * El sello de una anotación chica que el servidor deja en un depósito y que no es un manifiesto: la
+ * elección del diario de un día, el aviso de un día sin diario. Lleva dicho qué es: el sello de una
+ * cosa no vale para otra, aunque sus datos se parezcan.
+ */
+export function selloDeNota(que: string, datos: ReadonlyArray<string | number | null>, clave: string): string {
+  if (!SELLO.test(clave)) throw new Error("La clave del sello no tiene su forma");
+  return createHmac("sha256", Buffer.from(clave, "hex")).update(`feruga: ${que}, v1\n${JSON.stringify(datos)}`).digest("hex");
+}
+
+/** ¿Lo que viene es ese sello? Se compara entero, sin que el tiempo que tarde diga en qué letra difiere. */
+export const esElSello = (viene: unknown, debido: string): boolean =>
+  typeof viene === "string" && SELLO.test(viene) && timingSafeEqual(Buffer.from(viene, "hex"), Buffer.from(debido, "hex"));
 
 // ── lo que hay respaldado ──────────────────────────────────────────────────
 
@@ -258,13 +273,12 @@ export function leerManifiesto(texto: string, de: Respaldado, clave: string): Ma
     formato: 1, corrida: m.corrida!, instantanea: m.instantanea!, objeto: m.objeto!, bytes: m.bytes!, sha256: m.sha256!,
     pgDump: m.pgDump!, llavePublica: m.llavePublica!, esquema: m.esquema!, ...(m.publicacion !== undefined ? { publicacion: m.publicacion } : {}),
   };
-  const debido = Buffer.from(selloDe(limpio, clave), "hex");
-  if (typeof m.sello !== "string" || !SELLO.test(m.sello) || !timingSafeEqual(Buffer.from(m.sello, "hex"), debido)) {
+  if (!esElSello(m.sello, selloDe(limpio, clave))) {
     throw new ManifiestoInvalido(
       `El manifiesto de ${de.objeto} no lleva el sello de este negocio: no lo tomó este sistema con esta llave, o alguien lo cambió después. No acredita ningún respaldo`,
     );
   }
-  return { ...limpio, sello: m.sello };
+  return { ...limpio, sello: m.sello as string };
 }
 
 /** La clave con que ese destino comprueba sellos. Sin ella no se acredita nada: se dice, y no se sigue. */

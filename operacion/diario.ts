@@ -45,7 +45,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ManifiestoInvalido, huellaDe, leerManifiesto, nombreDeManifiesto, respaldosEntre, selloDelDestino } from "./destino.ts";
+import { ManifiestoInvalido, esElSello, huellaDe, leerManifiesto, nombreDeManifiesto, respaldosEntre, selloDeNota, selloDelDestino } from "./destino.ts";
 import type { Destino, Manifiesto, Respaldado } from "./destino.ts";
 
 const formatos = new Map<string, Intl.DateTimeFormat>();
@@ -158,17 +158,26 @@ export function eleccionesEnMemoria(): Elecciones {
   };
 }
 
-/** Lo escrito en el depósito diario como elección de ese día, si se lee y es de ese día. Si no, nada. */
-function leerEleccion(texto: string, dia: string): Eleccion | null {
-  let e: Partial<Eleccion> | null;
+// Las dos anotaciones que el diario deja en su depósito van selladas, como los manifiestos, y cada
+// una con su nombre: una que no lleve el sello de este negocio —o lleve el de la otra— no se lee.
+// (Lo señaló Codex al revisar el sello: sin esto, quien pudiera escribir en el depósito podía
+// callar el aviso de un día sin diario, o hacer pasar por elección de un día el respaldo de otro.)
+const NOTA_DE_ELECCION = "elección del diario";
+const NOTA_DE_HUECO = "aviso de un día sin diario";
+const selloDeEleccion = (e: Eleccion, clave: string): string => selloDeNota(NOTA_DE_ELECCION, [e.formato, e.dia, e.objeto, e.bytes, e.sha256], clave);
+
+/** Lo escrito en el depósito diario como elección de ese día, si se lee, es de ese día y lleva su sello. Si no, nada. */
+function leerEleccion(texto: string, dia: string, clave: string): Eleccion | null {
+  let e: (Partial<Eleccion> & { sello?: unknown }) | null;
   try {
-    e = JSON.parse(texto) as Partial<Eleccion>;
+    e = JSON.parse(texto) as Partial<Eleccion> & { sello?: unknown };
   } catch {
     return null;
   }
   if (!e || e.formato !== 1 || e.dia !== dia || typeof e.objeto !== "string" || typeof e.bytes !== "number" || !Number.isSafeInteger(e.bytes) ||
       typeof e.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.sha256)) return null;
-  return copia(e as Eleccion);
+  const eleccion = copia(e as Eleccion);
+  return esElSello(e.sello, selloDeEleccion(eleccion, clave)) ? eleccion : null;
 }
 
 const eleccionDe = (dia: string): string => `elecciones/${dia}.json`;
@@ -259,6 +268,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
   if (dias.length === 0 && pares.length === 0) return hecho;
 
   const carpeta = await mkdtemp(join(tmpdir(), "feruga-respaldo-"));
+  const clave = selloDelDestino(p.diario);
   const escribir = async (nombre: string, contenido: unknown): Promise<void> => {
     await turno();
     const texto = JSON.stringify(contenido, null, 2) + "\n";
@@ -274,14 +284,15 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     if (!tamano.has(huecoDe(dia))) return false;
     const archivo = join(carpeta, "hueco.json");
     await p.diario.bajar(huecoDe(dia), archivo, NOTA);
-    let nota: { formato?: unknown; dia?: unknown; avisado?: unknown } | null = null;
+    let nota: { formato?: unknown; dia?: unknown; motivo?: unknown; avisado?: unknown; sello?: unknown } | null = null;
     try {
       nota = JSON.parse(await readFile(archivo, "utf8"));
     } catch {
       nota = null;
     }
-    // Una anotación que no se lee no acredita que alguien se haya enterado: se avisa otra vez.
-    if (!nota || nota.formato !== 1 || nota.dia !== dia || typeof nota.avisado !== "string") return false;
+    // Una anotación que no se lee, o que no lleva el sello de este negocio, no acredita que alguien se haya enterado: se avisa otra vez.
+    if (!nota || nota.formato !== 1 || nota.dia !== dia || typeof nota.motivo !== "string" || typeof nota.avisado !== "string") return false;
+    if (!esElSello(nota.sello, selloDeNota(NOTA_DE_HUECO, [1, dia, nota.motivo, nota.avisado], clave))) return false;
     p.comprobados.avisados.add(dia);
     return true;
   };
@@ -366,9 +377,14 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     if (tamano.has(eleccionDe(dia))) {
       const archivo = join(carpeta, "eleccion.json");
       await p.diario.bajar(eleccionDe(dia), archivo, NOTA);
-      escrita = leerEleccion(await readFile(archivo, "utf8"), dia);
+      escrita = leerEleccion(await readFile(archivo, "utf8"), dia, clave);
       if (!eleccion) {
-        if (!escrita) throw new Error(`la elección del diario del ${dia} no se puede leer: no se elige otro respaldo sin que alguien lo vea`);
+        if (!escrita) throw new Error(`la elección del diario del ${dia} no se puede leer, o no lleva el sello de este negocio: no se elige otro respaldo sin que alguien lo vea`);
+        // Aunque venga sellada: el diario de un día es un respaldo de ese día, y eso lo dice su nombre.
+        const suyo = respaldosEntre([{ nombre: escrita.objeto, bytes: escrita.bytes }, { nombre: nombreDeManifiesto(escrita.objeto), bytes: 1 }])[0];
+        if (!suyo || diaDelPatio(suyo.momento, p.zona) !== dia) {
+          throw new Error(`la elección del diario del ${dia} nombra un respaldo que no es de ese día: no se fija, y no se elige otro sin que alguien lo vea`);
+        }
         eleccion = await p.elecciones.fijar(escrita);
       }
     }
@@ -394,7 +410,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
       traido = laMisma(eleccion, propuesta);
     }
     // Lo escrito en el depósito sale de la base. Si falta, o dice otra cosa, o no se lee, se repone.
-    if (!escrita || !laMisma(escrita, eleccion)) await escribir(eleccionDe(dia), eleccion);
+    if (!escrita || !laMisma(escrita, eleccion)) await escribir(eleccionDe(dia), { ...eleccion, sello: selloDeEleccion(eleccion, clave) });
 
     // ¿Ya está en el depósito diario, y es el elegido? Un par comprobado: manifiesto válido y archivo que coincide.
     const manifiestoDelDiario = join(carpeta, "del-diario.manifiesto.json");
@@ -567,12 +583,15 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
  */
 export async function anotarAvisados(p: Pick<Pendiente, "diario" | "ahora" | "comprobados" | "turno">, huecos: AlDia["huecos"]): Promise<void> {
   if (huecos.length === 0) return;
+  const clave = selloDelDestino(p.diario);
   const carpeta = await mkdtemp(join(tmpdir(), "feruga-respaldo-"));
   try {
     for (const { dia, motivo } of huecos) {
       if (p.turno) await p.turno();
       const archivo = join(carpeta, "hueco.json");
-      await writeFile(archivo, JSON.stringify({ formato: 1, dia, motivo, avisado: p.ahora.toISOString() }, null, 2) + "\n");
+      const avisado = p.ahora.toISOString();
+      const sello = selloDeNota(NOTA_DE_HUECO, [1, dia, motivo, avisado], clave);
+      await writeFile(archivo, JSON.stringify({ formato: 1, dia, motivo, avisado, sello }, null, 2) + "\n");
       await p.diario.subir(archivo, huecoDe(dia), NOTA);
       p.comprobados.avisados.add(dia);
     }

@@ -117,12 +117,17 @@ preparar_la_instalacion() {
   # La llave del respaldo se genera fuera del servidor; aquí, en un contenedor aparte, y sin que Docker
   # guarde su salida en su registro. (Es una llave de prueba; la de verdad no se genera así: ver la guía.)
   docker run --rm --log-driver none --entrypoint age-keygen "$HERRAMIENTAS_DEL_ENSAYO" > "$trabajo/llave.txt" 2>/dev/null
-  poner RESPALDO_LLAVE_PUBLICA "$(grep -o 'age1[0-9a-z]*' "$trabajo/llave.txt" | head -1)"
-  # El sello de los respaldos se saca de la llave privada, también fuera del servidor, y al servidor
-  # va solo lo que sale: con eso sella cada respaldo, y quien restaura lo comprueba con la llave.
-  sello=$(docker run --rm -i --log-driver none --entrypoint node "$HERRAMIENTAS_DEL_ENSAYO" operacion/sello.ts < "$trabajo/llave.txt") \
-    || falla "no se pudo sacar el sello de los respaldos de la llave del ensayo"
-  poner RESPALDO_SELLO "$sello"
+  # La llave pública y el sello de los respaldos salen juntos de la llave privada, también fuera del
+  # servidor, y al servidor van solo esos dos renglones: con el sello sella cada respaldo, y quien
+  # restaura lo comprueba con la llave. La pública que dice sello.ts es la que dijo age-keygen.
+  docker run --rm -i --log-driver none --entrypoint node "$HERRAMIENTAS_DEL_ENSAYO" operacion/sello.ts < "$trabajo/llave.txt" > "$trabajo/del-sello" \
+    || falla "no se pudieron sacar la llave pública y el sello de la llave del ensayo"
+  publica=$(sed -n 's/^RESPALDO_LLAVE_PUBLICA=//p' "$trabajo/del-sello")
+  [ -n "$publica" ] && [ "$publica" = "$(grep -o 'age1[0-9a-z]*' "$trabajo/llave.txt" | head -1)" ] \
+    || falla "la llave pública que saca sello.ts no es la que dijo age-keygen"
+  poner RESPALDO_LLAVE_PUBLICA "$publica"
+  poner RESPALDO_SELLO "$(sed -n 's/^RESPALDO_SELLO=//p' "$trabajo/del-sello")"
+  rm -f "$trabajo/del-sello"
   poner RESPALDO_DESTINO "respaldo:ensayo/feruga"
   poner RCLONE_CONFIG_RESPALDO_PROVIDER Minio
   poner RCLONE_CONFIG_RESPALDO_ENDPOINT http://almacen-ensayo:9000

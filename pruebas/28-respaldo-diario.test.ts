@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
-import { nombreDeManifiesto, nombreDeObjeto, selloDe } from "../operacion/destino.ts";
+import { nombreDeManifiesto, nombreDeObjeto, selloDe, selloDeNota } from "../operacion/destino.ts";
 import type { Destino, Entrada, Manifiesto } from "../operacion/destino.ts";
 import { REPASAR_CADA, REVALIDAR_CADA, anotarAvisados, diaDelPatio, eleccionesEnMemoria, ponerAlDia, sinComprobar } from "../operacion/diario.ts";
 import type { AlDia, Comprobados, Eleccion, Elecciones } from "../operacion/diario.ts";
@@ -839,9 +839,11 @@ test("la elección de cada día queda decidida en la base, una sola vez: la escr
   assert.match(fallasDe(deA).join(" | "), /se perdió el turno/);
   assert.deepEqual(m.diario.respaldos(), [elDeA]);
   assert.ok(!m.diario.objetos.has(elAnterior));
-  const escrita = JSON.parse(m.diario.objetos.get("elecciones/2026-10-06.json")!.toString("utf8")) as Eleccion;
+  // Lo escrito lleva además su sello; lo demás es, letra por letra, la elección de la base.
+  const { sello, ...escrita } = JSON.parse(m.diario.objetos.get("elecciones/2026-10-06.json")!.toString("utf8")) as Eleccion & { sello: string };
   assert.equal(escrita.objeto, elDeA, "lo que quedó escrito como elección no es el diario que hay");
   assert.deepEqual(await m.elecciones.de("2026-10-06"), escrita);
+  assert.match(sello, /^[0-9a-f]{64}$/);
 });
 
 test("si al fijar la elección otro ya había fijado la suya, vale la que llegó primero: se sube esa, no la propia", async () => {
@@ -888,6 +890,59 @@ test("la elección también queda escrita en el depósito diario: si la base se 
   const hecho = await otro.correr("2026-10-05T14:00:30Z");
   assert.deepEqual([hecho.subidos, hecho.fallas], [[{ dia: "2026-10-05", objeto: lunes }], []]);
   assert.equal((JSON.parse(otro.diario.objetos.get("elecciones/2026-10-05.json")!.toString("utf8")) as Eleccion).objeto, lunes);
+});
+
+// ── las anotaciones del depósito diario llevan sello ───────────────────────
+// Lo encontró Codex (docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md, B1): el
+// manifiesto de cada respaldo ya iba sellado, pero no las dos anotaciones chicas que el diario deja
+// en su depósito. Quien pudiera escribir ahí no lograba que se restaurara nada suyo, pero sí callar
+// el aviso de un día sin diario, o hacer que la base tomara por elección de un día el respaldo de otro.
+
+const NOTA_DE_HUECO = "aviso de un día sin diario";
+const NOTA_DE_ELECCION = "elección del diario";
+
+test("una anotación de hueco sin el sello de este negocio no da el hueco por avisado, aunque sea de ese día y esté bien formada", async () => {
+  const m = mundo();
+  respaldoDe(m.origen, "2026-10-06T13:00:00.000Z", { manifiestoDanado: true });
+  const nota = { formato: 1, dia: "2026-10-06", motivo: "x", avisado: "2026-10-07T00:00:00.000Z" };
+  const poner = (algo: unknown): void => { m.diario.objetos.set("elecciones/2026-10-06.hueco.json", Buffer.from(JSON.stringify(algo))); m.reiniciar(); };
+  const huecos = async (hora: string): Promise<string[]> => (await m.correr(`2026-10-07T${hora}:00Z`, { avisa: false })).huecos.map((h) => h.dia);
+  poner(nota);
+  assert.deepEqual(await huecos("12:00"), ["2026-10-06"], "una anotación sin sello calló el aviso");
+  // Con el sello de otra clave, con el de otra clase de anotación, o cambiada después de sellada: tampoco.
+  poner({ ...nota, sello: selloDeNota(NOTA_DE_HUECO, [1, nota.dia, nota.motivo, nota.avisado], "ab".repeat(32)) });
+  assert.deepEqual(await huecos("12:10"), ["2026-10-06"]);
+  poner({ ...nota, sello: selloDeNota(NOTA_DE_ELECCION, [1, nota.dia, nota.motivo, nota.avisado], SELLO_DE_PRUEBA) });
+  assert.deepEqual(await huecos("12:20"), ["2026-10-06"]);
+  poner({ ...nota, avisado: "2026-10-08T00:00:00.000Z", sello: selloDeNota(NOTA_DE_HUECO, [1, nota.dia, nota.motivo, nota.avisado], SELLO_DE_PRUEBA) });
+  assert.deepEqual(await huecos("12:30"), ["2026-10-06"]);
+  // La que deja el propio programa cuando el aviso llegó, sí: y sobrevive a reiniciar el servicio.
+  assert.deepEqual((await m.correr("2026-10-07T12:40:00Z")).huecos.map((h) => h.dia), ["2026-10-06"]);
+  m.reiniciar();
+  assert.deepEqual(await huecos("12:50"), []);
+});
+
+test("una elección escrita en el depósito que no lleva el sello de este negocio no se fija en la base, aunque nombre un respaldo que sí lo lleva", async () => {
+  const m = mundo();
+  const lunes = respaldoDe(m.origen, "2026-10-05T13:00:00.000Z");
+  respaldoDe(m.origen, "2026-10-06T13:00:00.000Z");
+  const delLunes = JSON.parse(m.origen.objetos.get(nombreDeManifiesto(lunes))!.toString()) as Manifiesto;
+  // La base no tiene elección del martes, y en el depósito alguien dejó una: el respaldo del lunes, que es auténtico.
+  const falsa = { formato: 1, dia: "2026-10-06", objeto: lunes, bytes: delLunes.bytes, sha256: delLunes.sha256 };
+  m.diario.objetos.set("elecciones/2026-10-06.json", Buffer.from(JSON.stringify(falsa)));
+  const hecho = await m.correr("2026-10-06T14:00:00Z");
+  assert.equal(await m.elecciones.de("2026-10-06"), null, "se fijó una elección que nadie selló");
+  assert.match(fallasDe(hecho).join(" | "), /2026-10-06.*elección.*no se puede leer/);
+  // El lunes, que no tiene nada raro, se resuelve como siempre.
+  assert.deepEqual(hecho.subidos, [{ dia: "2026-10-05", objeto: lunes }]);
+  // Sellada con la clave de este negocio pero nombrando un respaldo de otro día: tampoco. El diario de un día es de ese día.
+  m.diario.objetos.set("elecciones/2026-10-06.json", Buffer.from(JSON.stringify({
+    ...falsa, sello: selloDeNota(NOTA_DE_ELECCION, [1, falsa.dia, falsa.objeto, falsa.bytes, falsa.sha256], SELLO_DE_PRUEBA),
+  })));
+  m.reiniciar();
+  const otra = await m.correr("2026-10-06T14:30:00Z");
+  assert.equal(await m.elecciones.de("2026-10-06"), null, "se fijó como diario del martes un respaldo del lunes");
+  assert.match(fallasDe(otra).join(" | "), /2026-10-06.*no es de ese día/);
 });
 
 // ── el repaso, cuando algo no sale ─────────────────────────────────────────
