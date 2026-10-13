@@ -58,6 +58,8 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "POST comprobantes/[operacion]/imprimir": COBRAN,
   "GET cierre": TODOS,
   "GET panel": DIRIGEN,
+  "GET panel/materiales": DIRIGEN,
+  "GET panel/materiales/[material]": DIRIGEN,
   "GET historial": DIRIGEN,
   "GET historial/[jornada]": DIRIGEN,
   "GET bitacora": DIRIGEN,

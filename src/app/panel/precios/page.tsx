@@ -5,8 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pedir } from "../../../componentes/cliente.ts";
 import { diaCorto, fechaConDia, fechaCorta, precio } from "../../../componentes/formato.ts";
-import { Escalones } from "../../../componentes/panel/Graficas.tsx";
-import type { Escalon } from "../../../componentes/panel/Graficas.tsx";
+import { Escalones, escalonesDePrecio as escalones } from "../../../componentes/panel/Graficas.tsx";
 import { Imprimir } from "../../../componentes/panel/Imprimir.tsx";
 import { Secciones, SoloQuienDirige } from "../../../componentes/panel/Secciones.tsx";
 import type { HistoriaDeMaterial, HistoriaDePrecios, PeriodoDePrecios } from "../../../componentes/panel/tipos.ts";
@@ -21,12 +20,6 @@ const cuantas = (n: number, una: string, varias: string): string => `${n.toLocal
 const mayuscula = (t: string): string => t.slice(0, 1).toUpperCase() + t.slice(1);
 const porCiento = (t: string): string => `${Math.abs(Number(t)).toLocaleString("es-MX", { maximumFractionDigits: 1 })} %`;
 const veces = (n: number): string => (n === 0 ? "No cambió" : n === 1 ? "Cambió una vez" : `Cambió ${n} veces`);
-/** En qué día del periodo cae esa fecha: 0 es el primero. Es para colocar el dibujo, no una cuenta. */
-const diaDe = (desde: string, fecha: string): number => Math.round((Date.parse(`${fecha}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000);
-const escalones = (m: HistoriaDeMaterial, desde: string, cual: Cual): Escalon[] => [
-  ...(m.alEmpezar ? [{ dia: 0, valor: Number(m.alEmpezar[cual]) }] : []),
-  ...m.cambios.map((c) => ({ dia: diaDe(desde, c.fecha), valor: c[cual] === null ? null : Number(c[cual]) })),
-];
 
 /** Subió o bajó, y cuánto. Si quedó igual o no hay con qué comparar, no dice nada: en una lista deja su hueco, para que los precios queden en columna. */
 function Variacion({ valor, hueco = false }: { valor: string | null; hueco?: boolean }) {

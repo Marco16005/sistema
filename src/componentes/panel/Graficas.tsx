@@ -41,6 +41,8 @@ export function Tira({ parte, de, clase }: { parte: number; de: number; clase: s
   return <span className="tira" aria-hidden="true"><i className={clase} style={{ width: `${ancho}%` }} /></span>;
 }
 
+import type { HistoriaDeMaterial } from "./tipos.ts";
+
 export interface Escalon {
   /** En qué día del periodo empieza a valer: 0 es el primero. */
   dia: number;
@@ -77,3 +79,12 @@ export function Escalones({ series, dias, chica = false }: { series: Array<{ cla
     </svg>
   );
 }
+
+/** En qué día del periodo cae esa fecha: 0 es el primero. Es para colocar el dibujo, no una cuenta. */
+const diaDe = (desde: string, fecha: string): number => Math.round((Date.parse(`${fecha}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000);
+
+/** El precio de compra o el de venta de un material a lo largo del periodo que empieza ese día, listo para dibujarse. */
+export const escalonesDePrecio = (m: HistoriaDeMaterial, desde: string, cual: "compra" | "venta"): Escalon[] => [
+  ...(m.alEmpezar ? [{ dia: 0, valor: Number(m.alEmpezar[cual]) }] : []),
+  ...m.cambios.map((c) => ({ dia: diaDe(desde, c.fecha), valor: c[cual] === null ? null : Number(c[cual]) })),
+];

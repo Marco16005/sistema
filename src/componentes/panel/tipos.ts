@@ -139,3 +139,80 @@ export interface FichaDeCliente {
   }>;
   cuentas: Array<{ id: string; folio: string; fecha: string; tipo: "compra" | "venta"; total: string; materiales: number; atendio: string }>;
 }
+
+// ── los materiales (src/servidor/dominio/materiales-del-panel.ts) ──
+
+export type PeriodoDeMaterial = 30 | 91;
+
+export interface MaterialDelPatio {
+  id: number;
+  nombre: string;
+  familia: string;
+  activo: boolean;
+  kg: string;
+  /** De compra, en la última lista publicada; nada si esa lista no lo trae. */
+  precio: string | null;
+  valor: string | null;
+  /** El último día en que se vendió o se separó; nada si nunca ha salido. */
+  ultimaSalida: string | null;
+  diasSinSalir: number | null;
+  /** Lo que salió en las últimas cuatro semanas. */
+  kgSalio: string;
+  /** Para cuántos días alcanza lo que hay, a ese ritmo; nada si no hay o si no salió nada. */
+  alcanzaPara: number | null;
+}
+
+export interface Patio {
+  hoy: string;
+  listaDel: string | null;
+  valor: string;
+  /** Los materiales con existencia que llevan esos días o más sin salir, o que nunca han salido. */
+  seQuedan: { dias: number; materiales: number; valor: string };
+  materiales: MaterialDelPatio[];
+}
+
+export interface TramoDeMaterial {
+  desde: string;
+  hasta: string;
+  kgComprado: string;
+  importeComprado: string;
+  kgVendido: string;
+  importeVendido: string;
+  /** Lo que había en el patio al terminar el tramo. */
+  kgAlFinal: string;
+}
+
+export interface FichaDeMaterial {
+  material: MaterialDelPatio;
+  desde: string;
+  hasta: string;
+  dias: PeriodoDeMaterial;
+  paso: "dia" | "semana";
+  totales: {
+    compras: number;
+    ventas: number;
+    kgComprado: string;
+    importeComprado: string;
+    kgVendido: string;
+    importeVendido: string;
+    /** Lo pagado y lo cobrado por cada kilo que entró o salió; nada si no hubo. */
+    porKiloComprado: string | null;
+    porKiloVendido: string | null;
+    /** No es la ganancia. */
+    diferenciaPorKilo: string | null;
+    kgDescontadoEnCompras: string;
+    kgDescontadoEnVentas: string;
+  };
+  kgAlEmpezar: string;
+  serie: TramoDeMaterial[];
+  control: {
+    mermas: number;
+    mermaKg: string;
+    ajustes: number;
+    ajusteEntroKg: string;
+    ajusteSalioKg: string;
+    separadoKg: string;
+    deSeparacionKg: string;
+  };
+  precios: HistoriaDeMaterial | null;
+}

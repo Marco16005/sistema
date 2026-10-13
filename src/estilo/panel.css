@@ -31,9 +31,11 @@
 .barrita.compra,.tira .compra{background:var(--compra)}
 .barrita.venta,.tira .venta{background:var(--venta)}
 .barrita.neutra,.tira .neutra{background:var(--texto-2)}
-/* El rótulo va centrado bajo su columna aunque sea más ancho que ella. */
-.columnas .col small{display:block;height:26px;line-height:26px;color:var(--texto-2);font-size:var(--letra-chica);white-space:nowrap}
-.columnas .col small span{display:inline-block;position:relative;left:50%;transform:translateX(-50%)}
+/* El rótulo va centrado bajo su columna aunque sea más ancho que ella, y lo que le sobra sale por
+   los dos lados por igual: recorrido a la mitad con «left», ensanchaba la página en un teléfono
+   cuando las columnas son treinta. */
+.columnas .col small{display:flex;justify-content:center;height:26px;line-height:26px;color:var(--texto-2);font-size:var(--letra-chica);white-space:nowrap}
+.columnas .col small span{flex:none}
 .leyenda{display:flex;flex-wrap:wrap;gap:var(--espacio-2) var(--espacio-5);margin:var(--espacio-2) 0 0;font-size:var(--letra-base)}
 .leyenda span{display:inline-flex;align-items:center;gap:var(--espacio-2)}
 .leyenda .barrita{flex:none;width:14px;height:14px;border-radius:4px}
@@ -125,3 +127,12 @@
   .imprimible :is(.card,.indicador){border:1px solid #999}
 }
 .exrow[disabled]{opacity:.45}
+
+/* ── la ficha de un material: su precio encima de sus kilos. Los dos dibujos ocupan el mismo ancho,
+   así que el escalón del precio cae sobre la barra del día en que cambió ── */
+/* El nombre de un material o de un cliente puede no traer ni un espacio: se parte donde haga falta,
+   en el título de su ficha, en su renglón y en un indicador, en vez de ensanchar la pantalla. */
+.panel .top h2{min-width:0;overflow-wrap:anywhere}
+.panel .exrow .rn b,.indicador small{overflow-wrap:anywhere}
+.precio-y-kilos .escalones{height:110px}
+.precio-y-kilos .columnas{height:130px}
