@@ -1,5 +1,8 @@
 # Caja y ganancia: lo que hay que preguntarle al negocio
 
+> **Estado (14 de octubre de 2026):** el usuario contestó las catorce, con el dueño. Sus respuestas
+> están al final, en «Lo que contestó el negocio». Lo que sigue es escribir el plan.
+>
 > **Estado (12 de octubre de 2026):** son preguntas, no un plan. La especificación deja «resultado y
 > caja» para después del inventario (control de caja, corte, gastos, costo promedio y margen) y trae
 > dos huecos abiertos que tocan aquí: qué se hace hoy cuando algo ya pagado estaba mal (5.4) y con
@@ -125,3 +128,44 @@ ellos.
 3. **Los gastos**, si el dueño los quiere.
 4. Lo de antes del servidor de verdad: autenticar el respaldo antes de restaurarlo, la guía de
    operación, probar las pantallas en los equipos del patio, y contratar servidor y dominio.
+
+## Lo que contestó el negocio (14 de octubre de 2026)
+
+Con las palabras del usuario, resumidas; entre corchetes, lo que eso decide.
+
+1. **El fondo.** Lo ideal es abrir con lo que quedó del día anterior, pero puede variar: hay días que
+   cambia. Que se teclee lo que hay en el cajón y que quede guardado con cuánto se cerró la noche
+   anterior, para controlar con cuánto se cierra y con cuánto se abre. [Como se proponía, y además la
+   diferencia entre el cierre de anoche y la apertura de hoy queda a la vista.]
+2. **Sacar y meter.** Sí pasa: para ir a la tienda, comprar algo, cualquier cosa. Hoy no se anota en
+   ningún lado, y lo sacan los responsables. Que se pueda sacar o meter, pidiendo clave. [Como se
+   proponía.]
+3. **El corte.** Como se proponía, y además: una alerta al responsable cuando el corte no cuadró y hay
+   diferencia; que quede por escrito quién hizo el corte, a qué hora y todo; y que lo hagan solo las
+   personas cuyo rol tenga ese permiso, no cualquiera. [Cambia: hoy cierra el día el mostrador.]
+4. **Cómo se paga.** El menudeo suele ser en efectivo; las cargas grandes, más bien por transferencia.
+   Cheques, no. Y en casos especiales puede haber crédito. [Efectivo y transferencia; lo que no es
+   efectivo no entra al corte. El crédito, ver la 5.]
+5. **Fiado y adelantos.** Se fía, pero en cargas grandes, con gente conocida y casos particulares, con
+   clientes mucho más grandes. Pagar por adelantado y traer el material después, no. [Hay crédito en
+   ventas grandes a clientes conocidos; no hay adelantos. Coincide con la P2 de la especificación.]
+6. **Lo ya pagado que estaba mal.** Como se proponía: si se dan cuenta a tiempo, se corrige en el
+   momento; si es después, es una corrección administrativa. [Otro movimiento que liquida solo la
+   diferencia, con la clave de un responsable.]
+7. **Los gastos.** Sí existen, pero mejor capturarlos más adelante, a mano, porque algunos se pagan de
+   otro lado; solo anotarlos, llevar el registro y decidir cuáles se ven. [Como se proponía, y al
+   final.]
+8. **Trabajar el material.** Depende. Al menudeo la persona busca lo que le gusta y se lo lleva tal
+   cual. Para un tráiler o por volumen se compacta, se hace pacas, se corta o se desuelda, según el
+   material. Cuando llega, por ejemplo, un carro, sí se separa, y hay partes que se van a la basura.
+   [Separar ya existe en kilos; el costo se reparte según lo que vale cada parte en la lista de compra
+   de ese día, y la basura no lleva costo. Compactar, empacar, cortar o desoldar no cambian el
+   material: no mueven el costo.]
+9. **Lo que se da de baja.** Como se proponía. [Pérdida del día en que se da de baja, aparte.]
+10. **Lo que ya había en el patio.** Al precio de compra del primer día.
+11. **Cómo ver la ganancia.** Todas las opciones, y escoger en el momento cuál ver. [Por día, semana y
+    mes; por material; y el patio valuado a lo que costó.]
+12. **Quién puede.** Como se proponía. [Sacar del cajón con la clave de un responsable; la ganancia la
+    ven el responsable y quien consulta. El corte, ver la 3.]
+13. **De quién es cada cuenta.** Se queda como está.
+14. **Facturas y Hacienda.** Nada de eso: aparte.
