@@ -80,10 +80,10 @@ demostración vacía se borra la base (`docker compose down --volumes`) y se pon
 ## Correr las pruebas
 
 ```bash
-docker compose run --rm pruebas                           # tipos y las 1052 pruebas del núcleo, del servidor y de la operación
+docker compose run --rm pruebas                           # tipos y las 1067 pruebas del núcleo, del servidor y de la operación
 docker compose --profile recorrido build                  # después de cambiar código o migraciones
-docker compose --profile recorrido run --rm recorrido     # 221 recorridos en un navegador real (Chromium)
-docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 214
+docker compose --profile recorrido run --rm recorrido     # 226 recorridos en un navegador real (Chromium)
+docker compose --profile webkit run --rm recorrido_webkit # los mismos, otra vez, en WebKit (el motor de iOS): 219
 ```
 
 Los de WebKit corren contra la misma aplicación de los recorridos, pero detrás de un proxy con
@@ -158,6 +158,14 @@ arrancar con esas claves, con la cookie sin `Secure` o con un origen que no sea 
 **Para aplicar una migración nueva hay que detener antes la aplicación** (`docker compose stop web`
 y luego `docker compose up -d --build --wait`): el migrador no migra con la aplicación conectada.
 
+## El mostrador
+
+Cada cuenta abierta está siempre a la vista, con su nombre: «Compra 3» al abrirla, y el que se le
+ponga —«Don Chuy», «camioneta roja»— con «Cambiar nombre». El nombre es del mostrador: el ticket no
+lo lleva. Dentro de una cuenta van tres pasos, una decisión por pantalla: el material, la báscula y
+lo que marca —y en la báscula chica, si viene en costal o carretilla, lo que pesa vacío—, y la
+cuenta, donde se paga o se cobra y se imprime el ticket.
+
 ## Cómo está armado
 
 ```
@@ -182,7 +190,7 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene siete partes, y una m
 - el **resumen**: compras, ventas y cuentas de los últimos 7 días, 30 días o 3 meses —o de tal día
   a tal día, hasta un año—, con sus gráficas, la cuenta promedio, lo que más se movió, lo que hay
   en el patio, a qué hora y qué día de la semana se atiende más, lo que hizo cada persona y lo que
-  conviene vigilar (bajas, ajustes, precios especiales, kilos descontados, días reabiertos);
+  conviene vigilar (bajas, ajustes, precios especiales, kilos descontados, recipientes, días reabiertos);
 - los **días**: cada día que ha habido, con el reporte de su cierre y sus cuentas, cada una con su
   comprobante;
 - los **materiales**: cuánto hay de cada uno, cuánto lleva sin salir y para cuántos días alcanza
@@ -222,7 +230,9 @@ especial: las demás cuentas no quedan a nombre de nadie. El detalle está en
 - **El peso de un renglón sale de una pesada** y el **precio sale de la lista publicada** del día. Quien
   captura no escribe ninguno de los dos.
 - **Peso recibido** (bruto menos tara) entra al inventario; **peso liquidable** (recibido menos
-  descuento) es lo que se paga.
+  descuento) es lo que se paga. La tara es el vehículo vacío en la báscula grande, que se pesa, y
+  en la chica lo que pesa vacío el recipiente —costal, carretilla—, que se teclea al pesar o desde la
+  cuenta mientras no se cobre (`docs/planes/2026-10-14-recipiente-y-nombre-de-cuenta.md`).
 - **Centavos por renglón, pesos cerrados al pagar**, y el ajuste por redondeo queda guardado.
 - **No se vende lo que no hay**, ni siquiera con dos ventas confirmándose al mismo tiempo.
 - **Una pesada se usa una sola vez**, para siempre.

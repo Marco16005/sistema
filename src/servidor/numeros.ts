@@ -21,6 +21,14 @@ export function kilos(texto: unknown): string {
   return texto;
 }
 
+/** Lo que pesa vacío un recipiente: como un peso, pero cero vale (es «sin recipiente»). */
+export function recipiente(texto: unknown): string {
+  if (typeof texto !== "string" || !KILOS.test(texto)) {
+    throw new ErrorDeForma("Lo que pesa el recipiente se escribe en kilos, con punto y hasta tres decimales");
+  }
+  return texto;
+}
+
 export function precio(texto: unknown): string {
   if (typeof texto !== "string" || !PRECIO.test(texto)) {
     throw new ErrorDeForma("El precio se escribe en pesos, con punto y hasta cuatro decimales");

@@ -91,6 +91,10 @@ export interface Panel {
     descuentoEnVentasKg: string;
     /** A qué materiales se les descontó, del que más kilos al que menos, sumando compras y ventas. */
     descontados: Array<{ nombre: string; kg: string }>;
+    /** Renglones de la báscula chica en que se descontó lo que pesaba el recipiente, y cuántos kilos, en compras y en ventas. */
+    recipientes: number;
+    recipienteEnComprasKg: string;
+    recipienteEnVentasKg: string;
   };
 }
 
@@ -106,6 +110,8 @@ export interface PersonaDelPanel {
   kg: string;
   /** Los kilos descontados en las cuentas que cobró: el descuento lo decide quien cobra. */
   descuentoKg: string;
+  /** Los kilos de recipiente en las cuentas que cobró: los vio en la cuenta antes de cobrarla, como el descuento. */
+  recipienteKg: string;
   /** Según la bitácora, en el día en que pasó cada cosa: cuentas que descartó sin confirmar, movimientos que corrigió y comprobantes que reimprimió. */
   descartadas: number;
   correcciones: number;
@@ -143,10 +149,11 @@ const CONSULTA = `
   ),
   -- Cada cuenta terminada del periodo y del anterior, con el día en que se asentó: la regla del cierre.
   op AS (
-    SELECT o.id, o.tipo, o.total, o.confirmada_en, o.confirmada_por, j.fecha, x.kg, x.descuento
+    SELECT o.id, o.tipo, o.total, o.confirmada_en, o.confirmada_por, j.fecha, x.kg, x.descuento, x.recipiente
     FROM operacion o JOIN jornada j ON j.id = o.confirmada_en_jornada
-    CROSS JOIN LATERAL (SELECT coalesce(sum(l.peso_recibido), 0) AS kg, coalesce(sum(l.descuento_kg), 0) AS descuento
-                        FROM operacion_linea l WHERE l.operacion_id = o.id) x, r
+    CROSS JOIN LATERAL (SELECT coalesce(sum(l.peso_recibido), 0) AS kg, coalesce(sum(l.descuento_kg), 0) AS descuento,
+                               coalesce(sum(l.tara) FILTER (WHERE NOT i.doble_pesaje), 0) AS recipiente
+                        FROM operacion_linea l JOIN instrumento i ON i.id = l.instrumento_id WHERE l.operacion_id = o.id) x, r
     WHERE o.sucursal_id = 1 AND o.estado = 'confirmada' AND j.fecha BETWEEN r.desde_antes AND r.hasta
   ),
   -- Lo dado de baja y lo ajustado en el periodo. Va en el día de su jornada; sin jornada, en el que se asentó.
@@ -168,11 +175,18 @@ const CONSULTA = `
     FROM op JOIN operacion_linea l ON l.operacion_id = op.id JOIN material m ON m.id = l.material_id, r
     WHERE op.fecha >= r.desde AND l.descuento_kg > 0
   ),
+  -- Lo que pesaban los recipientes en la báscula chica, renglón por renglón. La tara de la grande es el vehículo: no cuenta.
+  recipiente AS (
+    SELECT op.tipo, l.tara
+    FROM op JOIN operacion_linea l ON l.operacion_id = op.id JOIN instrumento i ON i.id = l.instrumento_id, r
+    WHERE op.fecha >= r.desde AND l.tara > 0 AND NOT i.doble_pesaje
+  ),
   -- Lo que cobró cada quien.
   cobro AS (
     SELECT op.confirmada_por AS quien, count(*)::int AS cuentas,
            (count(*) FILTER (WHERE op.tipo = 'compra'))::int AS compras, (count(*) FILTER (WHERE op.tipo = 'venta'))::int AS ventas,
-           ${de("compra", "op.total")} AS pagado, ${de("venta", "op.total")} AS cobrado, sum(op.kg) AS kg, sum(op.descuento) AS descuento
+           ${de("compra", "op.total")} AS pagado, ${de("venta", "op.total")} AS cobrado, sum(op.kg) AS kg, sum(op.descuento) AS descuento,
+           sum(op.recipiente) AS recipiente
     FROM op, r WHERE op.fecha >= r.desde GROUP BY 1
   ),
   -- Lo que la bitácora dice que hizo cada quien y conviene vigilar. No es de una jornada: va en el día en que pasó.
@@ -226,9 +240,11 @@ const CONSULTA = `
     (SELECT ${lista(`jsonb_build_object('nombre', x.nombre, 'cuentas', x.cuentas, 'compras', x.compras, 'ventas', x.ventas,
                                         'pagado', x.pagado::numeric(14,0)::text, 'cobrado', x.cobrado::numeric(14,0)::text,
                                         'kg', x.kg::numeric(14,3)::text, 'descuentoKg', x.descuento::numeric(14,3)::text,
+                                        'recipienteKg', x.recipiente::numeric(14,3)::text,
                                         'descartadas', x.descartadas, 'correcciones', x.correcciones, 'reimpresiones', x.reimpresiones)`, "x.cuentas DESC, x.nombre")}
      FROM (SELECT u.nombre, coalesce(c.cuentas, 0) AS cuentas, coalesce(c.compras, 0) AS compras, coalesce(c.ventas, 0) AS ventas,
                   coalesce(c.pagado, 0) AS pagado, coalesce(c.cobrado, 0) AS cobrado, coalesce(c.kg, 0) AS kg, coalesce(c.descuento, 0) AS descuento,
+                  coalesce(c.recipiente, 0) AS recipiente,
                   coalesce(h.descartadas, 0) AS descartadas, coalesce(h.correcciones, 0) AS correcciones, coalesce(h.reimpresiones, 0) AS reimpresiones
            FROM cobro c FULL JOIN hizo h ON h.quien = c.quien JOIN usuario u ON u.id = coalesce(c.quien, h.quien)) x) AS personas,
     (SELECT ${lista("jsonb_build_object('hora', x.hora, 'cuentas', x.n)", "x.hora")}
@@ -259,7 +275,10 @@ const CONSULTA = `
       'descuentoEnComprasKg', (SELECT coalesce(sum(descuento_kg), 0)::numeric(14,3)::text FROM descuento WHERE tipo = 'compra'),
       'descuentoEnVentasKg', (SELECT coalesce(sum(descuento_kg), 0)::numeric(14,3)::text FROM descuento WHERE tipo = 'venta'),
       'descontados', (SELECT ${lista("jsonb_build_object('nombre', x.nombre, 'kg', x.kg::numeric(14,3)::text)", "x.kg DESC, x.nombre")}
-                      FROM (SELECT nombre, sum(descuento_kg) AS kg FROM descuento GROUP BY nombre) x)) AS control
+                      FROM (SELECT nombre, sum(descuento_kg) AS kg FROM descuento GROUP BY nombre) x),
+      'recipientes', (SELECT count(*)::int FROM recipiente),
+      'recipienteEnComprasKg', (SELECT coalesce(sum(tara), 0)::numeric(14,3)::text FROM recipiente WHERE tipo = 'compra'),
+      'recipienteEnVentasKg', (SELECT coalesce(sum(tara), 0)::numeric(14,3)::text FROM recipiente WHERE tipo = 'venta')) AS control
   FROM r`;
 
 /**

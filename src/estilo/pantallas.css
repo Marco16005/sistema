@@ -70,8 +70,9 @@
 }
 
 /* ── dentro de una cuenta: en qué paso voy ────────────────────── */
-.top{display:flex;align-items:center;gap:var(--espacio-3);margin-bottom:var(--espacio-3)}
-.top h2{margin:0;font-size:30px;font-weight:700;letter-spacing:-.5px;line-height:1.1}
+.top{display:flex;align-items:center;flex-wrap:wrap;gap:var(--espacio-2) var(--espacio-3);margin-bottom:var(--espacio-3)}
+/* El nombre de una cuenta lo pone el mostrador, hasta de cuarenta letras: si no cabe, se parte. */
+.top h2{margin:0;min-width:0;overflow-wrap:anywhere;font-size:30px;font-weight:700;letter-spacing:-.5px;line-height:1.1}
 /* Los tres pasos, como un solo control. */
 .pasos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--separacion-de-toque);padding:4px;margin-bottom:var(--espacio-3);
   border:var(--borde-marcado) solid var(--separador);border-radius:var(--radio-pildora);background:var(--relleno)}

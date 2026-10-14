@@ -13,7 +13,7 @@ import type { Navegador } from "./navegador.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
 import { cerrarJornada, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
-import { abrirCuenta, agregarMaterial, confirmar, descartar, ponerDescuento } from "../src/servidor/dominio/cuentas.ts";
+import { abrirCuenta, agregarMaterial, confirmar, descartar, ponerDescuento, ponerRecipiente, segundaPesada } from "../src/servidor/dominio/cuentas.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
 import { panel } from "../src/servidor/dominio/panel.ts";
 
@@ -145,7 +145,7 @@ test("los materiales salen del que más kilos movió al que menos, con lo compra
 test("quién atendió, del que más cuentas terminó al que menos; y a qué hora, sin perder ninguna cuenta", () =>
   conDosDias(async ({ bd }) => {
     const p = await panel(bd, { dias: 7, hasta: "2026-10-02" });
-    const sinNovedad = { descuentoKg: "0.000", descartadas: 0, correcciones: 0, reimpresiones: 0 };
+    const sinNovedad = { descuentoKg: "0.000", recipienteKg: "0.000", descartadas: 0, correcciones: 0, reimpresiones: 0 };
     assert.deepEqual(p.personas, [
       // Luis: tres compras ($93 + $21 + $75) y la venta de Cartón; por sus manos pasaron 34.2 + 10 + 200.3 + 10 kg.
       { nombre: "Luis", cuentas: 4, compras: 3, ventas: 1, pagado: "189", cobrado: "501", kg: "254.500", ...sinNovedad },
@@ -191,6 +191,7 @@ test("sin ningún día todavía, el panel sale vacío y no truena", () =>
         mermas: 0, mermaKg: "0.000", ajustes: 0, ajusteEntroKg: "0.000", ajusteSalioKg: "0.000",
         preciosEspeciales: 0, diferenciaEnCompras: "0.00", diferenciaEnVentas: "0.00", reaperturas: 0,
         descuentos: 0, descuentoEnComprasKg: "0.000", descuentoEnVentasKg: "0.000", descontados: [],
+        recipientes: 0, recipienteEnComprasKg: "0.000", recipienteEnVentasKg: "0.000",
       });
     } finally {
       await bd.cerrar();
@@ -252,6 +253,33 @@ test("los kilos descontados: cuántos renglones, cuántos kilos en compras y en 
     assert.deepEqual(p.personas.map((x) => [x.nombre, x.descuentoKg]), [["Luis", "3.750"], ["Servando", "3.000"]]);
     // Lo que entró son los kilos pesados; el descuento baja lo que se paga, no lo que entra al patio.
     assert.equal(p.totales.kgComprado, "89.200");
+  }));
+
+test("los kilos de recipiente: cuántos renglones, cuántos kilos en compras y en ventas, y quién cobró esas cuentas", () =>
+  conDosDias(async ({ bd, e }) => {
+    const conRecipiente = async (quien: string, tipo: "compra" | "venta", material: string, kg: string, recipiente: string, despues = false): Promise<void> => {
+      const linea = randomUUID();
+      let c = await abrirCuenta(bd, quien, { id: randomUUID(), tipo, etiqueta: null });
+      c = await agregarMaterial(bd, quien, c.id, { linea, captura: randomUUID(), material: e.mat[material]!, bascula: 2, kg, ...(despues ? {} : { recipiente }) });
+      // Puesto al pesar o después, desde la cuenta, es lo mismo.
+      if (despues) c = await ponerRecipiente(bd, e.patio, c.id, linea, recipiente);
+      await confirmar(bd, quien, c.id, c.revision);
+    };
+    await conRecipiente(e.mostrador, "compra", "Cartón", "20.4", "0.4");
+    await conRecipiente(e.mostrador, "compra", "PET", "5.2", "0.2", true);
+    await conRecipiente(e.responsable, "venta", "Cartón", "51.5", "1.5");
+    const p = await panel(bd, { dias: 7, hasta: "2026-10-02" });
+    const { recipientes, recipienteEnComprasKg, recipienteEnVentasKg } = p.control;
+    assert.deepEqual({ recipientes, recipienteEnComprasKg, recipienteEnVentasKg }, { recipientes: 3, recipienteEnComprasKg: "0.600", recipienteEnVentasKg: "1.500" });
+    assert.deepEqual(p.personas.map((x) => [x.nombre, x.recipienteKg]), [["Luis", "0.600"], ["Servando", "1.500"]]);
+    // A diferencia del descuento, el recipiente no entra al patio: los kilos son los del material solo.
+    assert.equal(p.totales.kgComprado, "79.200");
+    // El vehículo de la báscula grande tiene tara, pero no es recipiente: no se cuenta aquí.
+    let v = await abrirCuenta(bd, e.mostrador, { id: randomUUID(), tipo: "compra", etiqueta: null });
+    v = await agregarMaterial(bd, e.mostrador, v.id, { linea: randomUUID(), captura: randomUUID(), material: e.mat["Cartón"]!, bascula: 1, kg: "5200" });
+    v = await segundaPesada(bd, e.mostrador, v.id, v.materiales[0]!.id, { captura: randomUUID(), kg: "3400" });
+    await confirmar(bd, e.mostrador, v.id, v.revision);
+    assert.equal((await panel(bd, { dias: 7, hasta: "2026-10-02" })).control.recipientes, 3);
   }));
 
 test("de cada persona, lo que conviene vigilar: las cuentas que descartó, lo que corrigió y lo que reimprimió, aunque no haya cobrado nada", () =>
@@ -385,6 +413,7 @@ test("el control cuenta lo que se dio de baja, lo que ajustó un conteo, los pre
       mermas: 1, mermaKg: "10.000", ajustes: 1, ajusteEntroKg: "0.000", ajusteSalioKg: "19.500",
       preciosEspeciales: 1, diferenciaEnCompras: "50.00", diferenciaEnVentas: "0.00", reaperturas: 1,
       descuentos: 0, descuentoEnComprasKg: "0.000", descuentoEnVentasKg: "0.000", descontados: [],
+      recipientes: 0, recipienteEnComprasKg: "0.000", recipienteEnVentasKg: "0.000",
     });
     assert.deepEqual({ cuentas: p.totales.cuentas, pagado: p.totales.pagado, kgComprado: p.totales.kgComprado }, { cuentas: 1, pagado: "260", kgComprado: "100.000" });
     assert.deepEqual(p.inventario.materiales, [{ nombre: "Cartón", kg: "570.500", precio: "2.1000", valor: "1198.05" }]);

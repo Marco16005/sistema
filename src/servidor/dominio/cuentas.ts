@@ -24,6 +24,8 @@ export interface MaterialDeCuenta {
   porPesar: boolean;
   bruto: string | null;
   tara: string | null;
+  /** Lo que pesa vacío el costal, la carretilla o lo que traiga, en la báscula chica. En la grande, cero: ahí la tara es el vehículo. */
+  recipiente: string;
   descuento: string;
   /** Kilos que se pagan o se cobran. */
   kg: string | null;
@@ -79,6 +81,7 @@ export async function verCuenta(bd: Bd, id: string): Promise<Cuenta | null> {
                                    FROM linea_pesada lp JOIN captura_peso c ON c.id = lp.captura_id WHERE lp.linea_id = l.id),
                        'porPesar', l.peso_bruto IS NULL,
                        'bruto', l.peso_bruto::text, 'tara', CASE WHEN l.peso_bruto IS NOT NULL THEN l.tara::text END,
+                       'recipiente', (CASE WHEN i.doble_pesaje THEN 0 ELSE l.tara END)::numeric(12,3)::text,
                        'descuento', l.descuento_kg::text, 'kg', l.peso_liquidable::text, 'importe', l.importe::text
                      ) ORDER BY l.creada_en, l.id)
               FROM operacion_linea l
@@ -153,12 +156,14 @@ export interface EnvioDeMaterial {
   bascula: number | string;
   /** Lo que marcó la báscula, como texto decimal. */
   kg: string;
+  /** Lo que pesa vacío el recipiente en que viene, en la báscula chica. Sin recipiente, nada o cero. */
+  recipiente?: string;
 }
 
 export async function agregarMaterial(bd: Bd, persona: Persona, cuenta: string, envio: EnvioDeMaterial): Promise<Cuenta> {
   await bd.enTransaccion(persona, (c) =>
-    c.query("SELECT agregar_material($1, $2, $3, $4::smallint, $5, $6, $7)", [
-      cuenta, envio.linea, envio.material, envio.bascula, envio.captura, envio.kg, persona,
+    c.query("SELECT agregar_material($1, $2, $3, $4::smallint, $5, $6, $7, $8)", [
+      cuenta, envio.linea, envio.material, envio.bascula, envio.captura, envio.kg, persona, envio.recipiente ?? "0",
     ]));
   return comoQuedo(bd, cuenta);
 }
@@ -197,6 +202,15 @@ export async function ponerDescuento(bd: Bd, persona: Persona, cuenta: string, l
   await bd.enTransaccion(persona, async (c) => {
     await esDeEstaCuenta(c, cuenta, linea);
     await c.query("SELECT poner_descuento($1, $2, $3)", [linea, kg, persona]);
+  });
+  return comoQuedo(bd, cuenta);
+}
+
+/** Lo que pesa vacío el recipiente de un material ya pesado en la báscula chica. Cero es quitarlo. */
+export async function ponerRecipiente(bd: Bd, persona: Persona, cuenta: string, linea: string, kg: string): Promise<Cuenta> {
+  await bd.enTransaccion(persona, async (c) => {
+    await esDeEstaCuenta(c, cuenta, linea);
+    await c.query("SELECT poner_recipiente($1, $2, $3)", [linea, kg, persona]);
   });
   return comoQuedo(bd, cuenta);
 }

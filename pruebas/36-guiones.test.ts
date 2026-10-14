@@ -39,6 +39,9 @@ function correr(orden: string, args: string[], carpeta: string, entorno: NodeJS.
       clearTimeout(tope);
       listo({ codigo, salida: salida.trim(), queja: queja.trim() });
     });
+    // Un guion que termina sin leer su entrada deja la tubería cerrada, y escribirle da EPIPE. No es
+    // de la prueba: lo que el guion hizo lo dicen su salida y su código.
+    hijo.stdin.on("error", () => {});
     hijo.stdin.end(entrada);
   });
 }

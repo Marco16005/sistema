@@ -52,8 +52,10 @@ export function Ticket({ comprobante: inicial, negocio, impresion: primera, pued
           <div className="r s"><span>{kilos(m.kg)} kg × {precio(m.precio)}</span><span>{pesos(m.importe)}</span></div>
           <div className="s">
             {m.bascula}
-            {Number(m.tara) > 0 ? ` · ${kilosCortos(m.bruto)} − ${kilosCortos(m.tara)} kg` : ""}
+            {Number(m.recipiente) > 0 ? ` · marcó ${kilosCortos(m.bruto)} kg`
+              : Number(m.tara) > 0 ? ` · ${kilosCortos(m.bruto)} − ${kilosCortos(m.tara)} kg` : ""}
           </div>
+          {Number(m.recipiente) > 0 ? <div className="s">Recipiente: {kilosCortos(m.recipiente)} kg</div> : null}
           {Number(m.descuento) > 0 ? <div className="s">Descuento: {kilos(m.descuento)} kg</div> : null}
         </div>
       ))}

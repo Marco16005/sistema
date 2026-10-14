@@ -71,7 +71,7 @@ test("una compra de tres materiales, de abrirla al comprobante", () =>
       { folio: hecha.folio, tipo: "compra", etiqueta: "Camioneta roja", atendio: "Luis", suma: "553.50", ajuste: "0.50", total: "554", impresiones: 0 },
     );
     assert.deepEqual(t.materiales[2], {
-      nombre: "Cobre de primera", bascula: "Báscula 3", bruto: "2.500", tara: "0.000", descuento: "0.000", kg: "2.500",
+      nombre: "Cobre de primera", bascula: "Báscula 3", bruto: "2.500", tara: "0.000", recipiente: "0.000", descuento: "0.000", kg: "2.500",
       precio: "150.0000", importe: "375.00",
     });
   }));
@@ -365,7 +365,7 @@ test("el comprobante de un vehículo trae sus dos pesos", () =>
     await confirmar(bd, e.mostrador, c.id, c.revision);
     const t = (await comprobante(bd, c.id))!;
     assert.deepEqual(t.materiales, [{
-      nombre: "Fierro pesado", bascula: "Báscula 1", bruto: "5200.000", tara: "3400.000", descuento: "50.000", kg: "1750.000",
+      nombre: "Fierro pesado", bascula: "Báscula 1", bruto: "5200.000", tara: "3400.000", recipiente: "0.000", descuento: "50.000", kg: "1750.000",
       precio: "6.8000", importe: "11900.00",
     }]);
   }));

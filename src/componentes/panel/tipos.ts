@@ -60,6 +60,10 @@ export interface Panel {
     descuentoEnComprasKg: string;
     descuentoEnVentasKg: string;
     descontados: Array<{ nombre: string; kg: string }>;
+    /** Renglones de la báscula chica en que se descontó el recipiente, y cuántos kilos pesaban. */
+    recipientes: number;
+    recipienteEnComprasKg: string;
+    recipienteEnVentasKg: string;
   };
 }
 
@@ -73,6 +77,7 @@ export interface PersonaDelPanel {
   cobrado: string;
   kg: string;
   descuentoKg: string;
+  recipienteKg: string;
   descartadas: number;
   correcciones: number;
   reimpresiones: number;

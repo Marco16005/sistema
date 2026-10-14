@@ -1,5 +1,6 @@
 // El mostrador, con las medidas de patio: se usa con guantes y al sol. En cada paso —material,
-// báscula, el peso, la cuenta, el precio especial y su hoja de autorizar— todo lo que se toca mide
+// báscula, el peso con y sin recipiente, la cuenta, su nombre, el recipiente puesto después, el
+// precio especial y su hoja de autorizar— todo lo que se toca mide
 // 60 px o más y está separado de lo de junto, el texto se lee, y nada se sale de lado. En pantalla
 // ancha y en dos teléfonos.
 import { expect, test } from "@playwright/test";
@@ -38,9 +39,23 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await medir("el peso, sin teclear");
     await teclear(page, "100.5");
     await medir("el peso, tecleado");
+    await page.getByRole("button", { name: "¿Viene en algo? Costal, carretilla…" }).click();
+    await teclear(page, "0.5");
+    await medir("el peso, con recipiente");
+    await page.getByRole("button", { name: "No viene en nada" }).click();
     await page.getByRole("button", { name: /^(Agregar a la cuenta|Guardar peso)/ }).click();
     await expect(page.getByText(/^En esta cuenta/)).toBeVisible();
     await medir("la cuenta, con un material");
+    await page.getByRole("button", { name: "Recipiente de Cartón" }).click();
+    await teclear(page, "0.5");
+    await medir("el recipiente, puesto desde la cuenta");
+    await page.getByRole("button", { name: "Regresar a la cuenta" }).click();
+    await page.getByRole("button", { name: /^Cambiarle el nombre a/ }).click();
+    await page.getByLabel("Cómo se llama esta cuenta").fill("Don Chuy, el de la camioneta roja");
+    await medir("el nombre de la cuenta, cambiándolo");
+    await page.getByRole("button", { name: "Guardar el nombre" }).click();
+    await expect(page.getByRole("heading", { name: "Don Chuy, el de la camioneta roja" })).toBeVisible();
+    await medir("la cuenta, con su nombre");
 
     // El precio especial, y su hoja.
     await page.getByRole("button", { name: "Precio especial para Cartón" }).click();

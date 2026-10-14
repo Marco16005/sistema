@@ -27,6 +27,8 @@ export interface MaterialDeCuenta {
   porPesar: boolean;
   bruto: string | null;
   tara: string | null;
+  /** Lo que pesa vacío el recipiente, en la báscula chica. En la grande, cero: ahí la tara es el vehículo. */
+  recipiente: string;
   descuento: string;
   kg: string | null;
   importe: string | null;
@@ -78,7 +80,7 @@ export interface Comprobante {
   fecha: string;
   hora: string;
   atendio: string;
-  materiales: Array<{ nombre: string; bascula: string; bruto: string; tara: string; descuento: string; kg: string; precio: string; importe: string }>;
+  materiales: Array<{ nombre: string; bascula: string; bruto: string; tara: string; recipiente: string; descuento: string; kg: string; precio: string; importe: string }>;
   suma: string;
   ajuste: string;
   total: string;

@@ -810,6 +810,7 @@ const BORRADOR: Array<[string, Entrada]> = [
   }],
   ["quitar_material", async (c, _db, e, q) => c.query("SELECT quitar_material($1, $2)", [(await cuentaLista(c, e)).linea, q])],
   ["etiquetar_cuenta", async (c, _db, e, q) => c.query("SELECT etiquetar_cuenta($1, 'x', $2)", [(await cuentaLista(c, e)).op, q])],
+  ["poner_recipiente", async (c, _db, e, q) => c.query("SELECT poner_recipiente($1, 0.2, $2)", [(await cuentaLista(c, e)).linea, q])],
   ["descartar_cuenta", async (c, _db, e, q) => c.query("SELECT descartar_cuenta($1, $2)", [(await cuentaLista(c, e)).op, q])],
 ];
 const DE_MOSTRADOR: Array<[string, Entrada]> = [

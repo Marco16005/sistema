@@ -22,6 +22,8 @@ export interface Comprobante {
     bascula: string;
     bruto: string;
     tara: string;
+    /** Lo que pesó vacío el recipiente, en la báscula chica; cero en la grande, donde la tara es el vehículo. */
+    recipiente: string;
     descuento: string;
     /** Kilos que se pagan o se cobran. */
     kg: string;
@@ -44,6 +46,7 @@ const CONSULTA = `
          (SELECT count(*)::int FROM impresion i WHERE i.operacion_id = o.id) AS impresiones,
          (SELECT jsonb_agg(jsonb_build_object(
                    'nombre', m.nombre, 'bascula', i.nombre, 'bruto', l.peso_bruto::text, 'tara', l.tara::text,
+                   'recipiente', (CASE WHEN i.doble_pesaje THEN 0 ELSE l.tara END)::numeric(12,3)::text,
                    'descuento', l.descuento_kg::text, 'kg', l.peso_liquidable::text,
                    'precio', l.precio_unitario::text, 'importe', l.importe::text
                  ) ORDER BY l.creada_en, l.id)

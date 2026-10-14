@@ -57,6 +57,7 @@ const loQueCobro = (p: PersonaDelPanel): string => [
 function loQueVigilar(p: PersonaDelPanel): string {
   const t = [
     Number(p.descuentoKg) > 0 ? `descontó ${kg(p.descuentoKg)}` : "",
+    Number(p.recipienteKg) > 0 ? `${kg(p.recipienteKg)} de recipientes` : "",
     p.descartadas > 0 ? `descartó ${cuantas(p.descartadas, "cuenta", "cuentas")}` : "",
     p.correcciones > 0 ? `corrigió ${cuantas(p.correcciones, "movimiento", "movimientos")}` : "",
     p.reimpresiones > 0 ? `reimprimió ${cuantas(p.reimpresiones, "comprobante", "comprobantes")}` : "",
@@ -349,7 +350,7 @@ export default function PantallaDelPanel() {
               {loQueVigilar(p) ? <small>{loQueVigilar(p)}</small> : null}
             </div>
           ))}
-          {panel.personas.length > 0 ? <p className="note">Los kilos descontados son de las cuentas que cobró. Lo descartado, lo corregido y lo reimpreso salen de la bitácora, en el día en que pasó cada cosa.</p> : null}
+          {panel.personas.length > 0 ? <p className="note">Los kilos descontados y los de recipientes son de las cuentas que cobró. Lo descartado, lo corregido y lo reimpreso salen de la bitácora, en el día en que pasó cada cosa.</p> : null}
         </div>
       </div>
 
@@ -374,6 +375,9 @@ export default function PantallaDelPanel() {
           {c.descontados.slice(0, 3).map((d) => (
             <div className="tot adj" key={d.nombre}><span>De {d.nombre}</span><span className="n">{kg(d.kg)}</span></div>
           ))}
+          <div className="tot"><span>Recipientes descontados al pesar</span><span className="n">{c.recipientes === 0 ? "Ninguno" : `en ${cuantas(c.recipientes, "renglón", "renglones")}`}</span></div>
+          {Number(c.recipienteEnComprasKg) > 0 ? <div className="tot adj"><span>En compras, pesaban</span><span className="n">{kg(c.recipienteEnComprasKg)}</span></div> : null}
+          {Number(c.recipienteEnVentasKg) > 0 ? <div className="tot adj"><span>En ventas, pesaban</span><span className="n">{kg(c.recipienteEnVentasKg)}</span></div> : null}
           <div className="tot"><span>Veces que se reabrió un día</span><span className="n">{c.reaperturas === 0 ? "Ninguna" : c.reaperturas}</span></div>
           <p className="note">Los ajustes son lo que cambió un conteo o una corrección. Si alguno de estos crece de un periodo a otro, conviene preguntar por qué.</p>
         </div>

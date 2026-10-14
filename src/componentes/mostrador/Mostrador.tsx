@@ -34,6 +34,8 @@ interface Envio {
   material: number;
   bascula: number;
   kg: string;
+  /** Lo que pesa vacío el recipiente en que viene, si viene en uno. Es parte del envío: el reintento lleva el mismo. */
+  recipiente?: string;
 }
 
 /** En qué va una cuenta en esta pantalla. Todo esto es de esa cuenta y de ninguna otra. */
@@ -45,6 +47,10 @@ interface Lugar {
   bascula: number | null;
   /** Lo tecleado y todavía no enviado. */
   peso: string;
+  /** En la báscula chica, lo que pesa vacío el costal, la carretilla o lo que traiga, a medio teclear. Nada si no viene en nada. */
+  recipiente: string | null;
+  /** Adónde va lo que se teclea, mientras hay recipiente: a lo que marcó la báscula o al recipiente. */
+  tecleando: "peso" | "recipiente";
   /**
    * Un envío del que no se supo el resultado: salió, y la respuesta no llegó. Puede que el servidor
    * lo haya guardado. Mientras exista no se teclea otro peso: se reintenta este, idéntico, y el
@@ -57,8 +63,15 @@ interface Lugar {
   especial: EstadoDePrecio | null;
   /** Quitar un precio especial que ya salió y del que no se supo: se reintenta ese mismo, y nada más. */
   quitando: (Pendiente<{ linea: string; visto: string | null }> & { material: string }) | null;
+  /** Ponerle, cambiarle o quitarle el recipiente a un material que ya está en la cuenta: cuál, y lo tecleado. */
+  corrigiendo: { linea: string; peso: string } | null;
 }
-const LUGAR_NUEVO: Lugar = { paso: "mat", familia: 0, material: null, bascula: null, peso: "", pendiente: null, segunda: null, especial: null, quitando: null };
+const LUGAR_NUEVO: Lugar = {
+  paso: "mat", familia: 0, material: null, bascula: null, peso: "", recipiente: null, tecleando: "peso",
+  pendiente: null, segunda: null, especial: null, quitando: null, corrigiendo: null,
+};
+/** Lo que se suelta cuando un material ya entró, o cuando se elige otro. */
+const SIN_PESO: Partial<Lugar> = { material: null, bascula: null, peso: "", recipiente: null, tecleando: "peso", pendiente: null };
 
 interface Memoria {
   activa: string | null;
@@ -83,6 +96,16 @@ function recordar(): Memoria {
 /** Lo tecleado, como lo espera el servidor: sin punto colgando. */
 const comoTexto = (tecleado: string): string => tecleado.replace(/\.$/, "");
 const pesoListo = (tecleado: string): boolean => /^\d{1,6}(\.\d{1,3})?$/.test(comoTexto(tecleado)) && Number(tecleado) > 0;
+/** En gramos, para restar sin que el punto flotante se coma un gramo. */
+const gramos = (kg: string): number => Math.round(Number(comoTexto(kg) || "0") * 1000);
+/**
+ * Lo que queda de material quitándole el recipiente, como texto de kilos; nada si el recipiente no
+ * pesa menos que lo que marcó la báscula. La cuenta la vuelve a hacer el servidor.
+ */
+function sinElRecipiente(marco: string, recipiente: string): string | null {
+  const queda = gramos(marco) - gramos(recipiente);
+  return queda > 0 ? (queda / 1000).toFixed(3) : null;
+}
 
 /** Lo guardado se lee hasta saber que esta pestaña no es copia de otra: una copia no se queda con el peso a medias. */
 export function Mostrador() {
@@ -137,13 +160,14 @@ function Pantalla() {
           let l = lugares[llegada.id] ?? { ...LUGAR_NUEVO, paso: llegada.materiales.length ? "cta" : "mat" };
           // Un envío de resultado desconocido que sí había llegado: ya está en la cuenta, no hay nada que reintentar.
           if (l.pendiente && llegada.materiales.some((x) => x.id === l.pendiente!.linea)) {
-            l = { ...l, paso: "cta", material: null, bascula: null, peso: "", pendiente: null };
+            l = { ...l, paso: "cta", ...SIN_PESO };
           }
           if (l.segunda && !llegada.materiales.some((x) => x.id === l.segunda!.linea && x.porPesar)) l = { ...l, segunda: null };
           // El precio especial a medias vale mientras su material siga en la cuenta. Y quitar uno del que
           // no se supo deja de estar pendiente cuando el material ya no lo lleva: se quitó, o ya no está.
           if (l.especial && !llegada.materiales.some((x) => x.id === l.especial!.linea)) l = { ...l, especial: null };
           if (l.quitando && !llegada.materiales.some((x) => x.id === l.quitando!.cuerpo.linea && x.precioEspecial)) l = { ...l, quitando: null };
+          if (l.corrigiendo && !llegada.materiales.some((x) => x.id === l.corrigiendo!.linea && !x.porPesar && !x.bascula.doblePesaje)) l = { ...l, corrigiendo: null };
           lugares[llegada.id] = l;
         }
         return { activa: llegada?.id ?? null, lugares };
@@ -243,7 +267,10 @@ function Pantalla() {
       // Si hay un envío de resultado desconocido, se manda ese mismo, tal cual. Si no, lo que está a la vista.
       const envio: Envio | null = lugar.pendiente
         ?? (lugar.material !== null && lugar.bascula !== null
-          ? { linea: identificador(), captura: identificador(), material: lugar.material, bascula: lugar.bascula, kg: comoTexto(lugar.peso) }
+          ? {
+            linea: identificador(), captura: identificador(), material: lugar.material, bascula: lugar.bascula, kg: comoTexto(lugar.peso),
+            ...(lugar.recipiente !== null ? { recipiente: comoTexto(lugar.recipiente) } : {}),
+          }
           : null);
       if (!envio) return;
       // Queda guardado antes de salir: si la respuesta no llega, se sabrá qué fue lo que se mandó.
@@ -253,9 +280,10 @@ function Pantalla() {
         const agregado = r.cuenta.materiales.find((m) => m.id === envio.linea);
         setUltimo(agregado && !agregado.porPesar
           ? `Agregado: ${agregado.material.nombre} · ${kilos(agregado.kg!)} kg · ${pesos(agregado.importe!)}`
+            + (Number(agregado.recipiente) > 0 ? ` · sin los ${kilosCortos(agregado.recipiente)} kg del recipiente` : "")
           : "");
         setCuenta(r.cuenta);
-        ponerLugar(id, { paso: "cta", material: null, bascula: null, peso: "", pendiente: null });
+        ponerLugar(id, { paso: "cta", ...SIN_PESO });
         window.scrollTo(0, 0);
         void refrescar(id);
       } catch (e) {
@@ -272,7 +300,7 @@ function Pantalla() {
               throw e;      // no se pudo resolver: sigue pendiente
             }
           }
-          ponerLugar(id, entro ? { paso: "cta", material: null, bascula: null, peso: "", pendiente: null } : { pendiente: null });
+          ponerLugar(id, entro ? { paso: "cta", ...SIN_PESO } : { pendiente: null });
           throw e;
         }
         // Sin respuesta, o si el servidor falla, no se sabe si llegó: el envío se queda pendiente y
@@ -380,7 +408,10 @@ function Pantalla() {
           </div>
         ) : (
           <>
-            <div className="top"><h2>{nombreDe(vista)}</h2></div>
+            <NombreDeCuenta
+              key={vista.id} cuenta={vista} ocupado={ocupado} hacer={hacer}
+              alCambiar={(c) => { setCuenta(c); void refrescar(c.id); }}
+            />
             <div className="pasos">
               {([["mat", "Material"], ["bas", "Báscula"], ["cta", "Cuenta"]] as const).map(([k, nombre], j) => (
                 <button
@@ -399,7 +430,7 @@ function Pantalla() {
               <PasoMaterial
                 cuenta={vista} catalogo={catalogo} familia={lugar.familia} aviso={aviso}
                 alCambiarFamilia={(familia) => ponerLugar(vista.id, { familia })}
-                alElegir={(m) => { setAviso(""); ponerLugar(vista.id, { paso: "bas", material: m.id, bascula: null, peso: "" }); window.scrollTo(0, 0); }}
+                alElegir={(m) => { setAviso(""); ponerLugar(vista.id, { paso: "bas", material: m.id, bascula: null, peso: "", recipiente: null, tecleando: "peso" }); window.scrollTo(0, 0); }}
                 alVerCuenta={() => irA("cta")}
               />
             ) : null}
@@ -407,9 +438,10 @@ function Pantalla() {
             {lugar.paso === "bas" ? (
               <PasoBascula
                 cuenta={vista} material={material} basculas={catalogo?.basculas ?? []} bascula={lugar.bascula} peso={lugar.peso}
+                recipiente={lugar.recipiente} tecleando={lugar.tecleando}
                 incierto={lugar.pendiente !== null && !ocupado} aviso={aviso} ocupado={ocupado}
-                alElegirBascula={(bascula) => { setAviso(""); ponerLugar(vista.id, { bascula, peso: "" }); }}
-                alTeclear={(peso) => ponerLugar(vista.id, { peso })}
+                alElegirBascula={(bascula) => { setAviso(""); ponerLugar(vista.id, { bascula, peso: "", recipiente: null, tecleando: "peso" }); }}
+                alTeclear={(cambio) => ponerLugar(vista.id, cambio)}
                 alAgregar={() => void agregar()}
               />
             ) : null}
@@ -421,6 +453,7 @@ function Pantalla() {
                 segunda={lugar.segunda} alSegunda={(segunda) => ponerLugar(vista.id, { segunda })}
                 especial={lugar.especial} alEspecial={(especial) => ponerLugar(vista.id, { especial })}
                 quitando={lugar.quitando} alQuitando={(quitando) => ponerLugar(vista.id, { quitando })}
+                corrigiendo={lugar.corrigiendo} alCorrigiendo={(corrigiendo) => ponerLugar(vista.id, { corrigiendo })}
                 alDecir={(mensaje) => { setAviso(""); setUltimo(mensaje); void refrescar(vista.id); }}
                 alAdvertir={(texto) => { setUltimo(""); setAviso(texto); void refrescar(vista.id); }}
                 alAgregarOtro={() => irA("mat")} alConfirmar={() => void confirmar()} alDescartar={() => void descartar()}
@@ -485,13 +518,21 @@ function PasoMaterial(p: {
 
 function PasoBascula(p: {
   cuenta: Cuenta; material: MaterialDelCatalogo | null; basculas: Bascula[]; bascula: number | null; peso: string;
+  recipiente: string | null; tecleando: Lugar["tecleando"];
   /** Lo tecleado ya se mandó y no llegó respuesta: no se sabe si quedó guardado. */
   incierto: boolean; aviso: string; ocupado: boolean;
-  alElegirBascula: (id: number | null) => void; alTeclear: (peso: string) => void; alAgregar: () => void;
+  alElegirBascula: (id: number | null) => void;
+  alTeclear: (cambio: Partial<Pick<Lugar, "peso" | "recipiente" | "tecleando">>) => void;
+  alAgregar: () => void;
 }) {
   if (!p.material) return <div className="card"><p className="cargando">Un momento…</p></div>;
   const elegida = p.basculas.find((b) => b.id === p.bascula) ?? null;
-  const listo = pesoListo(p.peso);
+  // El recipiente es de la báscula chica: en la grande, la tara es el vehículo y se pesa.
+  const conRecipiente = elegida !== null && !elegida.doblePesaje && p.recipiente !== null;
+  const alRecipiente = conRecipiente && p.tecleando === "recipiente";
+  const recipiente = p.recipiente ?? "";
+  const queda = conRecipiente ? sinElRecipiente(p.peso, recipiente) : null;
+  const listo = pesoListo(p.peso) && (!conRecipiente || (pesoListo(recipiente) && queda !== null));
 
   return (
     <div className="card">
@@ -518,11 +559,38 @@ function PasoBascula(p: {
           </>
         ) : (
           <>
-            <p className="lbl">{elegida.doblePesaje ? `¿Cuánto marca ${primeraPesada(p.cuenta.tipo)}?` : "¿Cuánto marca?"}</p>
-            <Visor
-              nombre={elegida.nombre} valor={p.peso}
-              nota={elegida.doblePesaje ? `Primera pesada: ${primeraPesada(p.cuenta.tipo)}. Después se pesa ${segundaPesada(p.cuenta.tipo)}.` : undefined}
-            />
+            <p className="lbl">
+              {elegida.doblePesaje ? `¿Cuánto marca ${primeraPesada(p.cuenta.tipo)}?` : alRecipiente ? "¿Cuánto pesa vacío el recipiente?" : "¿Cuánto marca?"}
+            </p>
+            {conRecipiente ? (
+              // Dos números y un solo teclado: se toca cuál se está tecleando.
+              <div className="chips" role="group" aria-label="Qué se teclea">
+                <button type="button" className="chip" aria-pressed={!alRecipiente} disabled={p.incierto} onClick={() => p.alTeclear({ tecleando: "peso" })}>
+                  Marcó {p.peso ? `${kilosCortos(comoTexto(p.peso))} kg` : "—"}
+                </button>
+                <button type="button" className="chip" aria-pressed={alRecipiente} disabled={p.incierto} onClick={() => p.alTeclear({ tecleando: "recipiente" })}>
+                  Recipiente {recipiente ? `${kilosCortos(comoTexto(recipiente))} kg` : "—"}
+                </button>
+              </div>
+            ) : null}
+            {alRecipiente ? (
+              <Visor
+                nombre="Recipiente" nota="Lo que pesa vacío: el costal, la carretilla, la cubeta…" valor={recipiente}
+                leyenda={`Recipiente tecleado: ${recipiente || "nada"} kilos`}
+              />
+            ) : (
+              <Visor
+                nombre={elegida.nombre} valor={p.peso}
+                nota={elegida.doblePesaje ? `Primera pesada: ${primeraPesada(p.cuenta.tipo)}. Después se pesa ${segundaPesada(p.cuenta.tipo)}.` : undefined}
+              />
+            )}
+            {conRecipiente ? (
+              <p className="queda" role="status">
+                {queda !== null && pesoListo(recipiente)
+                  ? <>Quedan <b>{kilos(queda)} kg</b> de material</>
+                  : pesoListo(recipiente) ? "El recipiente tiene que pesar menos que lo que marcó la báscula." : "Teclea lo que pesa vacío el recipiente."}
+              </p>
+            ) : null}
             {p.incierto ? (
               <>
                 <div className="flag" role="alert">
@@ -532,8 +600,26 @@ function PasoBascula(p: {
               </>
             ) : (
               <>
-                <Teclado valor={p.peso} alCambiar={p.alTeclear} decimales={3} enteros={6} alTerminar={() => { if (listo && !p.ocupado) p.alAgregar(); }} />
+                <Teclado
+                  valor={alRecipiente ? recipiente : p.peso} decimales={3} enteros={6}
+                  alCambiar={(valor) => p.alTeclear(alRecipiente ? { recipiente: valor } : { peso: valor })}
+                  alTerminar={() => { if (listo && !p.ocupado) p.alAgregar(); }}
+                />
                 {p.aviso ? <div className="flag" role="alert">{p.aviso}</div> : null}
+                {!elegida.doblePesaje ? (
+                  conRecipiente ? (
+                    <button className="btn ghostbtn chico" type="button" disabled={p.ocupado} onClick={() => p.alTeclear({ recipiente: null, tecleando: "peso" })}>
+                      No viene en nada
+                    </button>
+                  ) : (
+                    <button
+                      className="btn ghostbtn chico" type="button" disabled={!pesoListo(p.peso) || p.ocupado}
+                      onClick={() => p.alTeclear({ recipiente: "", tecleando: "recipiente" })}
+                    >
+                      ¿Viene en algo? Costal, carretilla…
+                    </button>
+                  )
+                ) : null}
                 <button className="btn" type="button" disabled={!listo || p.ocupado} onClick={p.alAgregar}>
                   {elegida.doblePesaje ? `Guardar peso ${primeraPesada(p.cuenta.tipo)}` : "Agregar a la cuenta"}
                 </button>
@@ -554,6 +640,7 @@ function PasoCuenta(p: {
   segunda: Lugar["segunda"]; alSegunda: (segunda: Lugar["segunda"]) => void;
   especial: Lugar["especial"]; alEspecial: (especial: Lugar["especial"]) => void;
   quitando: Lugar["quitando"]; alQuitando: (quitando: Lugar["quitando"]) => void;
+  corrigiendo: Lugar["corrigiendo"]; alCorrigiendo: (corrigiendo: Lugar["corrigiendo"]) => void;
   /** Algo quedó hecho y no se tiene la cuenta como quedó: se dice, y se vuelve a pedir. */
   alDecir: (mensaje: string) => void;
   /** Algo no se pudo porque la cuenta cambió: se dice, y se vuelve a pedir. */
@@ -585,6 +672,23 @@ function PasoCuenta(p: {
   const incierto = p.quitando !== null;
   // El vehículo de otro día lo termina un responsable tecleando su clave, aunque sea él quien atiende.
   const pideAutorizacion = cuenta.deOtraJornada;
+  // El material al que se le está poniendo recipiente, si sigue en la cuenta, pesado en una báscula chica.
+  const paraRecipiente = p.corrigiendo
+    ? cuenta.materiales.find((m) => m.id === p.corrigiendo!.linea && !m.porPesar && !m.bascula.doblePesaje) ?? null
+    : null;
+
+  /** Le pone al material lo que pesa vacío su recipiente; con cero, se lo quita. Repetirlo deja lo mismo. */
+  const guardarRecipiente = (): Promise<void> =>
+    p.hacer(async () => {
+      const c = p.corrigiendo;
+      if (!c || !paraRecipiente) return;
+      const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${cuenta.id}/recipiente`, { linea: c.linea, kg: comoTexto(c.peso) });
+      const m = r.cuenta.materiales.find((x) => x.id === c.linea);
+      p.alCorrigiendo(null);
+      p.alCambiar(r.cuenta, !m ? "" : Number(m.recipiente) > 0
+        ? `${m.material.nombre}: sin los ${kilosCortos(m.recipiente)} kg del recipiente quedan ${kilos(m.kg!)} kg · ${pesos(m.importe!)}`
+        : `${m.material.nombre}, sin recipiente: ${kilos(m.kg!)} kg · ${pesos(m.importe!)}`);
+    });
 
   const guardarSegunda = (): Promise<void> =>
     p.hacer(async () => {
@@ -643,6 +747,44 @@ function PasoCuenta(p: {
 
   if (autorizando) {
     return <AutorizarVehiculo cuenta={cuenta} hacer={p.hacer} aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => setAutorizando(false)} alTerminar={p.alTerminar} />;
+  }
+
+  if (p.corrigiendo && paraRecipiente) {
+    const m = paraRecipiente;
+    const tecleado = p.corrigiendo.peso;
+    const habia = Number(m.recipiente) > 0;
+    const quitarlo = tecleado !== "" && gramos(tecleado) === 0;
+    const queda = tecleado === "" ? null : sinElRecipiente(m.bruto!, tecleado);
+    const listo = tecleado !== "" && queda !== null && (!quitarlo || habia);
+    return (
+      <div className="card">
+        <div className="pad">
+          <p className="que">
+            <b>{m.material.nombre}</b>
+            <span>Marcó {kilosCortos(m.bruto!)} kg{habia ? ` · ahora lleva ${kilosCortos(m.recipiente)} kg de recipiente` : ""}</span>
+          </p>
+          <p className="lbl">¿Cuánto pesa vacío el recipiente?</p>
+          <Visor
+            nombre="Recipiente" nota="El costal, la carretilla, la cubeta… Cero es que no viene en nada." valor={tecleado}
+            leyenda={`Recipiente tecleado: ${tecleado || "nada"} kilos`}
+          />
+          <p className="queda" role="status">
+            {tecleado === "" ? "Teclea lo que pesa vacío."
+              : queda === null ? "El recipiente tiene que pesar menos que lo que marcó la báscula."
+              : <>Quedan <b>{kilos(queda)} kg</b> de material</>}
+          </p>
+          <Teclado
+            valor={tecleado} alCambiar={(peso) => p.alCorrigiendo({ ...p.corrigiendo!, peso })} decimales={3} enteros={6}
+            alTerminar={() => { if (listo && !p.ocupado) void guardarRecipiente(); }}
+          />
+          {p.aviso ? <div className="flag" role="alert">{p.aviso}</div> : null}
+          <button className="btn" type="button" disabled={!listo || p.ocupado} onClick={() => void guardarRecipiente()}>
+            {quitarlo ? "Quitar el recipiente" : "Guardar el recipiente"}
+          </button>
+          <button className="btn ghostbtn chico" type="button" disabled={p.ocupado} onClick={() => p.alCorrigiendo(null)}>Regresar a la cuenta</button>
+        </div>
+      </div>
+    );
   }
 
   if (pesando && porPesar) {
@@ -710,10 +852,19 @@ function PasoCuenta(p: {
                   <small>
                     {kilos(m.kg!)} kg × {precio(m.precio)} · {m.bascula.nombre}
                     {m.pesadas.length === 2 ? ` · ${kilosCortos(m.bruto!)} − ${kilosCortos(m.tara!)} kg` : ""}
+                    {Number(m.recipiente) > 0 ? ` · marcó ${kilosCortos(m.bruto!)}, menos ${kilosCortos(m.recipiente)} kg de recipiente` : ""}
                   </small>
                 )}
               </div>
               <div className="ri">{m.porPesar ? "—" : pesos(m.importe!)}</div>
+              {!m.porPesar && !m.bascula.doblePesaje ? (
+                <button
+                  className="quitar" type="button" aria-label={`Recipiente de ${m.material.nombre}`} disabled={p.ocupado || incierto}
+                  onClick={() => p.alCorrigiendo({ linea: m.id, peso: "" })}
+                >
+                  Recipiente
+                </button>
+              ) : null}
               {conPrecios && !m.porPesar && !m.precioEspecial ? (
                 <button
                   className="quitar" type="button" aria-label={`Precio especial para ${m.material.nombre}`} disabled={p.ocupado || incierto}
@@ -780,6 +931,56 @@ function PasoCuenta(p: {
         </button>
       </div>
     </div>
+  );
+}
+
+// ── el nombre de la cuenta ─────────────────────────────────────────────────
+
+/**
+ * Cómo se llama la cuenta: «Compra 3» mientras nadie diga otra cosa. Para no perderse entre varias
+ * se le pone el de quien la trae —«Don Chuy», «camioneta roja»—. Es para el mostrador: el ticket no
+ * lo lleva.
+ */
+function NombreDeCuenta(p: {
+  cuenta: Cuenta; ocupado: boolean; hacer: (accion: () => Promise<void>) => Promise<void>; alCambiar: (cuenta: Cuenta) => void;
+}) {
+  // Nada mientras no se está cambiando; lo tecleado, mientras sí.
+  const [nombre, setNombre] = useState<string | null>(null);
+  const actual = nombreDe(p.cuenta);
+
+  if (nombre === null) {
+    return (
+      <div className="top">
+        <h2>{actual}</h2>
+        <button className="quitar" type="button" disabled={p.ocupado} aria-label={`Cambiarle el nombre a ${actual}`} onClick={() => setNombre(p.cuenta.etiqueta ?? "")}>
+          Cambiar nombre
+        </button>
+      </div>
+    );
+  }
+
+  const limpio = nombre.trim();
+  const guardar = (): Promise<void> =>
+    p.hacer(async () => {
+      const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${p.cuenta.id}/etiqueta`, { etiqueta: limpio });
+      setNombre(null);
+      p.alCambiar(r.cuenta);
+    });
+  return (
+    <form className="card pad" onSubmit={(e) => { e.preventDefault(); if (limpio && limpio !== p.cuenta.etiqueta && !p.ocupado) void guardar(); }}>
+      <label>
+        <span className="lbl">Cómo se llama esta cuenta</span>
+        <input
+          className="campo" type="text" value={nombre} maxLength={40} autoFocus autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
+          onChange={(e) => setNombre(e.target.value)}
+        />
+      </label>
+      <p className="note">Por ejemplo «Don Chuy» o «camioneta roja». Es para ustedes: no sale en el ticket.</p>
+      <div className="dos">
+        <button className="btn chico" type="submit" disabled={!limpio || limpio === p.cuenta.etiqueta || p.ocupado}>Guardar el nombre</button>
+        <button className="btn ghostbtn chico" type="button" disabled={p.ocupado} onClick={() => setNombre(null)}>No cambiarlo</button>
+      </div>
+    </form>
   );
 }
 
