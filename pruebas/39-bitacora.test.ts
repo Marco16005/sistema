@@ -4,12 +4,11 @@ import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
 import type pg from "pg";
-import { conBase, escenario, urlApp } from "./apoyo.ts";
+import { cerrarSinCorte, conBase, escenario, urlApp } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
 import { abrirCuenta, agregarMaterial, confirmar } from "../src/servidor/dominio/cuentas.ts";
-import { cerrarJornada } from "../src/servidor/dominio/cierre.ts";
 import { bitacora, CON_FRASE } from "../src/servidor/dominio/bitacora.ts";
 import { ErrorDeForma } from "../src/servidor/numeros.ts";
 
@@ -36,7 +35,7 @@ test("GUARDIA: toda pareja anotada en las migraciones tiene frase propia", async
   // Los dos INSERT de 0001: anotar reenvía los argumentos; auditar usa lower(TG_OP)
   // y TG_TABLE_NAME. Sus disparadores están en usuario (0001) y material (0002).
   for (const pareja of ["insert usuario", "update usuario", "delete usuario", "insert material", "update material", "delete material"]) parejas.add(pareja);
-  assert.equal(parejas.size, 35);
+  assert.equal(parejas.size, 48);
   for (const pareja of parejas) assert.ok(CON_FRASE.has(pareja), `Falta frase: ${pareja}`);
 });
 
@@ -48,7 +47,7 @@ test("compra, merma y cierre salen recientes primero, con persona y hora del pat
     c = await agregarMaterial(bd, e.mostrador, c.id, { linea: randomUUID(), captura: randomUUID(), material: e.mat["Cartón"]!, bascula: 2, kg: "30.2" });
     const compra = await confirmar(bd, e.responsable, c.id, c.revision);
     await db.query("SELECT registrar_merma($1, 10, 'Mojado', $2)", [e.mat["Cartón"], e.mostrador]);
-    await cerrarJornada(bd, e.responsable, { id: randomUUID(), jornada: e.jornada, cierres: 0 });
+    await cerrarSinCorte(db, e.jornada, 0, e.responsable);
     const r = await bitacora(bd, { cuantos: 3 });
     const registros = await db.query(`SELECT b.id::text, to_char(b.ocurrido_en AT TIME ZONE 'Pacific/Honolulu', 'YYYY-MM-DD') fecha,
       to_char(b.ocurrido_en AT TIME ZONE 'Pacific/Honolulu', 'HH24:MI') hora, u.nombre quien, b.accion, b.entidad

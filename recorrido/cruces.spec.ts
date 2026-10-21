@@ -2,7 +2,7 @@
 // tarea, el día que todavía no está listo, y lo que ve cada rol.
 import { expect, test } from "@playwright/test";
 import {
-  altaDePersona, aviso, baseNueva, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, pesar, salir,
+  altaDePersona, aviso, baseNueva, conConsola, contarElCajon, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, pesar, salir,
 } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -85,6 +85,8 @@ test("con el día sin abrir, el mostrador lo dice y lleva a resolverlo", async (
   await expect(page.getByText("Lista publicada. Ya se puede atender.")).toBeVisible();
   await salir(page);
   await entrar(page, g.luis);
+  // Y antes de atender, cuenta el cajón.
+  await contarElCajon(page, "3000");
   await expect(page.getByRole("button", { name: "+ Compra" })).toBeEnabled();
 });
 
@@ -117,7 +119,7 @@ test("quien solo consulta ve inventario, precios, cierre y el panel, y no escrib
   await expect(page.getByRole("navigation", { name: "Pantallas" }).getByRole("link")).toHaveText(["Inventario", "Precios", "Cierre", "Panel"]);
   await page.getByRole("link", { name: "Cierre" }).click();
   await expect(page.getByRole("heading", { name: "Kilos del día" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Cerrar el día" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toHaveCount(0);
   // Aunque escriba la dirección, el mostrador no es para ella.
   await page.goto("/mostrador");
   await expect(page.getByText("El mostrador es para quien atiende.")).toBeVisible();

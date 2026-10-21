@@ -76,6 +76,8 @@ const conHoy = <T = undefined>(prueba: (d: Dia, previo: T) => Promise<void>, opc
     const mat: Record<string, number> = {};
     const previo = (opciones.antes ? await opciones.antes(db, duena, mat, hoy) : undefined) as T;
     const { jornada, lista } = await diaCon(db, hoy, duena, mat, opciones.precios);
+    // El cajón contado al abrir: sin eso no hay corte, y sin corte la aplicación no cierra (0038).
+    await db.query("SELECT abrir_el_cajon(gen_random_uuid(), $1, 100000, $2)", [jornada, mostrador]);
     const app = await comoApp(base);
     try {
       await prueba({ app, db, base, duena, huella, hoy, e: { responsable: duena, mostrador, patio, consulta, jornada, lista, mat } }, previo);
@@ -111,8 +113,10 @@ async function cuentaCon(d: Dia, tipo: "compra" | "venta", nombre: string, kg: s
 const verCuenta = (c: pg.Client, id: string) => una(c, "SELECT * FROM operacion WHERE id = $1", [id]);
 const cobrar = (c: pg.Client, cuenta: string, quien: string) =>
   una(c, "SELECT * FROM confirmar_cuenta($1, $2, (SELECT revision FROM operacion WHERE id = $1))", [cuenta, quien]);
+/** Cierra el día como la aplicación, con su corte (0038): el cajón se contó al empezar, y firma la dueña. */
 const cerrarHoy = (c: pg.Client, d: Dia) =>
-  una(c, "SELECT h.* FROM jornada j, LATERAL cerrar_el_dia(gen_random_uuid(), j.id, j.cierres, $1) h WHERE j.id = $2", [d.e.mostrador, d.e.jornada]);
+  una(c, `SELECT h.* FROM jornada j, LATERAL cerrar_el_dia(gen_random_uuid(), j.id, j.cierres, esperado_en_cajon(j.id),
+            esperado_en_cajon(j.id), $1, $2, $3, $4) h WHERE j.id = $5`, [d.duena, CLAVE, d.huella, d.e.mostrador, d.e.jornada]);
 const eventos = async (db: pg.Client, linea: string) =>
   (await db.query("SELECT id, clase, precio_anterior, precio_nuevo, anterior_id FROM precio_especial WHERE linea_id = $1 ORDER BY id", [linea])).rows;
 

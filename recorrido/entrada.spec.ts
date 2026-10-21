@@ -30,7 +30,7 @@ test("alta de equipo, entrar, sesión y salir", async ({ request, baseURL }) => 
   expect(cookie).toMatch(/HttpOnly/i);
   expect(cookie).toMatch(/SameSite=Strict/i);
 
-  expect((await (await request.get("/api/personas")).json()).personas).toEqual([{ id: servando.id, nombre: "Servando", rol: "responsable" }]);
+  expect((await (await request.get("/api/personas")).json()).personas).toEqual([{ id: servando.id, nombre: "Servando", rol: "responsable", haceCorte: true }]);
   expect(await (await request.get("/api/sesion")).json()).toEqual({ persona: null });
 
   const mala = await request.post("/api/sesion/entrar", { data: { persona: servando.id, clave: "000000" }, headers: propio });

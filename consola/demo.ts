@@ -53,10 +53,13 @@ export async function recorrer(db: pg.Client, desde: Date, destino: Date): Promi
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import { crearBd } from "../src/servidor/bd.ts";
 import { abrirCuenta, agregarMaterial, confirmar, descartar, ponerDescuento } from "../src/servidor/dominio/cuentas.ts";
+import { abrirCajon, estadoDelCajon, moverCaja, verAviso } from "../src/servidor/dominio/caja.ts";
 import { cerrarJornada } from "../src/servidor/dominio/cierre.ts";
 import { estadoDelDia, terminarArranque } from "../src/servidor/dominio/dia.ts";
 import { contar, darMerma, previaDeConteo } from "../src/servidor/dominio/inventario.ts";
 import { darPrecioEspecial } from "../src/servidor/dominio/precio-especial.ts";
+import { fiar, registrarAbono, saldos } from "../src/servidor/dominio/fiado.ts";
+import { registrarGasto } from "../src/servidor/dominio/gastos.ts";
 
 export interface Sembrado {
   dias: number;
@@ -114,6 +117,12 @@ export async function sembrarDemo(o: {
   // Lo que conviene vigilar —kilos descontados y cuentas descartadas— se sortea aparte: así no
   // cambia qué se compra y qué se vende con cada semilla.
   const aparte = generador((semilla ^ 0x9E3779B9) >>> 0);
+  // Y el cajón —cómo se pagó, lo que se sacó o se metió, si el corte cuadró— en otro: tampoco cambia lo demás.
+  const cajon = generador((semilla ^ 0x85EBCA6B) >>> 0);
+  const enCaja = (min: number, max: number): number => min + Math.floor(cajon() * (max - min + 1));
+  // Lo fiado, los abonos y los gastos, en otro más: agregarlos no cambió lo que ya se sorteaba.
+  const otros = generador((semilla ^ 0xC2B2AE35) >>> 0);
+  const enOtros = (min: number, max: number): number => min + Math.floor(otros() * (max - min + 1));
   const entero = (min: number, max: number): number => min + Math.floor(azar() * (max - min + 1));
   const elegir = <T>(lista: T[]): T => lista[entero(0, lista.length - 1)]!;
   const db = new pg.Client({ connectionString: o.url, connectionTimeoutMillis: 10000 });
@@ -233,6 +242,19 @@ export async function sembrarDemo(o: {
     let siguienteMerma = entero(2, 4);
     let semanaContada = '';
     let especiales = 0;
+    let fiados = 0;
+    const meses = { renta: new Set<string>(), luz: new Set<string>() };
+    // Los gastos se capturan a mano, por tipo. Solo con los tipos que sigan en uso en esta base.
+    const tiposDeGasto = new Map<string, string>((await db.query('SELECT nombre, id::text AS id FROM tipo_de_gasto WHERE activo')).rows
+      .map(f => [f.nombre as string, f.id as string]));
+    const gastar = async (cuando: Date, tipo: string, concepto: string, importe: number, fecha: string, movimiento: string | null = null): Promise<void> => {
+      if (!tiposDeGasto.has(tipo)) return;
+      await llevar(cuando, () => registrarGasto(bd, responsable, {
+        id: randomUUID(), fecha, tipo: tiposDeGasto.get(tipo)!, concepto, importe: importe.toFixed(2),
+        deDonde: movimiento ? 'cajon' : 'otro', movimiento,
+      }));
+    };
+    const masDias = (fecha: string, n: number): string => new Date(Date.parse(`${fecha}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
     for (const [indice, dia] of fechas.entries()) {
       const hoy = dia.fecha === estado.hoy;
       // Hoy puede ser domingo: se deja preparado, sin atender. Antes de las 8, tampoco hay cuentas.
@@ -268,6 +290,21 @@ export async function sembrarDemo(o: {
         }
         await c.query('SELECT publicar_lista($1, $2)', [actual.lista!.id, responsable]);
       }));
+      // Antes de atender se cuenta el cajón. Casi siempre hay lo que se dejó anoche; de vez en cuando, no.
+      const jornadaDeHoy = actual.jornada!.id;
+      if (!(await estadoDelCajon(bd, jornadaDeHoy))!.apertura) {
+        const dejado = (await estadoDelDia(bd)).cajon?.sugerido;
+        const fondo = dejado === null || dejado === undefined ? 3000 : Number(dejado) + (cajon() < 0.06 ? (cajon() < 0.5 ? -1 : 1) * enCaja(1, 4) * 50 : 0);
+        await llevar(temprano(478), () => abrirCajon(bd, mostradores[0]!, { id: randomUUID(), jornada: jornadaDeHoy, contado: Math.max(0, fondo).toFixed(2) }));
+      }
+      // Lo que se saca para un mandado y lo que el dueño mete cuando el cajón no alcanza para pagar.
+      const mover = (cuando: Date, tipo: 'sacar' | 'meter', importe: number, motivo: string) =>
+        llevar(cuando, async () => {
+          const hecho = await moverCaja(bd, mostradores[0]!, huella, {
+            id: randomUUID(), jornada: jornadaDeHoy, tipo, importe: importe.toFixed(2), motivo, ...autorizacion,
+          });
+          if (!hecho) throw new Error('No se pudo autorizar el movimiento de caja de demostración');
+        });
       const compras = dia.semana === 6 ? entero(15, 22) : entero(23, 40);
       const ventas = dia.semana === 6 ? entero(1, 2) : entero(2, 5);
       const turnos = Array.from({ length: compras + ventas }, (_, n) => ({
@@ -312,6 +349,13 @@ export async function sembrarDemo(o: {
           }
         }
         const [seDescarta, seDescuenta, cuanto] = [aparte() < 0.03, aparte() < 0.08, aparte()];
+        if (turno.tipo === 'compra') {
+          // Cuando el cajón baja de $40,000 el dueño mete para seguir pagando. Va aparte y antes de la
+          // cuenta: una acción dentro de otra movería en el tiempo lo que la de afuera ya asentó.
+          const hay = Number((await estadoDelCajon(bd, jornadaDeHoy))!.esperado ?? 0);
+          if (hay < 40000) await mover(new Date(destino.getTime() - 30000), 'meter', Math.ceil((60000 - hay) / 1000) * 1000,
+            'Demostración: el dueño metió para pagar');
+        }
         await llevar(destino, async () => {
           if (turno.tipo === 'compra' && seDescarta) {
             // De vez en cuando alguien arma una cuenta y la descarta sin cobrarla: queda en la bitácora.
@@ -343,7 +387,23 @@ export async function sembrarDemo(o: {
             especialDelDia = true;
             especiales++;
           }
-          await confirmar(bd, quien, c.id, c.revision);
+          // Las cargas grandes se pagan o se cobran a veces por transferencia; lo demás, en efectivo.
+          const grande = Number(c.resumen.total) >= 15000;
+          const forma = grande && cajon() < (turno.tipo === 'venta' ? 0.6 : 0.35) ? 'transferencia' : 'efectivo';
+          if (!hoy && turno.tipo === 'venta' && Number(c.resumen.total) >= 8000 && otros() < 0.35) {
+            // Una carga a un cliente conocido se fía, con la clave de quien autoriza y casi siempre con
+            // fecha para pagar. El plazo se cuenta desde hoy y al cerrar se lleva al día inventado.
+            const nombre = ['Fundidora del Norte (demostración)', 'Aceros del Bajío (demostración)'][fiados % 2]!;
+            const cliente = (await db.query('SELECT id::text AS id FROM cliente WHERE nombre = $1', [nombre])).rows[0];
+            const fiada = await fiar(bd, quien, huella, c.id, {
+              revision: c.revision, cliente: cliente?.id ?? null, clienteNuevo: cliente ? null : nombre,
+              vence: otros() < 0.2 ? null : masDias(estado.hoy, [8, 15, 30][enOtros(0, 2)]!), ...autorizacion,
+            });
+            if (!fiada) throw new Error('No se pudo autorizar la venta fiada de demostración');
+            fiados++;
+          } else {
+            await confirmar(bd, quien, c.id, c.revision, forma);
+          }
         });
         resultado.cuentas++;
         cuentasDelDia++;
@@ -376,12 +436,72 @@ export async function sembrarDemo(o: {
           });
           semanaContada = semana;
         }
+        // Los que deben abonan de vez en cuando, antes del corte: lo de efectivo entra al cajón.
+        for (const s of (await saldos(bd)).filter(s => Number(s.debe) > 0)) {
+          if (otros() >= 0.35) continue;
+          const importe = Math.min(Number(s.debe), Math.max(100, Math.round(Number(s.debe) * (0.3 + otros() * 0.7) / 100) * 100));
+          const formaDelAbono = otros() < 0.4 ? 'efectivo' as const : 'transferencia' as const;
+          await llevar(new Date(control.getTime() + 30000), () => registrarAbono(bd, mostradores[0]!, {
+            id: randomUUID(), cliente: s.cliente, importe: importe.toFixed(2), forma: formaDelAbono, nota: 'Demostración',
+          }));
+        }
+        // Los gastos de otro lado, con la fecha del día: la raya de los sábados, la renta a principio
+        // de mes, la luz y el agua a mediados, y de vez en cuando alguna refacción.
+        const [mes, diaDelMes] = [dia.fecha.slice(0, 7), Number(dia.fecha.slice(8, 10))];
+        const cuandoGasto = new Date(control.getTime() + 45000);
+        if (dia.semana === 6) await gastar(cuandoGasto, 'Sueldos', 'Demostración: la raya de la semana', 4 * enOtros(40, 52) * 50, dia.fecha);
+        if (diaDelMes <= 5 && !meses.renta.has(mes)) {
+          meses.renta.add(mes);
+          await gastar(new Date(cuandoGasto.getTime() + 1000), 'Renta', 'Demostración: la renta del local', 15000, dia.fecha);
+        }
+        if (diaDelMes >= 10 && !meses.luz.has(mes)) {
+          meses.luz.add(mes);
+          await gastar(new Date(cuandoGasto.getTime() + 2000), 'Luz y agua', 'Demostración: el recibo de luz y agua', enOtros(18, 32) * 100, dia.fecha);
+        }
+        if (otros() < 0.06) await gastar(new Date(cuandoGasto.getTime() + 3000), 'Mantenimiento', 'Demostración: refacciones', enOtros(8, 40) * 100, dia.fecha);
+        if (cajon() < 0.25) {
+          const hay = Number((await estadoDelCajon(bd, jornadaDeHoy))!.esperado ?? 0);
+          const importe = enCaja(3, 12) * 50;
+          if (importe < hay) {
+            const cuando = momento(dia, Math.max(1081, ultimo + 3));
+            const motivo = ['Demostración: comida', 'Demostración: gasolina', 'Demostración: un mandado'][enCaja(0, 2)]!;
+            await mover(cuando, 'sacar', importe, motivo);
+            // La gasolina y casi siempre la comida se clasifican como gastos; el mandado se queda por clasificar.
+            const tipo = motivo.endsWith('gasolina') ? 'Gasolina' : motivo.endsWith('comida') && otros() < 0.7 ? 'Otro' : null;
+            if (tipo) {
+              const m = (await db.query("SELECT id::text AS id FROM caja_movimiento WHERE jornada_id = $1 AND tipo = 'sacar' ORDER BY id DESC LIMIT 1", [jornadaDeHoy])).rows[0];
+              await gastar(new Date(cuando.getTime() + 20000), tipo, motivo, importe, estado.hoy, m.id);
+            }
+          }
+        }
+        // El corte: casi siempre cuadra; a veces falta o sobra poco. Se deja un fondo para mañana y el
+        // resto se lo lleva quien hace el corte.
         const d = await estadoDelDia(bd);
-        await llevar(momento(dia, Math.max(1085, ultimo + 5)), () => cerrarJornada(bd, responsable, {
-          id: randomUUID(), jornada: d.jornada!.id, cierres: d.jornada!.cierres,
-        }));
+        const esperado = Number((await estadoDelCajon(bd, d.jornada!.id))!.esperado ?? 0);
+        const diferencia = cajon() < 0.08 ? (cajon() < 0.7 ? -enCaja(2, 20) * 10 : enCaja(1, 5) * 10) : 0;
+        const contado = Math.max(0, esperado + diferencia);
+        const seQueda = Math.min(contado, 3000);
+        await llevar(momento(dia, Math.max(1085, ultimo + 5)), async () => {
+          const cerrado = await cerrarJornada(bd, responsable, huella, {
+            id: randomUUID(), jornada: d.jornada!.id, cierres: d.jornada!.cierres,
+            contado: contado.toFixed(2), seQueda: seQueda.toFixed(2), hace: autorizacion.autoriza, clave: autorizacion.clave,
+          });
+          if (!cerrado) throw new Error('No se pudo firmar el corte de demostración');
+        });
+        // Los avisos de más de una semana ya los vio el responsable; los recientes quedan por ver.
+        if (indice < fechas.length - 8) {
+          for (const a of (await db.query('SELECT id::text FROM aviso WHERE visto_en IS NULL AND jornada_id = $1', [d.jornada!.id])).rows) {
+            await llevar(momento(dia, Math.max(1090, ultimo + 8)), () => verAviso(bd, autorizacion.autoriza, a.id));
+          }
+        }
         await conReplica(db, async () => {
           await db.query('UPDATE jornada SET fecha = $1::date WHERE id = $2', [dia.fecha, d.jornada!.id]);
+          // Lo que lleva fecha de calendario y se trabajó hoy también regresa al día inventado: el gasto
+          // del cajón es del día de su jornada, y el plazo de lo fiado se cuenta desde que se vendió.
+          await db.query('UPDATE gasto SET fecha = $1::date WHERE caja_movimiento_id IN (SELECT id FROM caja_movimiento WHERE jornada_id = $2)',
+            [dia.fecha, d.jornada!.id]);
+          await db.query(`UPDATE credito cr SET vence_el = $1::date + (cr.vence_el - $3::date) FROM operacion o
+            WHERE o.id = cr.operacion_id AND o.confirmada_en_jornada = $2 AND cr.vence_el IS NOT NULL`, [dia.fecha, d.jornada!.id, estado.hoy]);
         });
         resultado.dias++;
       }

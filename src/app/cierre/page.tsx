@@ -1,19 +1,27 @@
 "use client";
-// El cierre del día: lo que falta por terminar, lo que entró y salió, y cuánto hay que pagar y
-// cobrar. También desde aquí se busca un comprobante por su folio, y se reabre el día de hoy si se
-// cerró por error.
+// El cierre del día: lo que falta por terminar, el cajón —lo que se sacó y se metió, cuánto debería
+// haber— y el corte con que se cierra; lo que entró y salió, y cuánto hay que pagar y cobrar.
+// También desde aquí se busca un comprobante por su folio, y se reabre el día de hoy si se cerró
+// por error.
 //
-// Cerrar y reabrir dicen qué vieron: cuál jornada, y cuántos cierres llevaba o cuál cierre era. Y
-// los dos son envíos, con la misma regla que los de inventario: lo que salió y no se supo si llegó
-// se queda guardado en esta pestaña hasta saberlo, y mientras tanto solo se puede mandar ese mismo.
+// Cerrar es hacer el corte: se cuenta el cajón, se dice cuánto se queda para mañana, y lo firma con
+// su clave quien tiene permiso de corte. Cerrar y reabrir dicen qué vieron: cuál jornada, y cuántos
+// cierres llevaba o cuál cierre era. Y los dos son envíos, con la misma regla que los de
+// inventario: lo que salió y no se supo si llegó se queda guardado en esta pestaña hasta saberlo, y
+// mientras tanto solo se puede mandar ese mismo, con la clave de la misma persona.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Autorizar } from "../../componentes/Autorizar.tsx";
 import type { QuienAutoriza } from "../../componentes/Autorizar.tsx";
 import { ErrorDeApi, cancelarEnvio, identificador, pedir } from "../../componentes/cliente.ts";
+import { Abonar } from "../../componentes/caja/Abonar.tsx";
+import { ContarElCajon } from "../../componentes/caja/ContarElCajon.tsx";
+import { MoverDinero, ResumenDelCajon, queTanCuadro } from "../../componentes/caja/ElCajon.tsx";
+import { centavos, comoPesos, pesosListos } from "../../componentes/caja/tipos.ts";
+import { Correcciones } from "../../componentes/cierre/Correcciones.tsx";
 import { Dinero, Kilos, PreciosEspeciales } from "../../componentes/cierre/Reporte.tsx";
 import type { Cierre } from "../../componentes/cierre/Reporte.tsx";
-import { cuantosMateriales } from "../../componentes/formato.ts";
-import { Incierto, enviar, useAccion } from "../../componentes/inventario/piezas.tsx";
+import { cuantosMateriales, pesos } from "../../componentes/formato.ts";
+import { enviar, useAccion } from "../../componentes/inventario/piezas.tsx";
 import type { Pendiente as Envio } from "../../componentes/inventario/piezas.tsx";
 import { Ticket } from "../../componentes/mostrador/Ticket.tsx";
 import { nombreDe, segundaPesada } from "../../componentes/mostrador/tipos.ts";
@@ -21,11 +29,12 @@ import type { Comprobante } from "../../componentes/mostrador/tipos.ts";
 import { COBRAN, LoQueFalta, useSesion } from "../../componentes/Sesion.tsx";
 import type { Dia } from "../../componentes/Sesion.tsx";
 import { SoloEnSuPestana } from "../../componentes/SoloEnSuPestana.tsx";
+import { Teclado, Visor } from "../../componentes/Teclado.tsx";
 import { soltoLoHeredado } from "../../componentes/pestana.ts";
 
 /** Lo que salió de esta pantalla y todavía no se sabe si llegó. Sobrevive a una recarga; la clave no se guarda. */
 interface AMedias {
-  cierre: Envio<{ jornada: string; cierres: number }> | null;
+  cierre: (Envio<{ jornada: string; cierres: number; contado: string; seQueda: string; hace: string }> & { quien: QuienAutoriza }) | null;
   reapertura: (Envio<{ jornada: string; cierre: number; autoriza: string }> & { quien: QuienAutoriza }) | null;
 }
 
@@ -34,7 +43,8 @@ const DONDE = "feruga.cierre";
 function recordar(): AMedias {
   try {
     const v = JSON.parse(sessionStorage.getItem(DONDE) ?? "null");
-    if (v && typeof v === "object") return { cierre: v.cierre ?? null, reapertura: v.reapertura ?? null };
+    // Un cierre guardado por una versión anterior de la pantalla no traía el corte: no se puede reintentar.
+    if (v && typeof v === "object") return { cierre: v.cierre?.quien ? v.cierre : null, reapertura: v.reapertura ?? null };
   } catch {
     // Sin memoria no hay nada a medias.
   }
@@ -54,7 +64,9 @@ function Pantalla() {
   const { ocupado, aviso, setAviso, hacer } = useAccion();
   const [nota, setNota] = useState(() =>
     soltoLoHeredado("cierre") ? "Había un cierre o una reapertura a medias: sigue en la otra pestaña, donde se empezó." : "");
-  const [porCerrar, setPorCerrar] = useState(false);
+  /** El corte a medio hacer: lo que se contó, lo que se queda, y en qué va. */
+  const [corte, setCorte] = useState<{ paso: "contar" | "dejar" | "firmar"; contado: string; seQueda: string } | null>(null);
+  const [firman, setFirman] = useState<QuienAutoriza[] | null>(null);
   const [autorizando, setAutorizando] = useState(false);
   const [quienes, setQuienes] = useState<QuienAutoriza[] | null>(null);
   const [folio, setFolio] = useState("");
@@ -109,27 +121,59 @@ function Pantalla() {
     pedir<{ personas: QuienAutoriza[] }>("GET", "/api/inventario/autorizan").then((r) => setQuienes(r.personas)).catch(() => setQuienes([]));
   }, [enAutorizar, hayReapertura]);
 
-  const cerrar = (): Promise<void> =>
+  // Quiénes pueden firmar el corte: los responsables, y quien de mostrador tenga el permiso.
+  const cierrePorFirmar = aMedias.cierre;
+  const enFirmar = corte?.paso === "firmar" || cierrePorFirmar !== null;
+  useEffect(() => {
+    if (!enFirmar) return;
+    pedir<{ personas: Array<QuienAutoriza & { rol: string; haceCorte: boolean }> }>("GET", "/api/personas")
+      .then((r) => setFirman(r.personas.filter((x) => x.haceCorte).map((x) => ({ id: x.id, nombre: x.nombre, digitos: x.rol === "responsable" ? 6 : 4 }))))
+      .catch(() => setFirman([]));
+  }, [enFirmar]);
+
+  const cerrar = (quien: QuienAutoriza, clave: string): Promise<void> =>
     hacer(async () => {
-      setPorCerrar(false);
       setNota("");
       const pendiente = actual.current.cierre;
-      if (!pendiente && !cierre) return;
+      if (!pendiente && (!cierre || !corte)) return;
+      let suelto = false;
       try {
         const r = await enviar<{ cierre: Cierre & { cierre: number }; dia: Dia }, NonNullable<AMedias["cierre"]>>(
           "/api/jornada/cerrar", pendiente,
-          () => ({ id: identificador(), cuerpo: { jornada: cierre!.jornada.id, cierres: cierre!.jornada.cierres } }),
-          (queda) => fijar({ cierre: queda }),
+          () => ({
+            id: identificador(), quien,
+            cuerpo: { jornada: cierre!.jornada.id, cierres: cierre!.jornada.cierres, contado: comoPesos(corte!.contado), seQueda: comoPesos(corte!.seQueda), hace: quien.id },
+          }),
+          (queda) => { suelto = queda === null; fijar({ cierre: queda }); }, { clave },
         );
         if (!r) return;                                          // no se supo: se queda guardado
         fijar({ cierre: null });
+        setCorte(null);
         setCierre(r.cierre);
         ponerDia(r.dia);
         // Un reintento de un cierre que sí había entrado, y entre tanto alguien reabrió: no se cierra otra vez.
         if (r.cierre.jornada.abierta) setNota("Ese cierre ya había quedado registrado, y después el día se reabrió. Sigue abierto.");
       } catch (e) {
-        await verDeNuevo();
+        // Una clave que no pasó se vuelve a intentar aquí mismo. Cualquier otra regla habla del día:
+        // se cerró o se reabrió, o le falta algo. Se sale a verlo como está.
+        if (!(e instanceof ErrorDeApi && e.codigo === "CLAVE") && (suelto || !actual.current.cierre)) {
+          setCorte(null);
+          await verDeNuevo();
+        }
         throw e;
+      }
+    });
+
+  /** Que firme otra persona un cierre del que no se supo: primero se resuelve ese envío. */
+  const soltarCierre = (): Promise<void> =>
+    hacer(async () => {
+      const p = actual.current.cierre;
+      if (!p) return;
+      fijar({ cierre: null });
+      if ((await cancelarEnvio(p.id)) === "entro") {
+        setCorte(null);
+        setNota("Ese cierre ya había quedado registrado.");
+        await verDeNuevo();
       }
     });
 
@@ -192,7 +236,25 @@ function Pantalla() {
   if (cierre === undefined) return aviso ? <div className="flag" role="alert">{aviso}</div> : <p className="cargando">Un momento…</p>;
   const puedeCerrar = COBRAN.includes(persona.rol);
   const puedeBuscar = persona.rol !== "patio" && persona.rol !== "administracion";
-  const cierrePendiente = aMedias.cierre !== null;
+
+  if (enFirmar && puedeCerrar) {
+    const que = cierrePorFirmar?.cuerpo ?? { contado: comoPesos(corte!.contado), seQueda: comoPesos(corte!.seQueda) };
+    return (
+      <div className="angosto" style={{ margin: "0 auto" }}>
+        <Autorizar
+          titulo="Firmar el corte y cerrar el día"
+          explicacion={cierrePorFirmar && !ocupado
+            ? "No se supo si el día se cerró. Teclea la clave otra vez: si ya había entrado, no se cierra dos veces."
+            : `Se contaron ${pesos(que.contado)} y se quedan ${pesos(que.seQueda)} para mañana. Lo firma con su clave un responsable o quien tenga permiso de corte.`}
+          personas={firman} quien={cierrePorFirmar?.quien} alSoltar={soltarCierre} verbo="firma el corte"
+          boton={(nombre) => `Cerrar el día a nombre de ${nombre}`} cancelar="Regresar al corte"
+          aviso={aviso} ocupado={ocupado} alAutorizar={cerrar}
+          alCancelar={() => { if (!actual.current.cierre) { setAviso(""); setCorte({ ...corte!, paso: "dejar" }); } }}
+        />
+        {cierrePorFirmar ? <p className="note">Hay un cierre del que no se supo: se resuelve antes de salir de aquí.</p> : null}
+      </div>
+    );
+  }
 
   if (enAutorizar && puedeCerrar) {
     return (
@@ -217,7 +279,7 @@ function Pantalla() {
       {nota ? <div className="okmsg" role="status">{nota}</div> : null}
 
       {/* Con un cierre del que no se supo, primero se resuelve ese: después se ofrece reabrir. */}
-      {dia.cerradaHoy && !dia.jornada && !cierrePendiente ? (
+      {dia.cerradaHoy && !dia.jornada ? (
         <div className="card">
           <header><h2>El día de hoy ya se cerró</h2><small>Cierre {dia.cerradaHoy.cierre}</small></header>
           <div className="pad">
@@ -266,26 +328,36 @@ function Pantalla() {
             </div>
           ) : null}
 
-          <Kilos cierre={cierre} />
-          <PreciosEspeciales cierre={cierre} />
-          <Dinero cierre={cierre}>
-            {cierrePendiente && puedeCerrar ? (
-              <Incierto que="el cierre" ocupado={ocupado} aviso={aviso} alReintentar={() => void cerrar()} />
-            ) : (
-              <>
-                {aviso && (cierre.jornada.abierta || !dia.cerradaHoy) ? <div className="flag" role="alert">{aviso}</div> : null}
-                {cierre.jornada.abierta && puedeCerrar ? (
+          {cierre.jornada.abierta && puedeCerrar && !cierre.cajon.apertura ? (
+            <ContarElCajon jornada={cierre.jornada.id} sugerido={cierre.cajon.sugerido} alContar={(d) => { ponerDia(d); cargar(); }} />
+          ) : null}
+          <ResumenDelCajon cajon={cierre.cajon}>
+            {cierre.jornada.abierta && puedeCerrar && cierre.cajon.apertura ? (
+              corte ? (
+                <Corte
+                  esperado={cierre.cajon.esperado ?? "0"} fondo={cierre.cajon.apertura.contado} corte={corte} aviso={aviso}
+                  alCambiar={setCorte} alCancelar={() => { setAviso(""); setCorte(null); }}
+                />
+              ) : (
+                <>
+                  <p className="lbl" style={{ marginTop: 16 }}>Dinero que no es de una cuenta</p>
+                  <MoverDinero jornada={cierre.jornada.id} alCambiar={(_c, mensaje) => { setNota(mensaje); cargar(); }} />
+                  <Abonar alAbonar={(mensaje) => { setNota(mensaje); cargar(); }} />
+                  {aviso && !dia.cerradaHoy ? <div className="flag" role="alert">{aviso}</div> : null}
                   <button
                     className="btn" type="button" disabled={ocupado || cierre.porTerminar.length > 0}
-                    onClick={() => (porCerrar ? void cerrar() : setPorCerrar(true))}
+                    onClick={() => { setAviso(""); setNota(""); setCorte({ paso: "contar", contado: "", seQueda: "" }); }}
                   >
-                    {porCerrar ? "Toca otra vez para cerrar el día" : "Cerrar el día"}
+                    Hacer el corte y cerrar el día
                   </button>
-                ) : null}
-                {cierre.jornada.abierta && cierre.porTerminar.length > 0 ? <p className="note">Para cerrar, primero termina o descarta las cuentas abiertas.</p> : null}
-              </>
-            )}
-          </Dinero>
+                  {cierre.porTerminar.length > 0 ? <p className="note">Para cerrar, primero termina o descarta las cuentas abiertas.</p> : null}
+                </>
+              )
+            ) : null}
+          </ResumenDelCajon>
+          <Kilos cierre={cierre} />
+          <PreciosEspeciales cierre={cierre} />
+          <Dinero cierre={cierre} />
         </>
       )}
 
@@ -307,6 +379,61 @@ function Pantalla() {
           puedeImprimir={puedeCerrar} alTerminar={() => setEncontrado(null)}
         />
       ) : null}
+      {encontrado ? (
+        // Lo ya cobrado se corrige aquí: se liquida solo la diferencia, con la clave de quien autoriza.
+        <Correcciones key={encontrado.comprobante.id} operacion={encontrado.comprobante.id} puedeCorregir={puedeCerrar && dia.jornada !== null} alCorregir={cargar} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * El corte, antes de firmarlo: cuánto hay en el cajón —y si cuadra con lo que debería haber— y
+ * cuánto se queda para mañana. Lo demás se lo lleva quien hace el corte.
+ */
+function Corte(p: {
+  esperado: string; fondo: string; aviso: string;
+  corte: { paso: "contar" | "dejar" | "firmar"; contado: string; seQueda: string };
+  alCambiar: (corte: { paso: "contar" | "dejar" | "firmar"; contado: string; seQueda: string }) => void;
+  alCancelar: () => void;
+}) {
+  const { corte } = p;
+  if (corte.paso === "contar") {
+    const listo = pesosListos(corte.contado) && corte.contado !== "";
+    const diferencia = ((centavos(corte.contado) - centavos(p.esperado)) / 100).toFixed(2);
+    // Lo que se propone dejar: el fondo con que se abrió hoy, si alcanza.
+    const sugerido = (Math.min(centavos(corte.contado), centavos(p.fondo)) / 100).toFixed(2);
+    return (
+      <div className="manual">
+        <p className="lbl">¿Cuánto hay en el cajón?</p>
+        <Visor nombre="Contado" nota={`Debería haber ${pesos(p.esperado)}.`} valor={corte.contado} unidad="pesos" leyenda={`Dinero contado: ${corte.contado || "nada"} pesos`} />
+        <Teclado
+          valor={corte.contado} alCambiar={(contado) => p.alCambiar({ ...corte, contado })} decimales={2} enteros={8}
+          alTerminar={() => { if (listo) p.alCambiar({ paso: "dejar", contado: corte.contado, seQueda: sugerido }); }}
+        />
+        {listo ? (
+          <p className={Number(diferencia) === 0 ? "queda" : "flag"} role="status">
+            <b>{queTanCuadro(diferencia)}.</b> {Number(diferencia) === 0 ? "" : "El día se puede cerrar igual: la diferencia queda anotada y se le avisa al responsable."}
+          </p>
+        ) : null}
+        <button className="btn" type="button" disabled={!listo} onClick={() => p.alCambiar({ paso: "dejar", contado: corte.contado, seQueda: sugerido })}>Seguir</button>
+        <button className="btn ghostbtn chico" type="button" onClick={p.alCancelar}>No cerrar todavía</button>
+      </div>
+    );
+  }
+  const listo = pesosListos(corte.seQueda) && corte.seQueda !== "" && centavos(corte.seQueda) <= centavos(corte.contado);
+  const retira = ((centavos(corte.contado) - centavos(corte.seQueda)) / 100).toFixed(2);
+  return (
+    <div className="manual">
+      <p className="lbl">¿Cuánto se queda en el cajón para mañana?</p>
+      <Visor nombre="Se queda" nota={`Se contaron ${pesos(comoPesos(corte.contado))}.`} valor={corte.seQueda} unidad="pesos" leyenda={`Se queda: ${corte.seQueda || "nada"} pesos`} />
+      <Teclado valor={corte.seQueda} alCambiar={(seQueda) => p.alCambiar({ ...corte, seQueda })} decimales={2} enteros={8} />
+      <p className="queda" role="status">
+        {listo ? <>Se lleva quien hace el corte: <b>{pesos(retira)}</b></> : "No puede quedarse más de lo que se contó."}
+      </p>
+      {p.aviso ? <div className="flag" role="alert">{p.aviso}</div> : null}
+      <button className="btn" type="button" disabled={!listo} onClick={() => p.alCambiar({ ...corte, paso: "firmar" })}>Firmar el corte</button>
+      <button className="btn ghostbtn chico" type="button" onClick={() => p.alCambiar({ ...corte, paso: "contar" })}>Volver a contar</button>
     </div>
   );
 }

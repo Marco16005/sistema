@@ -8,10 +8,15 @@ import { GRANDE, abrirJornada, conBase, equipoDeAlta, escenario, personaConClave
 import type { Escenario } from "./apoyo.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
+import { abrirCajon, estadoDelCajon } from "../src/servidor/dominio/caja.ts";
 import { cerrarJornada as cerrarEsa, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
+import type { OrdenDeCierre } from "../src/servidor/dominio/cierre.ts";
 import { abrirCuenta, agregarMaterial, confirmar, segundaPesada, terminarVehiculo } from "../src/servidor/dominio/cuentas.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
 import { ErrorDeNegocio } from "../src/servidor/errores.ts";
+
+/** Quien firma los cortes en estas pruebas: un responsable con clave, desde un equipo dado de alta. */
+let firma: { id: string; clave: string; huella: string };
 
 const conCierre = (prueba: (bd: Bd, db: pg.Client, e: Escenario) => Promise<void>) =>
   conBase(async (db, base) => {
@@ -19,17 +24,31 @@ const conCierre = (prueba: (bd: Bd, db: pg.Client, e: Escenario) => Promise<void
     try {
       const e = await escenario(db);
       await db.query("SELECT registrar_apertura($1, 1000, 'contado', $2)", [e.mat["Cartón"], e.responsable]);
+      firma = { id: await personaConClave(db, "Rosa", "responsable", "271828"), clave: "271828", huella: await equipoDeAlta(db) };
       await prueba(bd, db, e);
     } finally {
       await bd.cerrar();
     }
   });
 
-/** Cierra la jornada abierta diciendo lo que ve de ella, como la pantalla del cierre. */
+/**
+ * Una orden de cierre con su corte, como la manda la pantalla: el cajón se cuenta al abrir (con
+ * fondo de sobra, para que lo esperado nunca dé negativo) y al cerrar se cuenta lo que debería
+ * haber; firma Rosa.
+ */
+async function orden(bd: Bd, jornada: string, cierres: number): Promise<OrdenDeCierre> {
+  if (!(await estadoDelCajon(bd, jornada))!.apertura) await abrirCajon(bd, firma.id, { id: randomUUID(), jornada, contado: "100000" });
+  const esperado = (await estadoDelCajon(bd, jornada))!.esperado ?? "0";
+  return { id: randomUUID(), jornada, cierres, contado: esperado, seQueda: "0", hace: firma.id, clave: firma.clave };
+}
+
+/** Cierra la jornada abierta diciendo lo que ve de ella, como la pantalla del cierre, con su corte cuadrado. */
 async function cerrarJornada(bd: Bd, quien: string) {
   const dia = await estadoDelDia(bd);
   if (!dia.jornada) throw new ErrorDeNegocio("RC006", "No hay jornada abierta");
-  return cerrarEsa(bd, quien, { id: randomUUID(), jornada: dia.jornada.id, cierres: dia.jornada.cierres });
+  const hecho = await cerrarEsa(bd, quien, firma.huella, await orden(bd, dia.jornada.id, dia.jornada.cierres));
+  assert.ok(hecho, "la clave de quien firma el corte no pasó");
+  return hecho;
 }
 
 const rechazaCon = (promesa: Promise<unknown>, codigo: string, mensaje?: RegExp) =>
@@ -99,7 +118,8 @@ test("con solo vehículos por volver sí se cierra, y quedan pendientes para des
     assert.equal(cerrada.jornada.abierta, false);
     assert.equal(cerrada.jornada.fecha, "2026-10-01");
     assert.deepEqual(cerrada.vehiculosPorVolver, [{ id: vehiculo.id, tipo: "compra", etiqueta: "Torton azul", materiales: 1 }]);
-    assert.equal((await una(db, "SELECT cerrada_por FROM jornada WHERE id = $1", [e.jornada])).cerrada_por, e.mostrador);
+    // Queda a nombre de quien firmó el corte (0038), no de la sesión.
+    assert.equal((await una(db, "SELECT cerrada_por FROM jornada WHERE id = $1", [e.jornada])).cerrada_por, firma.id);
     const dia = await estadoDelDia(bd);
     assert.equal(dia.jornada, null);
     assert.equal(dia.vehiculosPorVolver, 1);
@@ -122,8 +142,8 @@ test("cerrado el día, el resumen sigue mostrando ese día, ya cerrado", () =>
     const r = (await resumenDelCierre(bd))!;
     assert.deepEqual({ fecha: r.jornada.fecha, abierta: r.jornada.abierta, aPagar: r.aPagar }, { fecha: "2026-10-01", abierta: false, aPagar: "21" });
     // Una orden nueva de cerrarla otra vez la rechaza el servidor: lo que esa orden vio ya cambió.
-    await rechazaCon(cerrarEsa(bd, e.responsable, { id: randomUUID(), jornada: r.jornada.id, cierres: 0 }), "RC011");
-    await rechazaCon(cerrarEsa(bd, e.responsable, { id: randomUUID(), jornada: r.jornada.id, cierres: 1 }), "RC011");
+    await rechazaCon(cerrarEsa(bd, e.responsable, firma.huella, await orden(bd, r.jornada.id, 0)), "RC011");
+    await rechazaCon(cerrarEsa(bd, e.responsable, firma.huella, await orden(bd, r.jornada.id, 1)), "RC011");
   }));
 
 test("sin ninguna jornada no hay resumen", () =>

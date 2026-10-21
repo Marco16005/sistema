@@ -246,3 +246,73 @@ export interface FichaDeMaterial {
   };
   precios: HistoriaDeMaterial | null;
 }
+
+// ── la ganancia (src/servidor/dominio/ganancia.ts) ──
+
+export type Agrupar = "dia" | "semana" | "mes";
+
+export interface CifrasDeGanancia {
+  vendido: string;
+  costo: string;
+  margen: string;
+  perdidas: string;
+  aFavor: string;
+  resultado: string;
+  kgVendido: string;
+}
+
+export interface Ganancia {
+  desde: string;
+  hasta: string;
+  agrupar: Agrupar;
+  /** Además: los gastos que cuentan (0042) y lo que queda después de ellos. */
+  totales: CifrasDeGanancia & { gastos: string; utilidad: string };
+  serie: Array<CifrasDeGanancia & { gastos: string; utilidad: string; desde: string; hasta: string }>;
+  materiales: Array<CifrasDeGanancia & { nombre: string }>;
+  patio: {
+    valor: string;
+    valorALista: string;
+    listaDel: string | null;
+    materiales: Array<{ nombre: string; kg: string; valor: string; costoPorKilo: string | null; precioDeLista: string | null; valorALista: string | null }>;
+  };
+}
+
+// ── los gastos (src/servidor/dominio/gastos.ts) ──
+
+export interface TipoDeGasto {
+  id: string;
+  nombre: string;
+  /** Si se resta en la ganancia. */
+  cuenta: boolean;
+  activo: boolean;
+}
+
+export interface Gasto {
+  id: string;
+  fecha: string;
+  tipo: string;
+  concepto: string;
+  importe: string;
+  deDonde: "cajon" | "otro";
+  registro: string;
+  anulado: { por: string; fecha: string; motivo: string } | null;
+}
+
+/** Dinero que se sacó del cajón y todavía no se dice en qué se gastó. */
+export interface SacarSinGasto {
+  id: string;
+  fecha: string;
+  hora: string;
+  importe: string;
+  motivo: string;
+}
+
+export interface Gastos {
+  desde: string;
+  hasta: string;
+  tipos: TipoDeGasto[];
+  gastos: Gasto[];
+  porTipo: Array<{ tipo: string; cuenta: boolean; total: string; cuantos: number }>;
+  totalQueCuenta: string;
+  sinClasificar: SacarSinGasto[];
+}

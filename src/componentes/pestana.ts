@@ -27,6 +27,8 @@ const CLAVE = "feruga.pestana";
 const INVENTARIO = "feruga.inventario";
 const MOSTRADOR = "feruga.mostrador";
 const CIERRE = "feruga.cierre";
+/** Lo que el cajón deja a medias: el conteo al abrir, sacar o meter dinero, un abono, una corrección y un gasto. */
+const CAJA = ["feruga.caja.apertura", "feruga.caja.movimiento", "feruga.caja.abono", "feruga.correccion", "feruga.gasto"];
 /** Lo que se espera el candado de la pestaña anterior al recargar. Una original nunca lo suelta: esperar no cambia la respuesta. */
 const ESPERA_DEL_CANDADO_MS = 1000;
 /** Lo que se espera el aviso de otra pestaña, donde no hay candados. */
@@ -90,11 +92,12 @@ function soltarLoHeredado(): void {
   const mostrador = guardado(MOSTRADOR) as { lugares?: Record<string, { peso?: string; pendiente?: unknown; segunda?: unknown } | null> } | null;
   heredado.mostrador = Object.values(mostrador?.lugares ?? {}).some((l) => Boolean(l && (l.peso || l.pendiente || l.segunda)));
   const cierre = guardado(CIERRE) as { cierre?: unknown; reapertura?: unknown } | null;
-  heredado.cierre = Boolean(cierre && typeof cierre === "object" && (cierre.cierre || cierre.reapertura));
+  heredado.cierre = Boolean(cierre && typeof cierre === "object" && (cierre.cierre || cierre.reapertura)) || CAJA.some((c) => guardado(c) !== null);
   try {
     sessionStorage.removeItem(INVENTARIO);
     sessionStorage.removeItem(MOSTRADOR);
     sessionStorage.removeItem(CIERRE);
+    for (const c of CAJA) sessionStorage.removeItem(c);
   } catch {
     // Sin dónde guardar no había nada heredado.
   }

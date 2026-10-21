@@ -24,6 +24,8 @@ export interface PersonaAdministrada {
   adentroDe: string | null;
   /** Si se le puede cambiar la clave o dar de baja desde la pantalla: mostrador, patio y consulta. */
   seAdministra: boolean;
+  /** Si puede hacer el corte del cajón: los responsables siempre; de mostrador, a quien se le dio. */
+  haceCorte: boolean;
 }
 
 export interface EquipoAdministrado {
@@ -45,7 +47,7 @@ export async function loQueSeAdministra(
   return bd.enTransaccion(persona, async (c) => ({
     personas: (await c.query(
       `SELECT id::text AS id, nombre, rol, puede_autorizar AS "puedeAutorizar", activo AS activa, bloqueada,
-              adentro_de AS "adentroDe", se_administra AS "seAdministra"
+              adentro_de AS "adentroDe", se_administra AS "seAdministra", hace_corte AS "haceCorte"
        FROM personas_para_administrar($1)`, [persona])).rows,
     equipos: (await c.query(
       `SELECT id, nombre, to_char(alta_el, 'YYYY-MM-DD') AS "altaEl", activo, atiende, es_este AS "esEste"
@@ -111,3 +113,11 @@ export const codigoParaEquipo = (bd: Bd, persona: Persona, huella: string, o: { 
 export const bajaDeEquipo = (bd: Bd, persona: Persona, huella: string, o: { equipo: string; clave: string }): Promise<boolean> =>
   bd.enTransaccion(persona, async (c) =>
     (await c.query("SELECT baja_de_equipo($1, $2, $3, $4) AS hecho", [huella, persona, o.clave, o.equipo])).rows[0].hecho);
+
+/**
+ * Da o quita el permiso de hacer el corte del cajón a una persona de mostrador. Devuelve falso si
+ * la clave de quien lo pide no pasó.
+ */
+export const permisoDeCorte = (bd: Bd, persona: Persona, huella: string, o: { quien: string; puede: boolean; clave: string }): Promise<boolean> =>
+  bd.enTransaccion(persona, async (c) =>
+    (await c.query("SELECT permiso_de_corte($1, $2, $3, $4, $5) AS hecho", [huella, persona, o.clave, o.quien, o.puede])).rows[0].hecho);

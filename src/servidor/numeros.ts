@@ -29,6 +29,15 @@ export function recipiente(texto: unknown): string {
   return texto;
 }
 
+/** Dinero del cajón: pesos con hasta dos centavos, de cero en adelante. Que sea más que cero lo decide la base. */
+const PESOS = /^\d{1,8}(\.\d{1,2})?$/;
+export function pesos(texto: unknown, nombre = "La cantidad"): string {
+  if (typeof texto !== "string" || !PESOS.test(texto)) {
+    throw new ErrorDeForma(`${nombre} se escribe en pesos, con punto y hasta dos centavos`);
+  }
+  return texto;
+}
+
 export function precio(texto: unknown): string {
   if (typeof texto !== "string" || !PRECIO.test(texto)) {
     throw new ErrorDeForma("El precio se escribe en pesos, con punto y hasta cuatro decimales");

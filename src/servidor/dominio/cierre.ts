@@ -1,5 +1,7 @@
-// El cierre del día: lo que se asentó, lo que falta por terminar, y cerrar.
+// El cierre del día: lo que se asentó, lo que falta por terminar, el cajón, y cerrar con su corte.
 import type { Bd, Persona } from "../bd.ts";
+import { estadoDelCajon } from "./caja.ts";
+import type { Cajon } from "./caja.ts";
 
 export interface CuentaPendiente {
   id: string;
@@ -56,6 +58,8 @@ export interface Cierre {
   porTerminar: CuentaPendiente[];
   /** Vehículos que se pesaron una vez y no han vuelto. No impiden cerrar: pueden volver otro día. */
   vehiculosPorVolver: CuentaPendiente[];
+  /** El cajón de ese día: con cuánto se abrió, lo que entró y salió, y sus cortes. */
+  cajon: Cajon;
 }
 
 const pendientes = (esperaVehiculo: boolean): string => `
@@ -96,7 +100,9 @@ export async function resumenDelCierre(bd: Bd, jornada: string | null = null): P
     [jornada],
   );
   if (!f) return null;
+  const cajon = (await estadoDelCajon(bd, f.id))!;
   return {
+    cajon,
     jornada: { id: f.id, fecha: f.fecha, abierta: f.abierta, cierres: f.cierres, cerradaEn: f.cerrada_en },
     reaperturas: f.reaperturas,
     operaciones: f.operaciones, aPagar: f.a_pagar, aCobrar: f.a_cobrar, ajustes: f.ajustes,
@@ -110,15 +116,26 @@ export interface OrdenDeCierre {
   jornada: string;
   /** Cuántos cierres llevaba la jornada cuando la pantalla la vio abierta. */
   cierres: number;
+  /** El corte: lo que se contó en el cajón y lo que se deja en él para mañana, en pesos. */
+  contado: string;
+  seQueda: string;
+  /** Quien hace el corte —un responsable o alguien con permiso de corte— y su clave. */
+  hace: string;
+  clave: string;
 }
 
 /**
- * Cierra ESA jornada, si sigue abierta y como se vio. Devuelve cuál cierre fue y cómo está la
- * jornada ahora (que puede ser abierta otra vez, si el envío es un reintento y entre tanto se reabrió).
+ * Cierra ESA jornada con su corte, si sigue abierta y como se vio. Devuelve cuál cierre fue y cómo
+ * está la jornada ahora (que puede ser abierta otra vez, si el envío es un reintento y entre tanto
+ * se reabrió). Nada si la clave de quien hace el corte no pasó: el día sigue abierto.
  */
-export async function cerrarJornada(bd: Bd, persona: Persona, orden: OrdenDeCierre): Promise<Cierre & { cierre: number }> {
+export async function cerrarJornada(
+  bd: Bd, persona: Persona, huella: string, orden: OrdenDeCierre,
+): Promise<(Cierre & { cierre: number }) | null> {
   const hecho = await bd.enTransaccion(persona, async (c) =>
-    (await c.query("SELECT jornada_id, cierre FROM cerrar_el_dia($1, $2, $3, $4)", [orden.id, orden.jornada, orden.cierres, persona])).rows[0]);
+    (await c.query("SELECT jornada_id, cierre FROM cerrar_el_dia($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      [orden.id, orden.jornada, orden.cierres, orden.contado, orden.seQueda, orden.hace, orden.clave, huella, persona])).rows[0]);
+  if (!hecho || hecho.jornada_id === null) return null;
   return { ...(await resumenDelCierre(bd, hecho.jornada_id))!, cierre: hecho.cierre };
 }
 

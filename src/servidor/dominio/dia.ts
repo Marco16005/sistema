@@ -13,6 +13,11 @@ export interface EstadoDelDia {
   lista: { id: string; publicada: boolean; precios: number } | null;
   /** Cuentas de vehículos que no volvieron a pesarse antes de que su jornada cerrara. */
   vehiculosPorVolver: number;
+  /**
+   * El cajón de la jornada abierta: si ya se contó al abrir, y lo que se propone contar (lo que se
+   * dejó en el último corte). Para atender hay que contarlo; la base no lo exige, la pantalla sí.
+   */
+  cajon: { contado: boolean; sugerido: string | null } | null;
   /** Hay jornada abierta con precios publicados: se puede atender. */
   listo: boolean;
 }
@@ -31,7 +36,10 @@ export async function estadoDelDia(bd: Bd): Promise<EstadoDelDia> {
             l.id AS lista_id, l.publicada_en IS NOT NULL AS publicada,
             (SELECT count(*)::int FROM precio p WHERE p.lista_id = l.id) AS precios,
             (SELECT count(*)::int FROM operacion o JOIN jornada j ON j.id = o.jornada_id
-             WHERE o.estado = 'borrador' AND j.cerrada_en IS NOT NULL) AS vehiculos
+             WHERE o.estado = 'borrador' AND j.cerrada_en IS NOT NULL) AS vehiculos,
+            EXISTS (SELECT 1 FROM caja_apertura a WHERE a.jornada_id = abierta.id) AS cajon_contado,
+            (SELECT c.se_queda::text FROM caja_corte c JOIN jornada x ON x.id = c.jornada_id
+             WHERE x.sucursal_id = 1 AND x.fecha < abierta.fecha ORDER BY x.fecha DESC, c.cierre DESC LIMIT 1) AS cajon_sugerido
      FROM hoy
      LEFT JOIN abierta ON true
      LEFT JOIN cerrada ON true
@@ -45,6 +53,7 @@ export async function estadoDelDia(bd: Bd): Promise<EstadoDelDia> {
     cerradaHoy: d.cerrada_id ? { id: d.cerrada_id, cierre: d.cerrada_cierre } : null,
     lista: d.lista_id ? { id: d.lista_id, publicada: d.publicada, precios: d.precios } : null,
     vehiculosPorVolver: d.vehiculos,
+    cajon: d.jornada_id ? { contado: d.cajon_contado, sugerido: d.cajon_sugerido } : null,
     listo: Boolean(d.jornada_id && d.publicada),
   };
 }

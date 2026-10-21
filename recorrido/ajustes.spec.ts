@@ -43,7 +43,8 @@ test("el responsable que autoriza da de alta a una persona con su clave: se le e
   await expect(renglon(page, "Servando")).toContainText("responsable · autoriza · está adentro, en Mostrador · se cambia por la consola");
   await expect(renglon(page, "Servando").getByRole("button")).toHaveCount(0);
   await expect(renglon(page, "Luis")).toContainText("mostrador");
-  await expect(renglon(page, "Luis").getByRole("button")).toHaveCount(2);
+  // Cambiar su clave, darlo de baja, y darle permiso de corte.
+  await expect(renglon(page, "Luis").getByRole("button")).toHaveCount(3);
 
   await page.getByRole("button", { name: "Dar de alta a una persona" }).click();
   await expect(page.getByRole("button", { name: /^Dar de alta a …$/ })).toBeDisabled();

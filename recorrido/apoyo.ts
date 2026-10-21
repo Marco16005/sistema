@@ -134,7 +134,34 @@ export async function diaListo(g: Gente, saldos: Array<[string, string]> = []): 
       await db.query("SELECT fijar_precio($1, $2, $3, $4)", [await id(nombre), compra, venta, g.servando.id]);
     }
     await db.query("SELECT publicar_lista_de_hoy($1)", [g.servando.id]);
+    // Y el cajón contado, como lo pide el mostrador antes de atender: con fondo de sobra para pagar.
+    await db.query("SELECT abrir_el_cajon(gen_random_uuid(), jornada_abierta(1::smallint), 20000, $1)", [g.luis.id]);
   });
+}
+
+/** Cuenta el cajón al abrir, por la pantalla: lo que pide el mostrador antes de atender. */
+export async function contarElCajon(page: Page, cuanto: string): Promise<void> {
+  await expect(page.getByText("Antes de atender, cuenta el cajón")).toBeVisible();
+  await teclear(page, cuanto);
+  await page.getByRole("button", { name: /^Hay \$/ }).click();
+  await expect(page.getByText("Antes de atender, cuenta el cajón")).toHaveCount(0);
+}
+
+/**
+ * Cierra el día por la pantalla del cierre, con su corte: cuenta lo que debería haber —o lo que se
+ * diga—, deja lo que la pantalla propone y lo firma quien se diga, con su clave.
+ */
+export async function cerrarConCorte(page: Page, firma: Persona, contado?: string): Promise<void> {
+  await page.getByRole("button", { name: "Hacer el corte y cerrar el día" }).click();
+  const debe = (await page.locator(".visor .quien small").first().textContent()) ?? "";
+  const esperado = contado ?? /\$([\d,]+\.\d{2})/.exec(debe)![1]!.replace(/,/g, "");
+  await teclear(page, esperado.replace(/\.00$/, ""));
+  await page.getByRole("button", { name: "Seguir" }).click();
+  await page.getByRole("button", { name: "Firmar el corte" }).click();
+  const hoja = page.getByRole("dialog", { name: "Firmar el corte y cerrar el día" });
+  await hoja.getByRole("button", { name: new RegExp("^" + firma.nombre) }).click();
+  await teclear(page, firma.clave);
+  await hoja.getByRole("button", { name: `Cerrar el día a nombre de ${firma.nombre}` }).click();
 }
 
 /** Cierra por la consola la jornada que está abierta, diciendo lo que ve de ella, como la pantalla del cierre. */

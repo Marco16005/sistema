@@ -306,6 +306,32 @@ export const segundaPesada = (c: pg.Client, linea: string, kg: string, quien: st
 export const CERRAR_EL_DIA =
   "SELECT h.* FROM jornada j, LATERAL cerrar_el_dia(gen_random_uuid(), j.id, j.cierres, $1) h WHERE j.sucursal_id = 1 AND j.cerrada_en IS NULL";
 
+/**
+ * Cierra el día por la entrada del dueño, sin el corte del cajón (0038). Es para las pruebas que solo
+ * necesitan un día cerrado: la aplicación ya no puede cerrar así.
+ */
+export const cerrarSinCorte = (db: pg.Client, jornada: string, cierres: number, quien: string) =>
+  db.query("SELECT * FROM cerrar_el_dia(gen_random_uuid(), $1, $2, $3)", [jornada, cierres, quien]);
+
+/**
+ * Lo que hace falta para cerrar como la aplicación (0038): el cajón contado al abrir, y quien firma
+ * el corte —una responsable con clave— desde un equipo dado de alta.
+ */
+export async function paraElCorte(db: pg.Client, quien: string): Promise<{ firma: string; huella: string }> {
+  const huella = await equipoDeAlta(db);
+  const firma = await personaConClave(db, "Rosa", "responsable", "271828");
+  await db.query("SELECT abrir_el_cajon(gen_random_uuid(), jornada_abierta(1::smallint), 100000, $1)", [quien]);
+  return { firma, huella };
+}
+
+/**
+ * Cierra la jornada abierta como la aplicación, con un corte que cuadra (0038). $1: la sesión; $2:
+ * quien firma; $3: su equipo; $4: su clave. El cajón ya tiene que estar contado (paraElCorte).
+ */
+export const CERRAR_CON_CORTE =
+  `SELECT h.* FROM jornada j, LATERAL cerrar_el_dia(gen_random_uuid(), j.id, j.cierres, esperado_en_cajon(j.id), esperado_en_cajon(j.id), $2, $4, $3, $1) h
+   WHERE j.sucursal_id = 1 AND j.cerrada_en IS NULL`;
+
 export const contar = async (db: pg.Client, tabla: string, donde = "true", valores: unknown[] = []): Promise<number> =>
   (await una(db, `SELECT count(*)::int AS n FROM ${tabla} WHERE ${donde}`, valores)).n;
 

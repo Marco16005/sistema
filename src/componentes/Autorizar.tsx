@@ -12,6 +12,8 @@ import { Teclado } from "./Teclado.tsx";
 export interface QuienAutoriza {
   id: string;
   nombre: string;
+  /** Cuántos dígitos tiene su clave, por lo menos: seis la de un responsable (lo de siempre), cuatro la de mostrador. */
+  digitos?: number;
 }
 
 interface Props {
@@ -25,6 +27,8 @@ interface Props {
   alSoltar?: () => Promise<void>;
   /** El texto del botón, con el nombre de quien autoriza. */
   boton: (nombre: string) => string;
+  /** Lo que hace cada persona de la lista: «autoriza», salvo que se diga otra cosa («firma el corte»). */
+  verbo?: string;
   cancelar: string;
   aviso: string;
   ocupado: boolean;
@@ -36,7 +40,8 @@ export function Autorizar(p: Props) {
   const [elegido, setQuien] = useState<QuienAutoriza | null>(null);
   const quien = p.quien ?? elegido;
   const [clave, setClave] = useState("");
-  const lista = clave.length >= 6;
+  const minimo = quien?.digitos ?? 6;
+  const lista = clave.length >= minimo;
 
   const otraPersona = async (): Promise<void> => {
     if (p.ocupado) return;
@@ -69,7 +74,7 @@ export function Autorizar(p: Props) {
             {p.aviso ? <div className="flag" role="alert">{p.aviso}</div> : null}
             <div className="personas">
               {p.personas?.map((x) => (
-                <button key={x.id} type="button" className="mat" onClick={() => setQuien(x)}><b>{x.nombre}</b><span>autoriza</span></button>
+                <button key={x.id} type="button" className="mat" onClick={() => setQuien(x)}><b>{x.nombre}</b><span>{p.verbo ?? "autoriza"}</span></button>
               ))}
             </div>
           </>
@@ -77,7 +82,7 @@ export function Autorizar(p: Props) {
           <>
             <p className="lbl">Clave de {quien.nombre}</p>
             <div className="puntos" role="status" aria-label={`${clave.length} dígitos escritos`}>
-              {Array.from({ length: Math.max(clave.length, 6) }, (_, k) => <i key={k} className={k < clave.length ? "lleno" : ""} />)}
+              {Array.from({ length: Math.max(clave.length, minimo) }, (_, k) => <i key={k} className={k < clave.length ? "lleno" : ""} />)}
             </div>
             <Teclado valor={clave} alCambiar={setClave} decimales={0} enteros={8} alTerminar={() => void autorizar()} />
             {p.aviso ? <div className="flag" role="alert">{p.aviso}</div> : null}

@@ -257,10 +257,10 @@ test("la lista de personas dice de cada una su rol, si autoriza, si está bloque
     for (let k = 0; k < 5; k++) await p.db.query("SELECT comprobar_clave((SELECT id FROM equipo LIMIT 1), $1, '0000')", [ana]);
     const lista = (await p.app.query("SELECT * FROM personas_para_administrar($1)", [p.elena])).rows;
     assert.deepEqual(lista, [
-      { id: ana, nombre: "Ana", rol: "consulta", puede_autorizar: false, activo: true, bloqueada: true, adentro_de: null, se_administra: true },
-      { id: p.elena, nombre: "Elena", rol: "responsable", puede_autorizar: true, activo: true, bloqueada: false, adentro_de: null, se_administra: false },
-      { id: p.luis, nombre: "Luis", rol: "mostrador", puede_autorizar: false, activo: true, bloqueada: false, adentro_de: "Mostrador", se_administra: true },
-      { id: ida, nombre: "Ida", rol: "patio", puede_autorizar: false, activo: false, bloqueada: false, adentro_de: null, se_administra: false },
+      { id: ana, nombre: "Ana", rol: "consulta", puede_autorizar: false, activo: true, bloqueada: true, adentro_de: null, se_administra: true, hace_corte: false },
+      { id: p.elena, nombre: "Elena", rol: "responsable", puede_autorizar: true, activo: true, bloqueada: false, adentro_de: null, se_administra: false, hace_corte: true },
+      { id: p.luis, nombre: "Luis", rol: "mostrador", puede_autorizar: false, activo: true, bloqueada: false, adentro_de: "Mostrador", se_administra: true, hace_corte: false },
+      { id: ida, nombre: "Ida", rol: "patio", puede_autorizar: false, activo: false, bloqueada: false, adentro_de: null, se_administra: false, hace_corte: false },
     ]);
   }));
 
@@ -322,7 +322,7 @@ test("por las rutas: el responsable facultado ve a las personas y los equipos; d
       ["De administracion", "administracion", false], ["De consulta", "consulta", true], ["De mostrador", "mostrador", true],
       ["De patio", "patio", true], ["De responsable", "responsable", false],
     ]);
-    assert.deepEqual(Object.keys(lista.personas[0]).sort(), ["activa", "adentroDe", "bloqueada", "id", "nombre", "puedeAutorizar", "rol", "seAdministra"]);
+    assert.deepEqual(Object.keys(lista.personas[0]).sort(), ["activa", "adentroDe", "bloqueada", "haceCorte", "id", "nombre", "puedeAutorizar", "rol", "seAdministra"]);
     assert.deepEqual(lista.equipos.map((e: any) => [e.nombre, e.activo, e.atiende, e.esEste]), [["Mostrador", true, "De responsable", true]]);
     assert.match(lista.equipos[0].altaEl, /^\d{4}-\d{2}-\d{2}$/);
 

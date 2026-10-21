@@ -2,6 +2,8 @@
 // Los días que ha habido, del más reciente al más viejo. Al tocar uno se ve lo que dejó asentado
 // —el mismo reporte de su cierre— y sus cuentas, una por una, con su comprobante.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ResumenDelCajon } from "../../../componentes/caja/ElCajon.tsx";
+import { Correcciones } from "../../../componentes/cierre/Correcciones.tsx";
 import { Dinero, Kilos, PreciosEspeciales } from "../../../componentes/cierre/Reporte.tsx";
 import type { Cierre } from "../../../componentes/cierre/Reporte.tsx";
 import { pedir } from "../../../componentes/cliente.ts";
@@ -91,6 +93,7 @@ export default function PantallaDeLosDias() {
           key={comprobante.comprobante.id} comprobante={comprobante.comprobante} negocio={comprobante.negocio} impresion={null}
           puedeImprimir={false} alTerminar={() => setComprobante(null)}
         />
+        <Correcciones key={`c-${comprobante.comprobante.id}`} operacion={comprobante.comprobante.id} puedeCorregir={false} />
       </div>
     );
   }
@@ -108,6 +111,7 @@ export default function PantallaDeLosDias() {
         {!detalle ? (aviso ? null : <p className="cargando">Un momento…</p>) : (
           <>
             <Dinero cierre={detalle.cierre} />
+            <ResumenDelCajon cajon={detalle.cierre.cajon} />
             <Kilos cierre={detalle.cierre} />
             <PreciosEspeciales cierre={detalle.cierre} />
             <div className="card">

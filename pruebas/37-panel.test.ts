@@ -5,14 +5,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
-import { abrirJornada, conBase, escenario, material, una, urlApp } from "./apoyo.ts";
+import { abrirJornada, cerrarSinCorte, conBase, escenario, material, una, urlApp } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 import { CLAVES, conMundo, ruta } from "./mundo.ts";
 import type { Mundo } from "./mundo.ts";
 import type { Navegador } from "./navegador.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
-import { cerrarJornada, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
+import { resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
 import { abrirCuenta, agregarMaterial, confirmar, descartar, ponerDescuento, ponerRecipiente, segundaPesada } from "../src/servidor/dominio/cuentas.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
 import { panel } from "../src/servidor/dominio/panel.ts";
@@ -52,7 +52,7 @@ const conDosDias = (prueba: (d: DosDias) => Promise<void>) =>
       await hecha(bd, e.mostrador, e, "compra", [["Cartón", "10"]]);                   // 21.00 → 21
       await hecha(bd, e.mostrador, e, "venta", [["Cartón", "200.3"]]);                 // 500.75 → 501
       const dia = await estadoDelDia(bd);
-      await cerrarJornada(bd, e.mostrador, { id: randomUUID(), jornada: dia.jornada!.id, cierres: dia.jornada!.cierres });
+      await cerrarSinCorte(db, dia.jornada!.id, dia.jornada!.cierres, e.mostrador);
 
       const hoy = await abrirJornada(db, e.responsable, "2026-10-02");
       await db.query("SELECT publicar_lista($1, $2)", [hoy.lista, e.responsable]);
@@ -404,8 +404,13 @@ test("el control cuenta lo que se dio de baja, lo que ajustó un conteo, los pre
     await caja.bien(await ruta("inventario/conteo", "POST"), "POST", "/api/x",
       { id: randomUUID(), material: carton, contado: "570.5", contadoEn: visto.contadoEn, registrado: visto.registrado, ...autoriza });
     // Se cierra el día y se reabre.
+    // Con su corte (0038): el cajón contado al abrir y lo que debería haber, firmado por la responsable.
     const dia = (await caja.bien(await ruta("dia", "GET"), "GET", "/api/dia")).dia;
-    const cerrado = await caja.bien(await ruta("jornada/cerrar", "POST"), "POST", "/api/x", { id: randomUUID(), jornada: dia.jornada.id, cierres: dia.jornada.cierres });
+    await caja.bien(await ruta("caja/abrir", "POST"), "POST", "/api/x", { id: randomUUID(), jornada: dia.jornada.id, contado: "5000" });
+    const { esperado } = (await caja.bien(await ruta("caja", "GET"), "GET", "/api/caja")).cajon;
+    const cerrado = await caja.bien(await ruta("jornada/cerrar", "POST"), "POST", "/api/x", {
+      id: randomUUID(), jornada: dia.jornada.id, cierres: dia.jornada.cierres, contado: esperado, seQueda: "0", hace: m.personas.responsable, clave: CLAVES.responsable,
+    });
     await caja.bien(await ruta("jornada/reabrir", "POST"), "POST", "/api/x", { id: randomUUID(), jornada: dia.jornada.id, cierre: cerrado.cierre.cierre, ...autoriza });
 
     const p = (await (await verPanel(jefe, "?dias=7")).json()).panel;

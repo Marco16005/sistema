@@ -5,6 +5,7 @@
 // cierre de ese día.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { AvisosDelCajon } from "../../componentes/caja/Avisos.tsx";
 import { pedir } from "../../componentes/cliente.ts";
 import { diaCorto, fechaCorta, kilosCortos, pesos, pesosCerrados, precio } from "../../componentes/formato.ts";
 import { Barras, Tira } from "../../componentes/panel/Graficas.tsx";
@@ -180,6 +181,7 @@ export default function PantallaDelPanel() {
     <div className="panel imprimible">
       <Secciones />
       <div className="top"><h2>Resumen</h2><Imprimir /></div>
+      <AvisosDelCajon puedeVer={persona.rol === "responsable"} />
       {elegir}
       {aviso ? <div className="flag" role="alert">{aviso}</div> : null}
       <p className="note periodo" role="status">
@@ -204,7 +206,7 @@ export default function PantallaDelPanel() {
         <div className="indicador">
           <p className="lbl">Ventas menos compras</p>
           <b className="cifra">{conSigno(t.diferencia)}</b>
-          <small>No es la ganancia: falta lo que costó lo que se vendió.</small>
+          <small>No es la ganancia: esa está en «Ganancia», con lo que costó lo que se vendió.</small>
         </div>
         <div className="indicador">
           <p className="lbl">Cuentas terminadas</p>

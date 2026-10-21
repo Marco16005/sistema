@@ -12,6 +12,8 @@ import { ErrorDeApi, actuarComo, avisarDelMantenimiento, avisarSiSePierdeLaSesio
 import { NOMBRE_DE_ROL, fechaCorta } from "./formato.ts";
 import { pestanaLista } from "./pestana.ts";
 import { Teclado } from "./Teclado.tsx";
+import { AvisosEnLaBarra } from "./caja/Avisos.tsx";
+import { ContarElCajon } from "./caja/ContarElCajon.tsx";
 
 export type Rol = "responsable" | "mostrador" | "patio" | "consulta" | "administracion";
 
@@ -31,7 +33,12 @@ export interface Dia {
   lista: { id: string; publicada: boolean; precios: number } | null;
   vehiculosPorVolver: number;
   listo: boolean;
+  /** El cajón de la jornada abierta: si ya se contó al abrir, y lo que se dejó en el último corte. */
+  cajon: { contado: boolean; sugerido: string | null } | null;
 }
+
+/** Quien cobra no atiende hasta que se cuenta el cajón: sin el fondo de la mañana no hay corte. */
+export const faltaContarElCajon = (dia: Dia, rol: Rol): boolean => COBRAN.includes(rol) && dia.cajon !== null && !dia.cajon.contado;
 
 interface Contexto {
   persona: Persona;
@@ -312,6 +319,8 @@ function Barra({ persona, dia, alSalir }: { persona: Persona; dia: Dia; alSalir:
           <Link key={ruta} href={ruta} aria-current={donde === ruta || donde.startsWith(`${ruta}/`) ? "true" : "false"}>{nombre}</Link>
         ))}
       </nav>
+      {/* Al responsable le llegan los avisos del cajón en cuanto entra. En el panel ya están, con su botón. */}
+      {persona.rol === "responsable" && !donde.startsWith("/panel") ? <AvisosEnLaBarra /> : null}
     </>
   );
 }
@@ -368,6 +377,9 @@ export function LoQueFalta({ para }: { para: "atender" | "precios" }) {
           : null}
       </div>
     );
+  }
+  if (para === "atender" && dia.lista?.publicada && faltaContarElCajon(dia, persona.rol)) {
+    return <ContarElCajon jornada={dia.jornada.id} sugerido={dia.cajon!.sugerido} alContar={ponerDia} />;
   }
   if (para === "atender" && !dia.lista?.publicada) {
     return (

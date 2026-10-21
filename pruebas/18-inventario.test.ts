@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
 import {
-  CERRAR_EL_DIA,  abrirCuenta, abrirJornada, agregarMaterial, comoApp, compraDe, conApp, confirmar, contar as cuantos, cuenta, desenlace, equipoDeAlta,
+  CERRAR_CON_CORTE, abrirCuenta, abrirJornada, agregarMaterial, comoApp, compraDe, conApp, confirmar, contar as cuantos, cuenta, desenlace, equipoDeAlta,
   esperarQueEspere, existencia, personaConClave, pidDe, rechaza, renglon, una,
 } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
@@ -27,6 +27,8 @@ interface Patio {
 const conPatio = (prueba: (p: Patio) => Promise<void>) =>
   conApp(async (app, db, e, base) => {
     await db.query("SELECT fijar_clave($1, $2)", [e.responsable, CLAVE]);
+    // El cajón contado al abrir: sin eso no hay corte, y sin corte la aplicación no cierra (0038).
+    await db.query("SELECT abrir_el_cajon(gen_random_uuid(), $1, 100000, $2)", [e.jornada, e.mostrador]);
     await prueba({ app, db, e, base, huella: await equipoDeAlta(db) });
   });
 
@@ -268,7 +270,7 @@ test("un conteo sin diferencia llega cuando la jornada se está cerrando: espera
       const visto = await previa(p, carton, "100");
       const pid = await pidDe(otra);
       await p.app.query("BEGIN");
-      await p.app.query(CERRAR_EL_DIA, [p.e.mostrador]);
+      await p.app.query(CERRAR_CON_CORTE, [p.e.mostrador, p.e.responsable, p.huella, CLAVE]);
       const conteo = desenlace(contarMaterial(p, carton, "100", { visto, con: otra }));
       await esperarQueEspere(p.db, pid);
       await p.app.query("COMMIT");
@@ -288,7 +290,7 @@ test("la jornada se cierra mientras se asienta un conteo sin diferencia: el cier
       const pid = await pidDe(otra);
       await p.app.query("BEGIN");
       const c = await contarMaterial(p, carton, "100");
-      const cierre = desenlace(otra.query(CERRAR_EL_DIA, [p.e.mostrador]));
+      const cierre = desenlace(otra.query(CERRAR_CON_CORTE, [p.e.mostrador, p.e.responsable, p.huella, CLAVE]));
       await esperarQueEspere(p.db, pid);
       await p.app.query("COMMIT");
       assert.equal(await cierre, "pasó");
@@ -331,7 +333,7 @@ test("repetir una merma después de cerrar la jornada devuelve la que ya estaba"
     await apertura(p, carton, 100);
     const envio = randomUUID();
     const m = await merma(p, carton, "10", "Mojado", envio);
-    await p.app.query(CERRAR_EL_DIA, [p.e.mostrador]);
+    await p.app.query(CERRAR_CON_CORTE, [p.e.mostrador, p.e.responsable, p.huella, CLAVE]);
     assert.equal((await merma(p, carton, "10", "Mojado", envio)).id, m.id);
     // Una nueva, en cambio, ya no entra: no hay jornada abierta.
     await rechaza(merma(p, carton, "1", "Mojado"), "RC006");
@@ -584,7 +586,7 @@ test("corregir algo de una jornada cerrada cae en la de hoy, y el cierre de aque
   conPatio(async (p) => {
     const carton = p.e.mat["Cartón"];
     const original = await compra(p, carton, 180);
-    await p.app.query(CERRAR_EL_DIA, [p.e.mostrador]);
+    await p.app.query(CERRAR_CON_CORTE, [p.e.mostrador, p.e.responsable, p.huella, CLAVE]);
     const ayer = await una(p.db, "SELECT entro_kg, salio_kg FROM cierre_material WHERE jornada_id = $1", [p.e.jornada]);
     // Sin jornada abierta no se corrige.
     await rechaza(corregir(p, original.id, carton, "18"), "RC006");
@@ -631,7 +633,8 @@ test("lo contado y la merma con kilos que no valen salen como regla", () =>
     await rechaza(merma(p, 999999, "1"), "RC005");
     await rechaza(previa(p, 999999, "1"), "RC005");
     assert.equal(await existencia(p.db, carton), 100);
-    assert.equal(await cuantos(p.db, "envio", "clase <> 'cuenta'"), 0);
+    // (El conteo del cajón al abrir el día es el único envío que hay: lo hace el escenario.)
+    assert.equal(await cuantos(p.db, "envio", "clase NOT IN ('cuenta', 'caja_apertura')"), 0);
   }));
 
 // De esto depende la pantalla: cuando reintenta un envío del que no supo y recibe una regla, da
@@ -650,7 +653,7 @@ test("un envío ya asentado, repetido igual con la jornada ya cerrada, devuelve 
     const s = await separar(p, carton, "100", productos, envio.separacion);
     const visto = await previa(p, carton, "400");
     const c = await contarMaterial(p, carton, "400", { envio: envio.conteo, visto });
-    await p.app.query(CERRAR_EL_DIA, [p.e.mostrador]);
+    await p.app.query(CERRAR_CON_CORTE, [p.e.mostrador, p.e.responsable, p.huella, CLAVE]);
 
     assert.deepEqual(await corregir(p, original.id, carton, "90", { envio: envio.correccion, vistas: 0 }), k);
     assert.equal((await merma(p, carton, "10", "Mojado", envio.merma)).id, m.id);

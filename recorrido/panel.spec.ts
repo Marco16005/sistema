@@ -240,7 +240,7 @@ test("los días: cada uno con lo que dejó asentado y sus cuentas, y de cada cue
   await expect(cuentas.nth(0)).toContainText("1 material · atendió Luis");
   await expect(cuentas.nth(0)).toContainText("$210");
   // Desde aquí no se cierra ni se reabre nada: es para ver.
-  await expect(page.getByRole("button", { name: /Cerrar el día|Reabrir el día/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /cerrar el día|Reabrir el día/i })).toHaveCount(0);
 
   // El comprobante de la primera, sin poder reimprimirlo desde aquí; y de vuelta al día.
   await cuentas.nth(0).click();
@@ -796,7 +796,7 @@ test("el panel es de quien dirige y de quien consulta: al mostrador no se le ofr
   await darDeAltaEquipo(page);
   await adentro(page, g.luis);
   await expect(page.getByRole("link", { name: "Panel" })).toHaveCount(0);
-  for (const camino of ["/panel", "/panel/dias", "/panel/materiales", "/panel/precios", "/panel/clientes", "/panel/bitacora", "/panel/reportes"]) {
+  for (const camino of ["/panel", "/panel/dias", "/panel/materiales", "/panel/ganancia", "/panel/fiado", "/panel/gastos", "/panel/precios", "/panel/clientes", "/panel/bitacora", "/panel/reportes"]) {
     await page.goto(camino);
     await expect(page.getByText("El panel es para quien dirige el negocio.")).toBeVisible();
     await expect(page.locator(".indicador, .exrow, .asiento")).toHaveCount(0);
@@ -854,7 +854,8 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
       await db.query("BEGIN");
       await db.query("SET LOCAL session_replication_role = replica");
       await db.query(
-        "INSERT INTO movimiento_inventario (sucursal_id, material_id, tipo, cantidad_kg, origen_saldo, creado_por, efectivo_en) VALUES (1, (SELECT id FROM material WHERE nombre = $1), 'apertura', 25, 'estimado', $2, now())",
+        // Sin los disparadores, el costo (0039) también va a mano: aquí no importa cuánto vale.
+        "INSERT INTO movimiento_inventario (sucursal_id, material_id, tipo, cantidad_kg, origen_saldo, creado_por, efectivo_en, costo) VALUES (1, (SELECT id FROM material WHERE nombre = $1), 'apertura', 25, 'estimado', $2, now(), 0)",
         [largo, g.servando.id],
       );
       await db.query("COMMIT");
@@ -875,6 +876,13 @@ for (const [ancho, alto] of [[1280, 620], [420, 800], [360, 640]] as const) {
     await page.getByRole("group", { name: "Periodo" }).getByRole("button", { name: "3 meses" }).click();
     await expect(tarjeta(page, "Lo que entró y lo que salió").locator(".col")).toHaveCount(13);
     await medir("un material, a tres meses");
+
+    await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Ganancia" }).click();
+    await expect(page.getByRole("heading", { name: "Lo que hay en el patio" })).toBeVisible();
+    await medir("la ganancia");
+    await page.getByRole("group", { name: "Cómo se agrupa" }).getByRole("button", { name: "Por semana" }).click();
+    await tarjeta(page, "Vendido y lo que costó").getByText("Ver los números").click();
+    await medir("la ganancia, por semana, con los números abiertos");
 
     await page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Precios" }).click();
     await expect(page.locator(".exrow.material")).toHaveCount(5);

@@ -3,7 +3,7 @@
 //
 // La hoja no decide nada: se muestra porque su dueño lo dice, y cerrarla nunca suelta un envío.
 import { expect, test, type Page } from "@playwright/test";
-import { baseNueva, conConsola, darDeAltaEquipo, diaListo, entrar, gente, teclear } from "./apoyo.ts";
+import { baseNueva, cerrarConCorte, conConsola, darDeAltaEquipo, diaListo, entrar, gente, teclear } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -18,8 +18,7 @@ async function conLaHoja(page: Page): Promise<Gente> {
   await darDeAltaEquipo(page);
   await entrar(page, g.luis);
   await page.getByRole("link", { name: "Cierre" }).click();
-  await page.getByRole("button", { name: "Cerrar el día" }).click();
-  await page.getByRole("button", { name: "Toca otra vez para cerrar el día" }).click();
+  await cerrarConCorte(page, g.servando);
   await page.getByRole("button", { name: "Reabrir el día" }).click();
   await expect(hoja(page)).toBeVisible();
   return g;

@@ -35,6 +35,11 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "POST jornada/abrir": COBRAN,
   "POST jornada/cerrar": COBRAN,
   "POST jornada/reabrir": COBRAN,
+  "GET caja": ["responsable", "mostrador", "consulta"],
+  "POST caja/abrir": COBRAN,
+  "POST caja/movimientos": COBRAN,
+  "GET avisos": DIRIGEN,
+  "POST avisos/[aviso]/visto": ["responsable"],
   "GET precios": TODOS,
   "POST precios": ["responsable"],
   "POST precios/publicar": ["responsable"],
@@ -54,12 +59,23 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "GET clientes": COBRAN,
   "POST cuentas/[cuenta]/confirmar": COBRAN,
   "POST cuentas/[cuenta]/terminar-vehiculo": COBRAN,
+  "POST cuentas/[cuenta]/fiar": COBRAN,
+  "GET fiado": ["responsable", "mostrador", "consulta"],
+  "GET gastos": DIRIGEN,
+  "POST gastos": ["responsable"],
+  "POST gastos/[gasto]/anular": ["responsable"],
+  "POST gastos/tipos": ["responsable"],
+  "POST gastos/tipos/[tipo]": ["responsable"],
+  "POST fiado/abonos": COBRAN,
   "GET comprobantes": ["responsable", "mostrador", "consulta"],
   "GET comprobantes/[operacion]": ["responsable", "mostrador", "consulta"],
   "POST comprobantes/[operacion]/imprimir": COBRAN,
+  "GET comprobantes/[operacion]/correcciones": ["responsable", "mostrador", "consulta"],
+  "POST comprobantes/[operacion]/correcciones": COBRAN,
   "GET cierre": TODOS,
   "GET panel": DIRIGEN,
   "GET panel/materiales": DIRIGEN,
+  "GET panel/ganancia": DIRIGEN,
   "GET panel/materiales/[material]": DIRIGEN,
   "GET historial": DIRIGEN,
   "GET historial/[jornada]": DIRIGEN,
@@ -78,6 +94,7 @@ const MATRIZ: Record<string, Rol[] | "equipo" | "publico"> = {
   "POST administracion/personas": ["responsable"],
   "POST administracion/personas/[persona]/clave": ["responsable"],
   "POST administracion/personas/[persona]/baja": ["responsable"],
+  "POST administracion/personas/[persona]/corte": ["responsable"],
   "POST administracion/equipos": ["responsable"],
   "POST administracion/equipos/[equipo]/baja": ["responsable"],
   "POST envios/[envio]/cancelar": ARMAN,
@@ -110,7 +127,7 @@ async function rutasEnDisco(): Promise<Array<{ clave: string; camino: string; me
 }
 
 // La persona y el equipo no existen: basta para llegar a la base, que es quien lo dice.
-const PARAMETROS = { cuenta: randomUUID(), operacion: randomUUID(), material: "1", envio: randomUUID(), jornada: "1", cliente: "1", persona: "999999", equipo: randomUUID() };
+const PARAMETROS = { cuenta: randomUUID(), operacion: randomUUID(), material: "1", envio: randomUUID(), jornada: "1", cliente: "1", persona: "999999", equipo: randomUUID(), aviso: "999999", gasto: "999999", tipo: "999999" };
 const CLAVES: Record<Rol, string> = { responsable: "481516", mostrador: "4815", patio: "2718", consulta: "3141", administracion: "271828" };
 
 interface Mundo {
@@ -191,7 +208,26 @@ test("cada rol pasa solo por las rutas que le tocan", () =>
 const BIEN_FORMADAS: Record<string, { cuerpo: (m: Mundo, carton: number, pet: number) => unknown; contesta: string | null }> = {
   "POST arranque/terminar": { cuerpo: () => ({ saldos: [] }), contesta: "RC003" },
   "POST jornada/abrir": { cuerpo: () => ({}), contesta: "RC006" },           // ya está abierta
-  "POST jornada/cerrar": { cuerpo: () => ({ id: randomUUID(), jornada: "999999", cierres: 0 }), contesta: "RC006" },
+  "POST jornada/cerrar": {
+    cuerpo: (m) => ({ id: randomUUID(), jornada: "999999", cierres: 0, contado: "0", seQueda: "0", hace: m.personas.responsable, clave: CLAVES.responsable }),
+    contesta: "RC006",
+  },
+  "POST caja/abrir": { cuerpo: () => ({ id: randomUUID(), jornada: "999999", contado: "100" }), contesta: "RC006" },
+  "POST cuentas/[cuenta]/fiar": {
+    cuerpo: (m) => ({ revision: 0, clienteNuevo: "Fundidora del Norte", vence: null, autoriza: m.personas.responsable, clave: CLAVES.responsable }),
+    contesta: "RC005",
+  },
+  // Por transferencia, para llegar a la regla del cliente: en efectivo se pide antes el cajón contado.
+  "POST fiado/abonos": { cuerpo: () => ({ id: randomUUID(), cliente: "999999", importe: "100", forma: "transferencia" }), contesta: "RC005" },
+  "POST caja/movimientos": {
+    cuerpo: (m) => ({ id: randomUUID(), jornada: "999999", tipo: "sacar", importe: "100", motivo: "La tienda", autoriza: m.personas.responsable, clave: CLAVES.responsable }),
+    contesta: "RC006",
+  },
+  "POST avisos/[aviso]/visto": { cuerpo: () => ({}), contesta: "RC005" },
+  "POST gastos": { cuerpo: () => ({ id: randomUUID(), fecha: "2026-09-01", tipo: "999999", concepto: "Renta", importe: "100", deDonde: "otro" }), contesta: "RC005" },
+  "POST gastos/[gasto]/anular": { cuerpo: () => ({ motivo: "Repetido" }), contesta: "RC005" },
+  "POST gastos/tipos": { cuerpo: () => ({ nombre: "Renta" }), contesta: "RC005" },
+  "POST gastos/tipos/[tipo]": { cuerpo: () => ({ cuenta: true, activo: true }), contesta: "RC005" },
   "POST jornada/reabrir": {
     cuerpo: (m) => ({ id: randomUUID(), jornada: "999999", cierre: 1, autoriza: m.personas.responsable, clave: CLAVES.responsable }),
     contesta: "RC006",
@@ -214,6 +250,10 @@ const BIEN_FORMADAS: Record<string, { cuerpo: (m: Mundo, carton: number, pet: nu
   "POST cuentas/[cuenta]/confirmar": { cuerpo: () => ({ revision: 1 }), contesta: "RC005" },
   "POST cuentas/[cuenta]/terminar-vehiculo": { cuerpo: (m) => ({ responsable: m.personas.responsable, clave: CLAVES.responsable, revision: 1 }), contesta: "RC005" },
   "POST comprobantes/[operacion]/imprimir": { cuerpo: () => ({ id: randomUUID() }), contesta: "RC005" },
+  "POST comprobantes/[operacion]/correcciones": {
+    cuerpo: (m, carton) => ({ id: randomUUID(), linea: randomUUID(), kg: "1", material: carton, vistas: 0, liquidacion: "efectivo", motivo: "Se pesó mal", autoriza: m.personas.responsable, clave: CLAVES.responsable }),
+    contesta: "RC005",
+  },
   "POST envios/[envio]/cancelar": { cuerpo: () => ({}), contesta: null },
   "POST inventario/conteo/previa": { cuerpo: (_m, carton) => ({ material: carton, contado: "1" }), contesta: null },
   "POST inventario/conteo": {
@@ -234,6 +274,7 @@ const BIEN_FORMADAS: Record<string, { cuerpo: (m: Mundo, carton: number, pet: nu
   "POST administracion/personas": { cuerpo: () => ({ nombre: "De mostrador", rol: "mostrador", clave: CLAVES.responsable }), contesta: "RC005" },
   "POST administracion/personas/[persona]/clave": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },
   "POST administracion/personas/[persona]/baja": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },
+  "POST administracion/personas/[persona]/corte": { cuerpo: () => ({ puede: true, clave: CLAVES.responsable }), contesta: "RC005" },
   "POST administracion/equipos": { cuerpo: () => ({ nombre: "Oficina", clave: CLAVES.responsable }), contesta: null },
   "POST administracion/equipos/[equipo]/baja": { cuerpo: () => ({ clave: CLAVES.responsable }), contesta: "RC005" },
   "POST inventario/correccion": {
@@ -362,11 +403,14 @@ test("un día entero, de dar de alta el equipo a cerrar, solo por las rutas", ()
     const porFolio = await caja.bien(await ruta("comprobantes", "GET"), "GET", `/api/comprobantes?folio=${hecha.cuenta.folio}`);
     assert.equal(porFolio.comprobante.id, cuenta);
 
-    // Cerrar: se dice cuál jornada y cuántos cierres llevaba cuando se vio.
+    // Cerrar: se dice cuál jornada y cuántos cierres llevaba cuando se vio, y el corte del cajón:
+    // contado al abrir, lo que hay, lo que se queda, y quién lo firma con su clave (0038).
     const cerrar = await ruta("jornada/cerrar", "POST");
     const visto = (await caja.bien(await ruta("dia", "GET"), "GET", "/api/dia")).dia;
     assert.deepEqual({ cierres: visto.jornada.cierres, cerradaHoy: visto.cerradaHoy }, { cierres: 0, cerradaHoy: null });
-    const orden = { id: randomUUID(), jornada: visto.jornada.id, cierres: 0 };
+    await caja.bien(await ruta("caja/abrir", "POST"), "POST", "/api/caja/abrir", { id: randomUUID(), jornada: visto.jornada.id, contado: "1000" });
+    const corte = { contado: "937", seQueda: "937", hace: m.personas.responsable, clave: CLAVES.responsable };     // 1000 − 63 que se pagaron
+    const orden = { id: randomUUID(), jornada: visto.jornada.id, cierres: 0, ...corte };
     const cierre = await caja.bien(cerrar, "POST", "/api/jornada/cerrar", orden);
     assert.deepEqual(
       { aPagar: cierre.cierre.aPagar, abierta: cierre.cierre.jornada.abierta, cierre: cierre.cierre.cierre, jornada: cierre.dia.jornada, cerradaHoy: cierre.dia.cerradaHoy },
@@ -388,10 +432,10 @@ test("un día entero, de dar de alta el equipo a cerrar, solo por las rutas", ()
     const repetida = await caja.bien(cerrar, "POST", "/api/jornada/cerrar", orden);
     assert.deepEqual({ cierre: repetida.cierre.cierre, abierta: repetida.cierre.jornada.abierta }, { cierre: 1, abierta: true });
     // Una orden nueva que cree que el día lleva cero cierres, no.
-    const atrasada = await caja.pedir(cerrar, "POST", "/api/jornada/cerrar", { id: randomUUID(), jornada: visto.jornada.id, cierres: 0 });
+    const atrasada = await caja.pedir(cerrar, "POST", "/api/jornada/cerrar", { id: randomUUID(), jornada: visto.jornada.id, cierres: 0, ...corte });
     assert.equal(await codigoDe(atrasada), "RC011");
     // Y la que lo ve como está, sí: es el segundo cierre, y el reporte dice que antes se reabrió.
-    const otra = await caja.bien(cerrar, "POST", "/api/jornada/cerrar", { id: randomUUID(), jornada: visto.jornada.id, cierres: 1 });
+    const otra = await caja.bien(cerrar, "POST", "/api/jornada/cerrar", { id: randomUUID(), jornada: visto.jornada.id, cierres: 1, ...corte });
     assert.deepEqual(
       { cierre: otra.cierre.cierre, cierres: otra.cierre.jornada.cierres, reaperturas: otra.cierre.reaperturas.map((x: any) => [x.cierre, x.autorizo]) },
       { cierre: 2, cierres: 2, reaperturas: [[1, "De responsable"]] },
@@ -417,6 +461,15 @@ test("lo que llega mal formado se rechaza antes de tocar la base", () =>
       ["cuentas/[cuenta]/segunda-pesada", { linea: randomUUID(), captura: randomUUID(), kg: "" }],
       ["cuentas/[cuenta]/descuento", { linea: randomUUID(), kg: "-1" }],
       ["cuentas/[cuenta]/recipiente", { linea: randomUUID(), kg: "-0.2" }],
+      ["caja/abrir", { id: randomUUID(), jornada: "1", contado: "-5" }],
+      ["caja/abrir", { id: randomUUID(), jornada: "1", contado: 500 }],
+      ["caja/abrir", { id: randomUUID(), jornada: "1", contado: "500.555" }],
+      ["caja/movimientos", { id: randomUUID(), jornada: "1", tipo: "robar", importe: "100", motivo: "x", autoriza: "1", clave: "481516" }],
+      ["caja/movimientos", { id: randomUUID(), jornada: "1", tipo: "sacar", importe: "1,000", motivo: "x", autoriza: "1", clave: "481516" }],
+      ["caja/movimientos", { id: randomUUID(), jornada: "1", tipo: "sacar", importe: "100", motivo: "   ", autoriza: "1", clave: "481516" }],
+      ["jornada/cerrar", { id: randomUUID(), jornada: "1", cierres: 0, contado: "1,000", seQueda: "0", hace: "1", clave: "481516" }],
+      ["jornada/cerrar", { id: randomUUID(), jornada: "1", cierres: 0, contado: "100", seQueda: "0", hace: "1" }],
+      ["cuentas/[cuenta]/confirmar", { revision: 1, forma: "cheque" }],
       ["cuentas/[cuenta]/recipiente", { linea: randomUUID(), kg: 0.2 }],
       ["cuentas/[cuenta]/recipiente", { linea: randomUUID() }],
       ["cuentas/[cuenta]/materiales", { linea: randomUUID(), captura: randomUUID(), material: 1, bascula: 2, kg: "30.2", recipiente: 0.2 }],
@@ -498,7 +551,10 @@ test("el vehículo de otra jornada: al mostrador se le niega, y con la clave de 
     await caja.bien(await ruta("cuentas", "POST"), "POST", "/api/cuentas", { id: cuenta, tipo: "compra", etiqueta: "Torton azul" });
     await caja.bien(await ruta("cuentas/[cuenta]/materiales", "POST"), "POST", "/api/x", { linea, captura: randomUUID(), material: fierro, bascula: 1, kg: "5200" }, p);
     const abierta = (await caja.bien(await ruta("dia", "GET"), "GET", "/api/dia")).dia.jornada;
-    await caja.bien(await ruta("jornada/cerrar", "POST"), "POST", "/api/jornada/cerrar", { id: randomUUID(), jornada: abierta.id, cierres: abierta.cierres });
+    await caja.bien(await ruta("caja/abrir", "POST"), "POST", "/api/caja/abrir", { id: randomUUID(), jornada: abierta.id, contado: "0" });
+    await caja.bien(await ruta("jornada/cerrar", "POST"), "POST", "/api/jornada/cerrar", {
+      id: randomUUID(), jornada: abierta.id, cierres: abierta.cierres, contado: "0", seQueda: "0", hace: m.personas.responsable, clave: CLAVES.responsable,
+    });
 
     // Al otro día (para la base sigue siendo hoy: se recorre la fecha de la jornada cerrada).
     await m.db.query("ALTER TABLE jornada DISABLE TRIGGER USER");

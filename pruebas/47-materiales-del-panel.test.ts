@@ -5,13 +5,12 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
-import { abrirJornada, conBase, escenario, material, urlApp } from "./apoyo.ts";
+import { abrirJornada, cerrarSinCorte, conBase, escenario, material, urlApp } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 import { conMundo, ruta } from "./mundo.ts";
 import type { Navegador } from "./navegador.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
-import { cerrarJornada } from "../src/servidor/dominio/cierre.ts";
 import { abrirCuenta, agregarMaterial, confirmar, ponerDescuento } from "../src/servidor/dominio/cuentas.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
 import { darMerma, separar } from "../src/servidor/dominio/inventario.ts";
@@ -63,7 +62,7 @@ const conPatio = (prueba: (p: Patio) => Promise<void>) =>
       await hecha(bd, e.mostrador, e, "compra", [["Cartón", "10"], ["Magnesio", "3"]]);    // 21.00 + 66.00
       await hecha(bd, e.mostrador, e, "venta", [["Cartón", "200.3"]]);                     // 500.75
       const dia = await estadoDelDia(bd);
-      await cerrarJornada(bd, e.mostrador, { id: randomUUID(), jornada: dia.jornada!.id, cierres: dia.jornada!.cierres });
+      await cerrarSinCorte(db, dia.jornada!.id, dia.jornada!.cierres, e.mostrador);
 
       const hoy = await abrirJornada(db, e.responsable, "2026-10-02");
       await db.query("SELECT fijar_precio($1, 2.3, 2.7, $2)", [e.mat["Cartón"], e.responsable]);

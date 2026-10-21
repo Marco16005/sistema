@@ -41,6 +41,11 @@ export interface Resumen {
   total: string;
 }
 
+/** Cómo se pagó o se cobró. Solo el efectivo pasa por el cajón; a crédito es una venta fiada (0041). */
+export type FormaDePago = "efectivo" | "transferencia" | "credito";
+/** Las que se dicen al confirmar: el crédito tiene su propia entrada, con cliente y clave. */
+export const FORMAS_DE_PAGO: readonly Exclude<FormaDePago, "credito">[] = ["efectivo", "transferencia"];
+
 export interface Cuenta {
   id: string;
   tipo: "compra" | "venta";
@@ -49,6 +54,8 @@ export interface Cuenta {
   /** Sube con cada cambio. Es la que se manda al confirmar. */
   revision: number;
   folio: string | null;
+  /** Se fija al confirmar; antes, nada. */
+  formaDePago: FormaDePago | null;
   /** Un vehículo que no volvió a pesarse antes de que su jornada cerrara. */
   deOtraJornada: boolean;
   /** A nombre de quién está: solo mientras algún material lleve precio especial. Las demás son anónimas. */
@@ -61,7 +68,7 @@ export interface Cuenta {
 
 export async function verCuenta(bd: Bd, id: string): Promise<Cuenta | null> {
   const [f] = await bd.leer(
-    `SELECT o.id, o.tipo, o.etiqueta, o.estado, o.revision, o.folio::text AS folio,
+    `SELECT o.id, o.tipo, o.etiqueta, o.estado, o.revision, o.folio::text AS folio, o.forma_de_pago,
             (o.estado = 'borrador' AND j.cerrada_en IS NOT NULL) AS de_otra_jornada,
             CASE WHEN o.cliente_id IS NOT NULL
                  THEN jsonb_build_object('id', o.cliente_id::text,
@@ -102,7 +109,7 @@ export async function verCuenta(bd: Bd, id: string): Promise<Cuenta | null> {
   );
   if (!f) return null;
   return {
-    id: f.id, tipo: f.tipo, etiqueta: f.etiqueta, estado: f.estado, revision: f.revision, folio: f.folio,
+    id: f.id, tipo: f.tipo, etiqueta: f.etiqueta, estado: f.estado, revision: f.revision, folio: f.folio, formaDePago: f.forma_de_pago,
     deOtraJornada: f.de_otra_jornada,
     cliente: f.cliente,
     materiales: f.materiales,
@@ -228,8 +235,8 @@ export async function descartar(bd: Bd, persona: Persona, cuenta: string): Promi
  * Confirma la cuenta tal como se vio. `revision` es la que venía con lo que la pantalla mostró:
  * nunca se lee aquí, porque entonces se confirmaría lo que hay y no lo que la persona revisó.
  */
-export async function confirmar(bd: Bd, persona: Persona, cuenta: string, revision: number): Promise<Cuenta> {
-  await bd.enTransaccion(persona, (c) => c.query("SELECT confirmar_cuenta($1, $2, $3)", [cuenta, persona, revision]));
+export async function confirmar(bd: Bd, persona: Persona, cuenta: string, revision: number, forma: Exclude<FormaDePago, "credito"> = "efectivo"): Promise<Cuenta> {
+  await bd.enTransaccion(persona, (c) => c.query("SELECT confirmar_cuenta($1, $2, $3, $4)", [cuenta, persona, revision, forma]));
   return comoQuedo(bd, cuenta);
 }
 
@@ -242,9 +249,9 @@ export async function confirmar(bd: Bd, persona: Persona, cuenta: string, revisi
  * se confirma, de modo que el intento fallido queda contado.
  */
 export async function terminarVehiculo(
-  bd: Bd, huella: string, quien: { responsable: Persona; clave: string }, cuenta: string, revision: number,
+  bd: Bd, huella: string, quien: { responsable: Persona; clave: string }, cuenta: string, revision: number, forma: Exclude<FormaDePago, "credito"> = "efectivo",
 ): Promise<Cuenta | null> {
   const hecha = await bd.enTransaccion(quien.responsable, async (c) =>
-    (await c.query("SELECT id FROM terminar_vehiculo($1, $2, $3, $4, $5)", [cuenta, revision, quien.responsable, quien.clave, huella])).rows[0].id);
+    (await c.query("SELECT id FROM terminar_vehiculo($1, $2, $3, $4, $5, $6)", [cuenta, revision, quien.responsable, quien.clave, huella, forma])).rows[0].id);
   return hecha ? comoQuedo(bd, cuenta) : null;
 }

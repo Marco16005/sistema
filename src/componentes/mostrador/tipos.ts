@@ -2,6 +2,9 @@
 
 export type Tipo = "compra" | "venta";
 
+/** Cómo se pagó o se cobró. Solo el efectivo pasa por el cajón; a crédito es una venta fiada. */
+export type FormaDePago = "efectivo" | "transferencia" | "credito";
+
 export interface CuentaEnLista {
   id: string;
   tipo: Tipo;
@@ -41,6 +44,7 @@ export interface Cuenta {
   estado: "borrador" | "confirmada";
   revision: number;
   folio: string | null;
+  formaDePago: FormaDePago | null;
   deOtraJornada: boolean;
   /** A nombre de quién está: solo mientras algún material lleve precio especial. */
   cliente: { id: string; nombre: string } | null;
@@ -80,6 +84,9 @@ export interface Comprobante {
   fecha: string;
   hora: string;
   atendio: string;
+  formaDePago: FormaDePago;
+  /** Si se fió: hasta cuándo debe pagar, si se pactó (AAAA-MM-DD). */
+  credito: { vence: string | null } | null;
   materiales: Array<{ nombre: string; bascula: string; bruto: string; tara: string; recipiente: string; descuento: string; kg: string; precio: string; importe: string }>;
   suma: string;
   ajuste: string;

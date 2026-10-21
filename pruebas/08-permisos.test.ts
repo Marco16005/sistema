@@ -119,7 +119,7 @@ test("la aplicación no crea objetos en el esquema", () =>
 
 test("una tabla temporal con el nombre de una real no engaña a las funciones", () =>
   conApp(async (app) => {
-    await app.query("CREATE TEMP TABLE usuario (LIKE public.usuario)");
+    await app.query("CREATE TEMP TABLE usuario (LIKE public.usuario INCLUDING DEFAULTS)");
     await app.query("INSERT INTO usuario (id, sucursal_id, nombre, rol, puede_autorizar, activo) OVERRIDING SYSTEM VALUE VALUES (424242, 1, 'Falso', 'responsable', true, true)");
     // La función busca en la tabla real, donde esa persona no existe.
     await rechaza(app.query("SELECT publicar_lista_de_hoy(424242)"), "RC008");
@@ -148,13 +148,18 @@ test("todas las funciones del esquema fijan dónde buscan sus tablas", () =>
 
 // La lista completa. Una función nueva no entra aquí sola: si la aplicación puede ejecutarla, alguien lo decidió.
 const ENTRADAS = [
-  "abrir_cuenta", "abrir_jornada_de_hoy", "agregar_material", "alta_cliente", "alta_de_persona", "alta_material", "baja_de_equipo", "baja_de_persona",
-  "cambiar_clave_de_persona", "cambiar_cliente", "cambiar_material", "cambiar_nombre_de_cliente", "cancelar_envio", "canjear_codigo", "cerrar_el_dia", "codigo_para_equipo", "confirmar_cuenta",
-  "contar_material", "corregir_movimiento", "dar_merma", "dar_precio_especial", "descartar_cuenta", "entrar", "equipo_vigente",
-  "equipos_para_administrar", "estado_de_movimiento", "etiquetar_cuenta", "fijar_precio", "hoy_en", "personas_para_administrar", "poner_descuento", "poner_recipiente",
-  "precios_especiales_del_dia", "previa_de_conteo", "previa_de_separacion", "publicar_lista_de_hoy", "quitar_material", "quitar_precio",
-  "quitar_precio_especial", "reabrir_jornada", "registrar_impresion", "salir", "segunda_pesada", "separar_material", "sesion_vigente",
-  "terminar_arranque", "terminar_vehiculo", "verificar_clave", "vida_vigente",
+  "abrir_cuenta", "abrir_el_cajon", "abrir_jornada_de_hoy", "agregar_material", "alta_cliente", "alta_de_persona",
+  "alta_material", "alta_tipo_de_gasto", "anular_gasto", "baja_de_equipo", "baja_de_persona",
+  "cambiar_clave_de_persona", "cambiar_cliente", "cambiar_material", "cambiar_nombre_de_cliente",
+  "cambiar_tipo_de_gasto", "cancelar_envio", "canjear_codigo", "cerrar_el_dia", "cobrar_a_credito",
+  "codigo_para_equipo", "confirmar_cuenta", "contar_material", "corregir_cuenta", "corregir_movimiento", "dar_merma",
+  "dar_precio_especial", "descartar_cuenta", "entrar", "equipo_vigente", "equipos_para_administrar",
+  "esperado_en_cajon", "estado_de_movimiento", "etiquetar_cuenta", "fijar_precio", "gastos_del_periodo", "hoy_en",
+  "mover_caja", "permiso_de_corte", "personas_para_administrar", "poner_descuento", "poner_recipiente",
+  "precios_especiales_del_dia", "previa_de_conteo", "previa_de_separacion", "publicar_lista_de_hoy",
+  "puede_hacer_corte", "quitar_material", "quitar_precio", "quitar_precio_especial", "reabrir_jornada",
+  "registrar_abono", "registrar_gasto", "registrar_impresion", "salir", "segunda_pesada", "separar_material",
+  "sesion_vigente", "terminar_arranque", "terminar_vehiculo", "ver_aviso", "verificar_clave", "vida_vigente",
 ];
 
 test("la aplicación ejecuta las funciones de entrada y ninguna otra", () =>
@@ -238,7 +243,10 @@ test("con las credenciales de la aplicación se hace un día completo", () =>
       await app.query("SELECT dar_merma($1, $2, 1, 'Mojado', $3)", [randomUUID(), carton, mostrador]);
       const descartable = (await abrirCuenta(app, "venta", mostrador)).id;
       await app.query("SELECT descartar_cuenta($1, $2)", [descartable, mostrador]);
-      const cerrada = await una(app, CERRAR_EL_DIA, [mostrador]);
+      // Se cierra con su corte: el cajón contado al abrir y el corte firmado con clave (0038).
+      await app.query("SELECT abrir_el_cajon(gen_random_uuid(), $1, 5000, $2)", [j.id, mostrador]);
+      const { esperado } = await una(app, "SELECT esperado_en_cajon($1)::text AS esperado", [j.id]);
+      const cerrada = await una(app, "SELECT * FROM cerrar_el_dia(gen_random_uuid(), $1, 0, $2, $2, $3, '481516', $4, $5)", [j.id, esperado, responsable, huella, mostrador]);
       assert.equal(cerrada.jornada_id, j.id);
       assert.equal(cerrada.cierre, 1);
       assert.equal((await una(app, "SELECT kg FROM existencia WHERE material_id = $1", [carton])).kg, "29.000");

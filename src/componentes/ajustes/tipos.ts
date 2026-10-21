@@ -11,6 +11,8 @@ export interface PersonaAdministrada {
   adentroDe: string | null;
   /** Si se le cambia la clave o se le da de baja desde la pantalla: mostrador, patio y consulta. */
   seAdministra: boolean;
+  /** Si puede firmar el corte del cajón: los responsables siempre; de mostrador, a quien se le dio. */
+  haceCorte: boolean;
 }
 
 export interface EquipoAdministrado {

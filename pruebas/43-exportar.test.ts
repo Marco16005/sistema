@@ -49,14 +49,14 @@ test("comoCsv no toca lo que no es fórmula: un guion o un signo en medio de un 
 
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import { abrirJornada, conBase, escenario, material, una, urlApp } from "./apoyo.ts";
+import { abrirJornada, cerrarSinCorte, conBase, escenario, material, una, urlApp } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 import { CLAVES, conMundo, ruta } from "./mundo.ts";
 import type { Mundo } from "./mundo.ts";
 import type { Navegador } from "./navegador.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
-import { cerrarJornada, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
+import { resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
 import { abrirCuenta, agregarMaterial, confirmar } from "../src/servidor/dominio/cuentas.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
 
@@ -93,7 +93,7 @@ const conDosDias = (prueba: (d: DosDias) => Promise<void>) =>
       await hecha(bd, e.mostrador, e, "compra", [["Cartón", "10"]]);                   // 21.00 → 21
       await hecha(bd, e.mostrador, e, "venta", [["Cartón", "200.3"]]);                 // 500.75 → 501
       const dia = await estadoDelDia(bd);
-      await cerrarJornada(bd, e.mostrador, { id: randomUUID(), jornada: dia.jornada!.id, cierres: dia.jornada!.cierres });
+      await cerrarSinCorte(db, dia.jornada!.id, dia.jornada!.cierres, e.mostrador);
 
       const hoy = await abrirJornada(db, e.responsable, "2026-10-02");
       await db.query("SELECT publicar_lista($1, $2)", [hoy.lista, e.responsable]);
@@ -194,7 +194,7 @@ test("dias coincide con cada cierre, incluye jornadas vacías y excluye las ajen
     assert.deepEqual([t.filas[i]![0], t.filas[i]![2], ...t.filas[i]!.slice(5, 7)], [c.jornada.fecha, String(c.operaciones), c.aPagar, c.aCobrar]);
   }
   const dia = await estadoDelDia(bd);
-  await cerrarJornada(bd, e.mostrador, { id: randomUUID(), jornada: hoy, cierres: dia.jornada!.cierres });
+  await cerrarSinCorte(db, hoy, dia.jornada!.cierres, e.mostrador);
   await abrirJornada(db, e.responsable, "2026-10-03");
   assert.deepEqual((await tablaPara(bd, { hoja: "dias", desde: "2026-10-03", hasta: "2026-10-04" })).filas,
     [["2026-10-03", "abierto", "0", "0", "0", "0", "0", "0.000", "0.000"]]);
@@ -220,7 +220,7 @@ test("renglones conserva el orden de captura, descuento, precio especial y decim
 
 test("precios exporta listas publicadas en orden por fecha, familia y material; omite la sin publicar", () => conDosDias(async ({ bd, db, e, hoy }) => {
   const dia = await estadoDelDia(bd);
-  await cerrarJornada(bd, e.mostrador, { id: randomUUID(), jornada: hoy, cierres: dia.jornada!.cierres });
+  await cerrarSinCorte(db, hoy, dia.jornada!.cierres, e.mostrador);
   await abrirJornada(db, e.responsable, "2026-10-03");
   const t = await tablaPara(bd, { hoja: "precios", desde: "2026-10-01", hasta: "2026-10-03" });
   assert.deepEqual(t.encabezados, ["Fecha", "Familia", "Material", "Compra", "Venta"]);

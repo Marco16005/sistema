@@ -344,9 +344,9 @@ test("la lista de personas para entrar pide equipo, y no trae a quien está de b
     const r = await n.pedir(personas, "GET", "/api/personas");
     assert.equal(r.status, 200);
     assert.deepEqual((await r.json()).personas, [
-      { id: m.beto, nombre: "Beto", rol: "patio" },
-      { id: m.luis, nombre: "Luis", rol: "mostrador" },
-      { id: m.servando, nombre: "Servando", rol: "responsable" },
+      { id: m.beto, nombre: "Beto", rol: "patio", haceCorte: false },
+      { id: m.luis, nombre: "Luis", rol: "mostrador", haceCorte: false },
+      { id: m.servando, nombre: "Servando", rol: "responsable", haceCorte: true },
     ]);
   }));
 

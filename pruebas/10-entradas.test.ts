@@ -6,8 +6,8 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
 import {
-  CERRAR_EL_DIA,  CHICA_2, CHICA_3, GRANDE, abrirCuenta, abrirJornada, agregarMaterial, comoApp, conApp, conBase, contar, desenlace,
-  equipoDeAlta, esperarQueEspere, material, personaConClave, pidDe, rechaza, segundaPesada, una, usuario,
+  CERRAR_CON_CORTE, CHICA_2, CHICA_3, GRANDE, abrirCuenta, abrirJornada, agregarMaterial, comoApp, conApp, conBase, contar, desenlace,
+  equipoDeAlta, esperarQueEspere, material, paraElCorte, personaConClave, pidDe, rechaza, segundaPesada, una, usuario,
 } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 
@@ -360,10 +360,11 @@ test("cerrar la jornada mientras se agrega un material: el que llega segundo res
       const op = (await abrirCuenta(app, "compra", e.mostrador)).id;
       await agregarMaterial(app, op, e.mat["Fierro pesado"], "5200", e.mostrador, { bascula: GRANDE });
       const pid = await pidDe(otra);
+      const corte = await paraElCorte(db, e.mostrador);
 
       // Primero el cierre: el material que llega después ya no entra.
       await app.query("BEGIN");
-      await app.query(CERRAR_EL_DIA, [e.mostrador]);
+      await app.query(CERRAR_CON_CORTE, [e.mostrador, corte.firma, corte.huella, "271828"]);
       const agregado = desenlace(agregarMaterial(otra, op, e.mat["Cartón"], "10", e.mostrador));
       await esperarQueEspere(db, pid);
       await app.query("COMMIT");
@@ -381,9 +382,10 @@ test("agregar un material mientras se cierra la jornada: el cierre espera y el m
       const op = (await abrirCuenta(app, "compra", e.mostrador)).id;
       await agregarMaterial(app, op, e.mat["Fierro pesado"], "5200", e.mostrador, { bascula: GRANDE });
       const pid = await pidDe(otra);
+      const corte = await paraElCorte(db, e.mostrador);
       await app.query("BEGIN");
       await agregarMaterial(app, op, e.mat["Cartón"], "10", e.mostrador);
-      const cierre = desenlace(otra.query(CERRAR_EL_DIA, [e.mostrador]));
+      const cierre = desenlace(otra.query(CERRAR_CON_CORTE, [e.mostrador, corte.firma, corte.huella, "271828"]));
       await esperarQueEspere(db, pid);
       await app.query("COMMIT");
       assert.equal(await cierre, "pasó");
@@ -454,7 +456,8 @@ test("en báscula chica no hay segunda pesada, ni en un material que no existe",
 async function vehiculoDeAyer(app: pg.Client, db: pg.Client, e: Escenario) {
   const op = (await abrirCuenta(app, "compra", e.mostrador)).id;
   const l = await agregarMaterial(app, op, e.mat["Fierro pesado"], "5200", e.mostrador, { bascula: GRANDE });
-  await app.query(CERRAR_EL_DIA, [e.mostrador]);
+  const corte = await paraElCorte(db, e.mostrador);
+  await app.query(CERRAR_CON_CORTE, [e.mostrador, corte.firma, corte.huella, "271828"]);
   const hoy = await abrirJornada(db, e.responsable, "2026-10-02");
   await db.query("UPDATE precio SET compra = 99 WHERE lista_id = $1", [hoy.lista]);
   await db.query("SELECT publicar_lista($1, $2)", [hoy.lista, e.responsable]);

@@ -20,10 +20,15 @@ export interface PersonaParaEntrar {
   id: string;
   nombre: string;
   rol: Rol;
+  /** Puede firmar el corte del cajón: los responsables, y quien de mostrador tenga el permiso (0038). */
+  haceCorte: boolean;
 }
 
 export const personasParaEntrar = (bd: Bd): Promise<PersonaParaEntrar[]> =>
-  bd.leer<PersonaParaEntrar>("SELECT id, nombre, rol FROM usuario WHERE activo ORDER BY nombre, id");
+  bd.leer<PersonaParaEntrar>(
+    `SELECT id, nombre, rol, (rol = 'responsable' OR (rol = 'mostrador' AND hace_corte)) AS "haceCorte"
+     FROM usuario WHERE activo ORDER BY nombre, id`,
+  );
 
 /** La persona entra en ese equipo. Devuelve su sesión y quién es, o nada si no entró. */
 export async function entrar(

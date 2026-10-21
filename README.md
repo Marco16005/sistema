@@ -63,8 +63,9 @@ para responsables y administración.
 
 Una base recién puesta no tiene qué enseñar: el panel, los días y la bitácora salen vacíos. Para
 verlos con algo, la consola le da a una base **de desarrollo** ocho semanas de historia inventada
-—días abiertos y cerrados, precios que se mueven, compras y ventas—, hecha con las funciones de
-verdad del sistema, y deja hoy abierto y con precios:
+—días abiertos y cerrados, precios que se mueven, compras y ventas, el cajón contado cada mañana y
+su corte cada noche, ventas fiadas y sus abonos, y gastos—, hecha con las funciones de verdad del
+sistema, y deja hoy abierto y con precios:
 
 ```bash
 docker compose run --rm consola demo sembrar >> demo-local.log    # las claves de las personas nuevas quedan en ese archivo
@@ -164,7 +165,23 @@ Cada cuenta abierta está siempre a la vista, con su nombre: «Compra 3» al abr
 ponga —«Don Chuy», «camioneta roja»— con «Cambiar nombre». El nombre es del mostrador: el ticket no
 lo lleva. Dentro de una cuenta van tres pasos, una decisión por pantalla: el material, la báscula y
 lo que marca —y en la báscula chica, si viene en costal o carretilla, lo que pesa vacío—, y la
-cuenta, donde se paga o se cobra y se imprime el ticket.
+cuenta, donde se paga o se cobra y se imprime el ticket. Al pagar o cobrar se dice si fue en
+efectivo o por transferencia; una venta a un cliente conocido también se puede **fiar**, con la
+clave de un responsable y la fecha en que debe pagar.
+
+## El cajón
+
+Antes de atender, quien abre **cuenta el cajón**; la pantalla propone lo que se dejó en el último
+corte, y si no coincide le llega un aviso al responsable. Durante el día se **saca o se mete
+dinero** con la clave de un responsable, y en el cierre se ve cuánto debería haber: lo de la mañana,
+más lo cobrado y menos lo pagado en efectivo, lo sacado y metido, los abonos de lo fiado en efectivo
+y las correcciones liquidadas en efectivo. **Cerrar el día es hacer el corte**: se cuenta, se dice
+cuánto se queda para mañana y lo firma con su clave un responsable, o alguien de mostrador a quien
+el responsable le dio permiso de corte. Si no cuadró, el aviso sale dentro del sistema (con el
+servidor, también por Telegram y correo). En el cierre también se **registran los abonos** de lo
+fiado y se **corrige una cuenta ya cobrada**: los kilos o el material que de verdad eran, con la
+clave de un responsable; el comprobante original no se toca, y se liquida solo la diferencia. El
+plan y sus decisiones: `docs/planes/2026-10-15-caja-y-ganancia.md`.
 
 ## Cómo está armado
 
@@ -185,7 +202,7 @@ docs/revisiones/  las revisiones de Codex y la respuesta a cada hallazgo
 
 ### El panel de quien dirige
 
-Lo ven el responsable y quien consulta, en `/panel`. Tiene siete partes, y una más para el responsable:
+Lo ven el responsable y quien consulta, en `/panel`. Tiene diez partes, y una más para el responsable:
 
 - el **resumen**: compras, ventas y cuentas de los últimos 7 días, 30 días o 3 meses —o de tal día
   a tal día, hasta un año—, con sus gráficas, la cuenta promedio, lo que más se movió, lo que hay
@@ -197,6 +214,13 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene siete partes, y una m
   —lo que lleva treinta días o más sin salir va aparte: se está quedando—; y la ficha de cada
   material: a cuánto se pagó y se cobró el kilo, lo que entró y salió, su precio junto a sus
   kilos, lo que ha habido en el patio y lo que se le perdió;
+- la **ganancia**: lo vendido, lo que costó a costo promedio, el margen, lo perdido en bajas y
+  conteos, los gastos y lo que queda; por día, semana o mes, por material, y el patio valuado a lo
+  que costó junto a lo que valdría a precio de lista;
+- lo **fiado**: quién debe cuánto, lo vencido, y cuándo fue la última venta y el último abono;
+- los **gastos**: los del periodo y por tipo. El responsable los registra —de otro lado, con su
+  fecha, o del cajón de hoy, que cuenta en el corte—, clasifica lo que se sacó del cajón, anula uno
+  (queda quién y por qué) y escoge qué tipos se restan en la ganancia;
 - los **precios**: cómo se ha movido el precio de compra y de venta de cada material en 30 días,
   3 meses o 1 año, con su gráfica y sus cambios uno por uno;
 - los **clientes**: a quién se le da precio especial, cuánto se le ha comprado y vendido en esas
@@ -210,14 +234,16 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene siete partes, y una m
   facultado para autorizar y con su clave cada vez—; dar de alta, dar de baja, reactivar y marcar
   como frecuentes los **materiales**; y dar de alta, dar de baja y reactivar a los **clientes** a
   los que se les da precio especial (también siguen naciendo en el mostrador, al darles el
-  primero), y cambiarles el nombre. Los responsables, quien administra y la facultad de
-  autorizar siguen siendo de la consola, y a un material no se le cambia el nombre.
+  primero), y cambiarles el nombre; y darle o quitarle a alguien de mostrador el **permiso de
+  corte**. Los responsables, quien administra y la facultad de autorizar siguen siendo de la
+  consola, y a un material no se le cambia el nombre.
 
 El panel no lleva cuentas propias: todo sale de los comprobantes y del libro de inventario, con la
 regla del cierre —una cuenta es del día en que se asentó—, así que cada día del panel dice lo mismo
-que su cierre (`pruebas/37-panel.test.ts` lo exige). No hay tabla de resumen ni migración: son
-consultas sobre lo que ya se guarda. «Ventas menos compras» no es la ganancia, y la pantalla lo
-dice: la ganancia pide el costo de lo vendido, que es de la etapa de caja. Las gráficas se dibujan
+que su cierre (`pruebas/37-panel.test.ts` lo exige). No hay tabla de resumen: son consultas sobre
+lo que ya se guarda. «Ventas menos compras» no es la ganancia, y el resumen lo dice: la ganancia
+está en su parte, y sale de lo que costó cada movimiento, que la base pone al asentarlo (costo
+promedio por material, migración 0039). Las gráficas se dibujan
 a mano (cajas con CSS y un SVG para los precios), sin biblioteca. Un «cliente» es alguien con precio
 especial: las demás cuentas no quedan a nombre de nadie. El detalle está en
 `docs/planes/2026-10-11-lado-administrativo.md`.
@@ -247,13 +273,20 @@ especial: las demás cuentas no quedan a nombre de nadie. El detalle está en
   base con una migración de más o de menos, no atiende.
 - **Corregir es decir cómo debió quedar.** Un movimiento confirmado no se edita: se asienta la
   diferencia entre lo que el libro dice de él y lo que debe decir, con motivo y con quién lo autorizó.
-  Corrige el inventario, no el dinero.
+  Corrige el inventario; el dinero de una cuenta ya cobrada se corrige aparte, en el cierre.
 - **El conteo manda.** Lo que un conteo ya cubrió no se corrige encima: se vuelve a contar.
 - **Quien autoriza teclea su clave en ese momento**, y la comprueba la base dentro de la misma
   función que escribe. Sin clave correcta de una persona facultada no hay conteo, corrección ni
   vehículo de otro día.
 - **Repetir un envío no lo duplica**, ni en el mostrador ni en el inventario: queda registro de lo que
   llegó y de lo que produjo.
+- **Lo que debería haber en el cajón lo calcula la base**, de lo que se asentó (`esperado_en_cajon`).
+  El corte guarda lo contado, la diferencia, lo que se queda y quién lo firmó, y ya no cambia.
+- **Lo que costó cada movimiento lo pone la base al asentarlo**, a costo promedio del material en
+  ese momento. Separar reparte el costo entre las partes según su precio de compra; la basura no
+  lleva costo.
+- **Lo fiado, los abonos, las correcciones de dinero y los gastos no se editan ni se borran.** Un
+  gasto se anula, y queda quién, cuándo y por qué.
 
 Y una que sostiene la pantalla, apoyada en la anterior:
 
@@ -598,12 +631,11 @@ Faltan, en este orden:
    por Codex). Están hechos el entorno estricto, la migración con ventana, la restauración, el
    respaldo y el proxy con HTTPS (ensayado en local); faltan publicar una versión, la guía del
    servidor, la revisión de Codex del bloque y el servidor real.
-3. **Caja y ganancia**: el corte del cajón, los gastos y el costo de lo vendido. Espera las
-   respuestas del negocio: `docs/planes/2026-10-12-caja-y-ganancia-preguntas.md`.
-4. Lectura de básculas, tabletas, trabajo sin conexión y crédito.
+3. **Las alertas fuera del sistema** (Telegram y correo) cuando un corte no cuadra: salen con el
+   servidor. Mientras, el aviso sale dentro del sistema.
+4. Lectura de básculas, tabletas y trabajo sin conexión.
 
-**Corregir el inventario no corrige el dinero.** Si se pagó de más o de menos, eso se arregla fuera
-del sistema mientras no exista la caja.
+No se fían compras ni hay adelantos, y nada de facturas: así lo pidió el negocio.
 
 El modelo ya distingue una pesada tecleada de una automática, para que conectar las básculas no
 cambie tablas.

@@ -17,6 +17,10 @@ export interface Comprobante {
   hora: string;
   /** Quien confirmó la cuenta. */
   atendio: string;
+  /** Cómo se pagó o se cobró. */
+  formaDePago: "efectivo" | "transferencia" | "credito";
+  /** Si se fió: hasta cuándo debe pagar, si se pactó (AAAA-MM-DD). */
+  credito: { vence: string | null } | null;
   materiales: Array<{
     nombre: string;
     bascula: string;
@@ -42,7 +46,8 @@ const CONSULTA = `
   SELECT o.id, o.folio::text AS folio, o.tipo, o.etiqueta, o.cliente_nombre AS cliente,
          to_char(o.confirmada_en AT TIME ZONE s.zona, 'YYYY-MM-DD') AS fecha,
          to_char(o.confirmada_en AT TIME ZONE s.zona, 'HH24:MI') AS hora,
-         u.nombre AS atendio, o.suma::text AS suma, o.ajuste_redondeo::text AS ajuste, o.total::text AS total,
+         u.nombre AS atendio, o.forma_de_pago AS "formaDePago",
+         (SELECT jsonb_build_object('vence', to_char(cr.vence_el, 'YYYY-MM-DD')) FROM credito cr WHERE cr.operacion_id = o.id) AS credito, o.suma::text AS suma, o.ajuste_redondeo::text AS ajuste, o.total::text AS total,
          (SELECT count(*)::int FROM impresion i WHERE i.operacion_id = o.id) AS impresiones,
          (SELECT jsonb_agg(jsonb_build_object(
                    'nombre', m.nombre, 'bascula', i.nombre, 'bruto', l.peso_bruto::text, 'tara', l.tara::text,

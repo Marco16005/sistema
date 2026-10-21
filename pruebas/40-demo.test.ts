@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
-import { abrirJornada, conBase, personaConClave, rechaza, una, urlDe } from "./apoyo.ts";
+import { abrirJornada, cerrarSinCorte, conBase, personaConClave, rechaza, una, urlDe } from "./apoyo.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import { abrirCuenta, agregarMaterial, confirmar } from "../src/servidor/dominio/cuentas.ts";
 import { recorrer } from "../consola/demo.ts";
+import { saldos } from "../src/servidor/dominio/fiado.ts";
+import { ganancia } from "../src/servidor/dominio/ganancia.ts";
 
 const excluidas = ['sesion', 'equipo', 'codigo_alta', 'credencial', 'migracion', 'vida', 'restauracion', 'mantenimiento', 'mantenimiento_publicacion', 'respaldo_diario'];
 const identificador = (s: string) => '"' + s.replaceAll('"', '""') + '"';
@@ -62,7 +64,7 @@ test("C.1 recorrer conserva intervalos, deja lo anterior y restaura los disparad
 
 import { sembrarDemo } from "../consola/demo.ts";
 import { estadoDelDia } from "../src/servidor/dominio/dia.ts";
-import { cerrarJornada, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
+import { resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
 import { panel } from "../src/servidor/dominio/panel.ts";
 import { diasDelHistorial } from "../src/servidor/dominio/historial.ts";
 
@@ -199,9 +201,7 @@ test('C.7 rechaza una jornada cerrada o varias jornadas sin movimiento', () => d
     const j = await abrirJornada(db, quien, '2026-01-01');
     await db.query('SELECT fijar_precio(22, $1, $2, $3)', ['2.10', '2.50', quien]);
     await db.query('SELECT publicar_lista($1, $2)', [j.lista, quien]);
-    const bd = crearBd(urlDe(base));
-    try { await cerrarJornada(bd, quien, { id: randomUUID(), jornada: j.id, cierres: 0 }); }
-    finally { await bd.cerrar(); }
+    await cerrarSinCorte(db, j.id, 0, quien);
     if (varias) await abrirJornada(db, quien, '2026-01-02');
     const antes = await filas(db);
     await assert.rejects(sembrarDemo({ url: urlDe(base), dias: 9 }), /jornada/);
@@ -234,6 +234,36 @@ test('C.8 mermas, conteos semanales y precios especiales aparecen en el panel', 
     assert.equal(p.personas.reduce((n, x) => n + x.descartadas, 0), (await una(db, "SELECT count(*)::int AS n FROM bitacora WHERE accion = 'descartar'")).n);
     assert.equal((await una(db, "SELECT count(*)::int AS n FROM operacion WHERE estado <> 'confirmada'")).n, 0);
     assert.ok((await una(db, 'SELECT count(*)::int AS n FROM equipo')).n > 0);
+    for (const { tabla, columna } of await columnas(db)) {
+      assert.equal((await una(db, `SELECT count(*)::int AS n FROM ${identificador(tabla)} WHERE ${identificador(columna)} > clock_timestamp()`)).n, 0, `${tabla}.${columna}`);
+    }
+  } finally { await bd.cerrar(); }
+})));
+
+test('C.9 cada día cerrado con su cajón contado y su corte; lo fiado, sus abonos y los gastos, con sus fechas', () => desarrollo(() => conBase(async (db, base) => {
+  await sembrarDemo({ url: urlDe(base), dias: 21, semilla: 71 });
+  const bd = crearBd(urlDe(base));
+  try {
+    assert.equal((await una(db, `SELECT count(*)::int AS n FROM jornada j WHERE j.cerrada_en IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM caja_apertura a WHERE a.jornada_id = j.id) OR NOT EXISTS (SELECT 1 FROM caja_corte c WHERE c.jornada_id = j.id))`)).n, 0);
+    // Un corte por día. Lo que dijo que debía haber es lo que la base calcula —con abonos y gastos del
+    // cajón—; después del corte la base ya descuenta lo que se retiró en él.
+    assert.equal((await una(db, 'SELECT count(*)::int AS n FROM (SELECT jornada_id FROM caja_corte GROUP BY 1 HAVING count(*) > 1) x')).n, 0);
+    assert.equal((await una(db, 'SELECT count(*)::int AS n FROM caja_corte c WHERE c.esperado <> esperado_en_cajon(c.jornada_id) + c.retirado')).n, 0);
+    const deudores = await saldos(bd);
+    assert.ok(deudores.length >= 1, 'se fió al menos una venta');
+    assert.ok(deudores.every((s) => Number(s.debe) >= 0), 'nadie abonó más de lo que debía');
+    assert.ok((await una(db, 'SELECT count(*)::int AS n FROM abono')).n >= 1);
+    assert.equal((await una(db, `SELECT count(*)::int AS n FROM credito cr JOIN operacion o ON o.id = cr.operacion_id
+      JOIN jornada j ON j.id = o.confirmada_en_jornada WHERE cr.vence_el <= j.fecha`)).n, 0, 'lo fiado vence después del día en que se vendió');
+    assert.ok((await una(db, "SELECT count(*)::int AS n FROM gasto g JOIN tipo_de_gasto t ON t.id = g.tipo_id WHERE t.nombre = 'Sueldos'")).n >= 2);
+    assert.equal((await una(db, `SELECT count(*)::int AS n FROM gasto g JOIN caja_movimiento m ON m.id = g.caja_movimiento_id
+      JOIN jornada j ON j.id = m.jornada_id WHERE g.fecha <> j.fecha`)).n, 0, 'un gasto del cajón es del día de su jornada');
+    assert.equal((await una(db, 'SELECT count(*)::int AS n FROM gasto WHERE fecha > hoy_en(1::smallint)')).n, 0);
+    const { desde, hasta } = await una(db, "SELECT (hoy_en(1::smallint) - 21)::text AS desde, hoy_en(1::smallint)::text AS hasta");
+    const g = await ganancia(bd, { desde, hasta, agrupar: 'semana' });
+    assert.ok(Number(g.totales.gastos) > 0);
+    assert.equal(Number(g.totales.utilidad), Math.round((Number(g.totales.resultado) - Number(g.totales.gastos)) * 100) / 100);
     for (const { tabla, columna } of await columnas(db)) {
       assert.equal((await una(db, `SELECT count(*)::int AS n FROM ${identificador(tabla)} WHERE ${identificador(columna)} > clock_timestamp()`)).n, 0, `${tabla}.${columna}`);
     }

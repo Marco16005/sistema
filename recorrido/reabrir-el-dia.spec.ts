@@ -3,7 +3,7 @@
 // Cerrar y reabrir dicen qué vieron, así que una pestaña atrasada no deshace lo que hizo otra.
 import { expect, test, type Page } from "@playwright/test";
 import {
-  altaDePersona, aviso, baseNueva, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, pesar, salir, teclear,
+  altaDePersona, aviso, baseNueva, cerrarConCorte, conConsola, contarElCajon, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, pesar, salir, teclear,
 } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
@@ -23,13 +23,11 @@ async function enElCierre(page: Page, g: Gente): Promise<void> {
   await darDeAltaEquipo(page);
   await entrar(page, g.luis);
   await page.getByRole("link", { name: "Cierre" }).click();
-  await expect(page.getByRole("button", { name: "Cerrar el día" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toBeVisible();
 }
 
-async function cerrar(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Cerrar el día" }).click();
-  await page.getByRole("button", { name: "Toca otra vez para cerrar el día" }).click();
-}
+/** Cierra con su corte, cuadrado, y lo firma Servando (sus datos son los de `gente()`). */
+const cerrar = (page: Page): Promise<void> => cerrarConCorte(page, { id: "", nombre: "Servando", clave: "481516" });
 
 const cerrado = (page: Page) => page.getByRole("heading", { name: "El día de hoy ya se cerró" });
 
@@ -73,7 +71,7 @@ test("se cierra el día por error y se reabre con la clave de quien autoriza: se
   await pedirReabrir(page);
   await autorizar(page, g.servando.clave);
   await expect(page.locator(".okmsg")).toContainText("El día quedó abierto otra vez");
-  await expect(page.getByRole("button", { name: "Cerrar el día" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toBeVisible();
   expect(await enLaBase()).toEqual({ abierta: true, cierres: 1, reaperturas: 1 });
 
   // Es la misma jornada: se atiende con los precios que ya estaban publicados.
@@ -124,14 +122,16 @@ test("si no se supo del cierre, se manda ese mismo otra vez —también después
   await enElCierre(page, g);
   await perderLaRespuesta(page, CERRAR);
   await cerrar(page);
-  await expect(page.getByText("No se supo si el cierre se guardó.")).toBeVisible();
+  await expect(page.getByText("No se supo si el día se cerró.")).toBeVisible();
   expect(await enLaBase()).toEqual({ abierta: false, cierres: 1, reaperturas: 0 });
 
-  // Se recarga con el envío en el aire: sigue sin saberse, y no se ofrece cerrar de nuevo.
+  // Se recarga con el envío en el aire: sigue sin saberse, y no se ofrece cerrar de nuevo. Se le
+  // pide la clave otra vez a la misma persona.
   await page.reload();
-  await expect(page.getByText("No se supo si el cierre se guardó.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Cerrar el día" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Volver a intentar" }).click();
+  await expect(page.getByText("No se supo si el día se cerró.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toHaveCount(0);
+  await teclear(page, g.servando.clave);
+  await page.getByRole("button", { name: "Cerrar el día a nombre de Servando" }).click();
   await expect(cerrado(page)).toBeVisible();
   await expect(page.getByText("Jornada cerrada · cierre 1")).toBeVisible();
   expect(await enLaBase()).toEqual({ abierta: false, cierres: 1, reaperturas: 0 });
@@ -156,7 +156,7 @@ test("si no se supo de la reapertura, se le pide la clave otra vez a la misma pe
   await expect(page.getByRole("button", { name: "Reabrir el día" })).toHaveCount(0);
   await autorizar(page, g.servando.clave);
   await expect(page.locator(".okmsg")).toContainText("El día quedó abierto otra vez");
-  await expect(page.getByRole("button", { name: "Cerrar el día" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toBeVisible();
   expect(await enLaBase()).toEqual({ abierta: true, cierres: 1, reaperturas: 1 });
 });
 
@@ -167,7 +167,7 @@ test("una pestaña atrasada no reabre un cierre que ya no es el vigente, ni cier
   // La otra pestaña ve el día abierto, con cero cierres, y ahí se queda.
   const otra = await context.newPage();
   await otra.goto("/cierre");
-  await expect(otra.getByRole("button", { name: "Cerrar el día" })).toBeVisible();
+  await expect(otra.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toBeVisible();
 
   // En esta se cierra y se reabre: el día lleva un cierre.
   await cerrar(page);
@@ -218,7 +218,9 @@ test("si el día que se cerró ya no es hoy, no se ofrece reabrirlo: se abre la 
   await expect(cerrado(page)).toHaveCount(0);
   await page.getByRole("button", { name: "Abrir la jornada de hoy" }).click();
   await page.getByRole("link", { name: "Cierre" }).click();
-  await expect(page.getByRole("button", { name: "Cerrar el día" })).toBeVisible();
+  // El día nuevo pide contar el cajón antes de poder cerrarlo.
+  await contarElCajon(page, "500");
+  await expect(page.getByRole("button", { name: "Hacer el corte y cerrar el día" })).toBeVisible();
 });
 
 test("una pestaña duplicada no hereda un cierre a medias: se resuelve donde se empezó", async ({ page, context }) => {
@@ -226,21 +228,22 @@ test("una pestaña duplicada no hereda un cierre a medias: se resuelve donde se 
   await enElCierre(page, g);
   await perderLaRespuesta(page, CERRAR);
   await cerrar(page);
-  await expect(page.getByText("No se supo si el cierre se guardó.")).toBeVisible();
+  await expect(page.getByText("No se supo si el día se cerró.")).toBeVisible();
 
   // La copia nace con lo que la primera tenía guardado, y lo suelta: no le toca reintentar nada.
   const abierta = context.waitForEvent("page");
   await page.evaluate(() => { window.open("/cierre", "_blank"); });
   const copia = await abierta;
   await expect(copia.locator(".okmsg")).toContainText("sigue en la otra pestaña");
-  await expect(copia.getByRole("button", { name: "Volver a intentar" })).toHaveCount(0);
-  await expect(copia.getByText("No se supo si el cierre se guardó.")).toHaveCount(0);
+  await expect(copia.getByRole("dialog", { name: "Firmar el corte y cerrar el día" })).toHaveCount(0);
+  await expect(copia.getByText("No se supo si el día se cerró.")).toHaveCount(0);
   expect(await copia.evaluate(() => sessionStorage.getItem("feruga.cierre") ?? "")).not.toContain("jornada");
   // Ve el día como está en el servidor, que ya lo cerró.
   await expect(cerrado(copia)).toBeVisible();
 
-  // La primera sigue con lo suyo, y el día queda cerrado una sola vez.
-  await page.getByRole("button", { name: "Volver a intentar" }).click();
+  // La primera sigue con lo suyo —la clave otra vez, de la misma persona— y el día queda cerrado una sola vez.
+  await teclear(page, g.servando.clave);
+  await page.getByRole("button", { name: "Cerrar el día a nombre de Servando" }).click();
   await expect(cerrado(page)).toBeVisible();
   expect(await enLaBase()).toEqual({ abierta: false, cierres: 1, reaperturas: 0 });
 });

@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type pg from "pg";
-import { GRANDE, abrirJornada, conBase, equipoDeAlta, escenario, personaConClave, una, urlApp } from "./apoyo.ts";
+import { GRANDE, abrirJornada, cerrarSinCorte, conBase, equipoDeAlta, escenario, personaConClave, una, urlApp } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
-import { cerrarJornada, resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
+import { resumenDelCierre } from "../src/servidor/dominio/cierre.ts";
 import { abrirCuenta, agregarMaterial, confirmar, segundaPesada, terminarVehiculo } from "../src/servidor/dominio/cuentas.ts";
 import { cuentasDelDia, diasDelHistorial } from "../src/servidor/dominio/historial.ts";
 import { ErrorDeForma } from "../src/servidor/numeros.ts";
@@ -25,7 +25,7 @@ const conHistorial = (prueba: (bd: Bd, db: pg.Client, e: Escenario) => Promise<v
   });
 
 const envio = (material: number, kg: string, bascula = 2) => ({ linea: randomUUID(), captura: randomUUID(), material, bascula, kg });
-const cerrar = (bd: Bd, e: Escenario) => cerrarJornada(bd, e.responsable, { id: randomUUID(), jornada: e.jornada, cierres: 0 });
+const cerrar = (db: pg.Client, e: Escenario) => cerrarSinCorte(db, e.jornada, 0, e.responsable);
 
 async function hecha(bd: Bd, e: Escenario, tipo: "compra" | "venta", materiales: Array<[string, string]>, etiqueta: string | null = null) {
   let c = await abrirCuenta(bd, e.mostrador, { id: randomUUID(), tipo, etiqueta });
@@ -37,7 +37,7 @@ test("los dos días salen del reciente al viejo y sus cuentas y totales coincide
   conHistorial(async (bd, db, e) => {
     await hecha(bd, e, "compra", [["Cartón", "30.2"], ["PET", "4"]]);
     await hecha(bd, e, "venta", [["Cartón", "200.3"]]);
-    await cerrar(bd, e);
+    await cerrar(db, e);
     const hoy = await abrirJornada(db, e.responsable, "2026-10-02");
     await db.query("SELECT publicar_lista($1, $2)", [hoy.lista, e.responsable]);
     await hecha(bd, e, "compra", [["Cartón", "10"]]);
@@ -90,7 +90,7 @@ test("el vehículo terminado mañana aparece solo mañana aunque su jornada de l
   conHistorial(async (bd, db, e) => {
     const c = await abrirCuenta(bd, e.mostrador, { id: randomUUID(), tipo: "compra", etiqueta: "Torton" });
     const vehiculo = await agregarMaterial(bd, e.mostrador, c.id, envio(e.mat["Fierro pesado"]!, "5200", GRANDE));
-    await cerrar(bd, e);
+    await cerrar(db, e);
     const hoy = await abrirJornada(db, e.responsable, "2026-10-02");
     await db.query("SELECT publicar_lista($1, $2)", [hoy.lista, e.responsable]);
     const pesado = await segundaPesada(bd, e.mostrador, c.id, vehiculo.materiales[0]!.id, { captura: randomUUID(), kg: "3400" });
@@ -132,7 +132,7 @@ test("ambas rutas dejan leer a responsable y consulta, rechazan los otros roles 
     const bd = crearBd(await urlApp(m.base), { conexiones: 1 });
     try {
       await hecha(bd, e, "compra", [["Cartón", "10"]]);
-      await cerrar(bd, e);
+      await cerrar(m.db, e);
       await abrirJornada(m.db, e.responsable, "2026-10-02");
       const listado = await diasDelHistorial(bd);
       const detalle = { cierre: await resumenDelCierre(bd, e.jornada), cuentas: await cuentasDelDia(bd, e.jornada) };

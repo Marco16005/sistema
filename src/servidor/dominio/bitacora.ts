@@ -52,6 +52,18 @@ const tipo = (r: Registro): string => r.tipo === "compra" ? "compra" : r.tipo ==
 const nombre = (r: Registro): string => r.nombre ? ` ${r.nombre}` : "";
 
 const frases: Record<string, (r: Registro) => string> = {
+  "fiar operacion": (r) => `fió la venta${r.folio ? ` ${r.folio}` : ""}${r.cliente ? ` a ${r.cliente}` : ""}${r.autoriza ? ` (autorizó ${r.autoriza})` : ""}`,
+  "abonar cliente": (r) => `registró un abono${de(r.cliente)}`,
+  "alta tipo_de_gasto": (r) => `dio de alta el tipo de gasto${nombre(r)}`,
+  "cambiar tipo_de_gasto": (r) => `cambió el tipo de gasto${nombre(r)}`,
+  "gastar gasto": (r) => `registró un gasto${r.total !== null ? ` de ${pesos(r.total)}` : ""}${motivo(r)}`,
+  "anular gasto": (r) => `anuló un gasto${motivo(r)}`,
+  "permiso_de_corte usuario": (r) => `cambió el permiso para hacer el corte${de(r.persona)}`,
+  "contar cajon": (r) => `contó el cajón al abrir${r.contado !== null ? `: ${pesos(r.contado)}` : ""}`,
+  "sacar caja": (r) => `sacó dinero del cajón${motivo(r)}`,
+  "meter caja": (r) => `metió dinero al cajón${motivo(r)}`,
+  "corte jornada": (r) => `hizo el corte del día${r.contado !== null ? `: contó ${pesos(r.contado)}` : ""}`,
+  "ver aviso": () => "marcó un aviso del cajón como visto",
   "abrir jornada": () => "abrió el día",
   "cerrar jornada": () => "cerró el día",
   "reabrir jornada": (r) => `reabrió el día${r.cierre ? ` (cierre ${r.cierre})` : ""}`,
@@ -72,6 +84,7 @@ const frases: Record<string, (r: Registro) => string> = {
   "baja usuario": (r) => `dio de baja${r.persona ? ` a ${r.persona}` : " a una persona"}`,
   "baja equipo": (r) => `dio de baja el equipo${r.equipo ? ` ${r.equipo}` : ""}`,
   "reimprimir operacion": (r) => `reimprimió el comprobante${r.folio ? ` ${r.folio}` : ""}${motivo(r)}`,
+  "corregir operacion": (r) => `corrigió la cuenta cobrada${r.folio ? ` ${r.folio}` : ""}${r.autoriza ? ` (autorizó ${r.autoriza})` : ""}${motivo(r)}`,
   "corregir movimiento_inventario": (r) => `corrigió un movimiento a ${cantidad(r)}${motivo(r)}`,
   "cancelar_envio envio": () => "canceló un envío pendiente",
   "registrar_restauracion restauracion": () => "restauró un respaldo",

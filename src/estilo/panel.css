@@ -136,3 +136,12 @@
 .panel .exrow .rn b,.indicador small{overflow-wrap:anywhere}
 .precio-y-kilos .escalones{height:110px}
 .precio-y-kilos .columnas{height:130px}
+
+/* ── los gastos: uno anulado se sigue viendo, tachado; lo que solo sirve para escribir no se imprime ── */
+.exrow[data-anulado] :is(.rn b,.ri){color:var(--texto-2)}
+.exrow[data-anulado] .rn b{text-decoration:line-through}
+.exrow .rn small.anulado{margin-top:2px}
+.exrow .rn > .btn,.exrow .rn > .manual{margin-top:var(--espacio-2)}
+.panel .note.hecho{color:var(--bien)}
+.alta-de-tipo .btn{margin-top:var(--espacio-2)}
+@media print{.imprimible :is(.tipos-de-gasto,.registrar,.por-clasificar){display:none}}

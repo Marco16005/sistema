@@ -38,6 +38,9 @@ const ZONA = "Etc/GMT+12";
 const ZONA_DE_MANANA = "Etc/GMT-12";
 
 /** Un día de HOY ya en marcha: jornada abierta con precios publicados, y alguien que autoriza con su clave. */
+/** Quien firma los cortes de estas pruebas: la dueña, con su clave, desde el equipo dado de alta. */
+let firma: { duena: string; huella: string };
+
 const conHoy = (prueba: (d: Dia) => Promise<void>) =>
   conBase(async (db, base) => {
     await db.query("UPDATE sucursal SET zona = $1", [ZONA]);
@@ -56,6 +59,7 @@ const conHoy = (prueba: (d: Dia) => Promise<void>) =>
     }
     await db.query("SELECT publicar_lista($1, $2)", [lista, duena]);
     const app = await comoApp(base);
+    firma = { duena, huella };
     try {
       await prueba({ app, db, base, duena, huella, hoy, e: { responsable: duena, mostrador, patio, consulta, jornada: j.id, lista, mat } });
     } finally {
@@ -66,8 +70,18 @@ const conHoy = (prueba: (d: Dia) => Promise<void>) =>
 const verJornada = (c: pg.Client, id: string) =>
   una(c, "SELECT id, to_char(fecha, 'YYYY-MM-DD') AS fecha, cerrada_en, cerrada_por, cierres FROM jornada WHERE id = $1", [id]);
 
-const cerrar = (c: pg.Client, jornada: string, cierres: number, quien: string, envio: string = randomUUID()) =>
-  una(c, "SELECT * FROM cerrar_el_dia($1, $2, $3, $4)", [envio, jornada, cierres, quien]);
+/**
+ * Cierra como la pantalla, con su corte (0038): el cajón se cuenta al abrir si no se había contado,
+ * se cuenta lo que debería haber y firma la dueña con su clave. Repetirlo con el mismo envío y sin
+ * que nada cambie entre tanto manda lo mismo.
+ */
+async function cerrar(c: pg.Client, jornada: string, cierres: number, quien: string, envio: string = randomUUID()) {
+  if ((await c.query("SELECT 1 FROM caja_apertura WHERE jornada_id = $1", [jornada])).rows.length === 0) {
+    await c.query("SELECT abrir_el_cajon(gen_random_uuid(), $1, 100000, $2)", [jornada, quien]);
+  }
+  const { esperado } = await una(c, "SELECT esperado_en_cajon($1)::text AS esperado", [jornada]);
+  return una(c, "SELECT * FROM cerrar_el_dia($1, $2, $3, $4, $4, $5, $6, $7, $8)", [envio, jornada, cierres, esperado, firma.duena, CLAVE, firma.huella, quien]);
+}
 
 interface Pedido { envio?: string; cierre: number; quien?: string; autoriza?: string; clave?: string; huella?: string; jornada?: string }
 const reabrir = (c: pg.Client, d: Dia, p: Pedido) =>
@@ -78,13 +92,13 @@ const reabrir = (c: pg.Client, d: Dia, p: Pedido) =>
 // ── cerrar y reabrir ───────────────────────────────────────────────────────
 
 test("cerrar dice cuál jornada y cuántos cierres llevaba, y la cuenta de cierres sube de uno en uno", () =>
-  conHoy(async ({ app, e }) => {
+  conHoy(async ({ app, e, duena }) => {
     assert.equal((await verJornada(app, e.jornada)).cierres, 0);
     const hecho = await cerrar(app, e.jornada, 0, e.mostrador);
     assert.deepEqual({ jornada: hecho.jornada_id, cierre: hecho.cierre }, { jornada: e.jornada, cierre: 1 });
     const j = await verJornada(app, e.jornada);
     assert.ok(j.cerrada_en);
-    assert.equal(j.cerrada_por, e.mostrador);
+    assert.equal(j.cerrada_por, duena);           // quien firmó el corte (0038)
     assert.equal(j.cierres, 1);
   }));
 
@@ -106,7 +120,7 @@ test("la jornada de hoy se reabre con la clave de quien autoriza: queda abierta,
     const reg = await una(db, "SELECT * FROM reapertura WHERE id = $1", [r.id]);
     assert.deepEqual(
       { jornada: reg.jornada_id, cierre: reg.cierre, cerradaPor: reg.cerrada_por, pidio: reg.pedida_por, autorizo: reg.autorizada_por },
-      { jornada: e.jornada, cierre: 1, cerradaPor: e.mostrador, pidio: e.mostrador, autorizo: d.duena },
+      { jornada: e.jornada, cierre: 1, cerradaPor: d.duena, pidio: e.mostrador, autorizo: d.duena },
     );
     assert.equal(reg.cerrada_en.getTime(), cerrada.cerrada_en.getTime());
     assert.ok(reg.reabierta_en.getTime() >= cerrada.cerrada_en.getTime());
@@ -126,6 +140,7 @@ test("no se reabre un día que no es hoy, ni lo que no está cerrado, ni una jor
   await conApp(async (app, db, e) => {
     const duena = await personaConClave(db, "Zayra", "responsable", CLAVE, true);
     const huella = await equipoDeAlta(db);
+    firma = { duena, huella };
     await cerrar(app, e.jornada, 0, e.mostrador);
     await rechaza(app.query("SELECT * FROM reabrir_jornada($1, $2, 1, $3, $4, $5, $6)", [randomUUID(), e.jornada, duena, CLAVE, huella, e.mostrador]), "RC006");
     assert.ok((await verJornada(db, e.jornada)).cerrada_en);
@@ -177,7 +192,7 @@ test("lo piden mostrador y responsable; patio, consulta y administración no. La
     const administra = await usuario(db, "Marco", "administracion");
     for (const quien of [e.patio, e.consulta, administra]) {
       await rechaza(reabrir(app, d, { cierre: 1, quien }), "RC008");
-      await rechaza(app.query("SELECT * FROM cerrar_el_dia($1, $2, 1, $3)", [randomUUID(), e.jornada, quien]), "RC008");
+      await rechaza(app.query("SELECT * FROM cerrar_el_dia($1, $2, 1, 0, 0, $3, $4, $5, $6)", [randomUUID(), e.jornada, d.duena, CLAVE, d.huella, quien]), "RC008");
     }
     await rechaza(app.query("UPDATE jornada SET cerrada_en = NULL, cerrada_por = NULL WHERE id = $1", [e.jornada]), "42501");
     await rechaza(app.query("INSERT INTO reapertura (jornada_id, cierre, cerrada_en, cerrada_por, pedida_por, autorizada_por) VALUES ($1, 1, now(), $2, $2, $3)", [e.jornada, e.mostrador, d.duena]), "42501");
@@ -335,7 +350,7 @@ test("el envío de cerrar y el de reabrir: con otro contenido, o cancelado, ya n
     const r1 = randomUUID();
     await reabrir(app, d, { envio: r1, cierre: 1 });
     await rechaza(reabrir(app, d, { envio: r1, cierre: 2 }), "RC012");
-    await rechaza(app.query("SELECT * FROM cerrar_el_dia(NULL, $1, 1, $2)", [e.jornada, e.mostrador]), "RC005");
+    await rechaza(app.query("SELECT * FROM cerrar_el_dia(NULL, $1, 1, 0, 0, $2, $3, $4, $5)", [e.jornada, d.duena, CLAVE, d.huella, e.mostrador]), "RC005");
     await rechaza(app.query("SELECT * FROM reabrir_jornada(NULL, $1, 1, $2, $3, $4, $5)", [e.jornada, d.duena, CLAVE, d.huella, e.mostrador]), "RC005");
   }));
 
@@ -487,6 +502,7 @@ test("cerrar con cuentas por terminar sigue sin pasar, y no gasta el envío", ()
     await app.query("SELECT descartar_cuenta($1, $2)", [c.id, e.mostrador]);
     assert.equal((await cerrar(app, e.jornada, 0, e.mostrador, envio)).cierre, 1);
     // El atajo de las pruebas cierra «la que está abierta» diciendo lo que ve: aquí ya no hay ninguna.
-    assert.equal((await app.query(CERRAR_EL_DIA, [e.mostrador])).rows.length, 0);
+    // (Es de la conexión del dueño: la aplicación ya no cierra sin corte.)
+    assert.equal((await db.query(CERRAR_EL_DIA, [e.mostrador])).rows.length, 0);
     assert.equal(CHICA_2, 2);
   }));

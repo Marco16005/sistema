@@ -1,7 +1,7 @@
 // El vehículo que se pesa cargado hoy y vuelve vacío mañana: no impide cerrar, conserva el precio
 // del día en que llegó y lo termina un responsable con su clave.
 import { expect, test } from "@playwright/test";
-import { cerrarElDia, aviso, baseNueva, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, pesar, teclear } from "./apoyo.ts";
+import { cerrarConCorte, cerrarElDia, contarElCajon, aviso, baseNueva, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, pesar, teclear } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
 
@@ -26,8 +26,7 @@ test("vehículo de un día para otro", async ({ page }) => {
   await page.getByRole("link", { name: "Cierre" }).click();
   await expect(page.getByText("Nada pendiente en el mostrador.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Vehículos por volver" })).toBeVisible();
-  await page.getByRole("button", { name: "Cerrar el día" }).click();
-  await page.getByRole("button", { name: "Toca otra vez para cerrar el día" }).click();
+  await cerrarConCorte(page, g.servando);
   // Cerrado hoy, ya no se ofrece «abrir la de hoy» (que solo podía fallar): dice que se cerró, y se puede reabrir.
   await expect(page.getByRole("heading", { name: "El día de hoy ya se cerró" })).toBeVisible();
 
@@ -42,6 +41,8 @@ test("vehículo de un día para otro", async ({ page }) => {
     await db.query("SELECT publicar_lista_de_hoy($1)", [g.servando.id]);
   });
   await page.goto("/mostrador");
+  // Día nuevo: antes de atender, se cuenta el cajón.
+  await contarElCajon(page, "5000");
   await expect(riel.locator(".cta")).toContainText("De otro día");
   await expect(page.getByText("Este vehículo quedó de otro día.")).toBeVisible();
   // A una cuenta de otro día no se le agregan materiales.
@@ -92,6 +93,7 @@ test("al responsable también se le pide su clave para terminar el vehículo de 
     await db.query("SELECT publicar_lista_de_hoy($1)", [g.servando.id]);
   });
   await page.goto("/mostrador");
+  await contarElCajon(page, "5000");
   await page.getByRole("button", { name: "Pesar vacío", exact: true }).click();
   await teclear(page, "3400");
   await page.getByRole("button", { name: "Guardar peso vacío" }).click();

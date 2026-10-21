@@ -14,13 +14,14 @@ import { enviar } from "../inventario/piezas.tsx";
 import type { Pendiente } from "../inventario/piezas.tsx";
 import { soltoLoHeredado } from "../pestana.ts";
 import { SoloEnSuPestana } from "../SoloEnSuPestana.tsx";
-import { COBRAN, LoQueFalta, useSesion } from "../Sesion.tsx";
+import { COBRAN, LoQueFalta, faltaContarElCajon, useSesion } from "../Sesion.tsx";
 import { Teclado, Visor } from "../Teclado.tsx";
+import { Fiar } from "./Fiar.tsx";
 import { PrecioEspecial, precioNuevo } from "./PrecioEspecial.tsx";
 import type { EstadoDePrecio } from "./PrecioEspecial.tsx";
 import { Ticket } from "./Ticket.tsx";
 import { nombreDe, primeraPesada, segundaPesada } from "./tipos.ts";
-import type { Bascula, Catalogo, Comprobante, Cuenta, CuentaEnLista, Impresion, MaterialDeCuenta, MaterialDelCatalogo, Tipo } from "./tipos.ts";
+import type { Bascula, Catalogo, Comprobante, Cuenta, CuentaEnLista, FormaDePago, Impresion, MaterialDeCuenta, MaterialDelCatalogo, Tipo } from "./tipos.ts";
 
 /** Cuántas cuentas se pueden tener abiertas a la vez. Es regla de la pantalla, no de la base. */
 const MAXIMO_DE_CUENTAS = 10;
@@ -202,7 +203,7 @@ function Pantalla() {
     riel.current?.querySelector('.cta[aria-pressed="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activa, cuantas, ticket, dondeEsta, esperaLaActiva]);
 
-  if (!dia.listo) return <LoQueFalta para="atender" />;
+  if (!dia.listo || faltaContarElCajon(dia, persona.rol)) return <LoQueFalta para="atender" />;
   if (cuentas === null) return <p className="cargando">Un momento…</p>;
 
   const catalogo = vista ? catalogos[vista.tipo] : undefined;
@@ -325,11 +326,11 @@ function Pantalla() {
     void refrescar(null);
   };
 
-  const confirmar = (): Promise<void> =>
+  const confirmar = (forma: FormaDePago): Promise<void> =>
     hacer(async () => {
       if (!vista) return;
       try {
-        const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${vista.id}/confirmar`, { revision: vista.revision });
+        const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${vista.id}/confirmar`, { revision: vista.revision, forma });
         await terminada(r.cuenta);
       } catch (e) {
         if (e instanceof ErrorDeApi && e.codigo === "RC011") {
@@ -456,7 +457,7 @@ function Pantalla() {
                 corrigiendo={lugar.corrigiendo} alCorrigiendo={(corrigiendo) => ponerLugar(vista.id, { corrigiendo })}
                 alDecir={(mensaje) => { setAviso(""); setUltimo(mensaje); void refrescar(vista.id); }}
                 alAdvertir={(texto) => { setUltimo(""); setAviso(texto); void refrescar(vista.id); }}
-                alAgregarOtro={() => irA("mat")} alConfirmar={() => void confirmar()} alDescartar={() => void descartar()}
+                alAgregarOtro={() => irA("mat")} alConfirmar={(forma) => void confirmar(forma)} alDescartar={() => void descartar()}
                 alCambiar={(c, mensaje) => { setCuenta(c); setUltimo(mensaje); void refrescar(c.id); }}
                 alNoSaber={() => refrescar(vista.id)}
                 alTerminar={terminada}
@@ -645,7 +646,7 @@ function PasoCuenta(p: {
   alDecir: (mensaje: string) => void;
   /** Algo no se pudo porque la cuenta cambió: se dice, y se vuelve a pedir. */
   alAdvertir: (aviso: string) => void;
-  alAgregarOtro: () => void; alConfirmar: () => void; alDescartar: () => void;
+  alAgregarOtro: () => void; alConfirmar: (forma: FormaDePago) => void; alDescartar: () => void;
   alCambiar: (cuenta: Cuenta, mensaje: string) => void;
   /** El servidor falló a medio envío y no se sabe si entró: se vuelve a pedir la cuenta para ver cómo quedó. */
   alNoSaber: () => Promise<void>;
@@ -658,6 +659,10 @@ function PasoCuenta(p: {
   const compra = cuenta.tipo === "compra";
   const [porDescartar, setPorDescartar] = useState(false);
   const [autorizando, setAutorizando] = useState(false);
+  // Lo de todos los días es el efectivo; la transferencia y el crédito, para las cargas grandes.
+  const [forma, setForma] = useState<FormaDePago>("efectivo");
+  const [fiando, setFiando] = useState(false);
+  const { dia } = useSesion();
   // La segunda pesada a medias vale solo si su material sigue en esta cuenta esperando esa pesada.
   const porPesar = p.segunda ? cuenta.materiales.find((m) => m.id === p.segunda!.linea && m.porPesar) ?? null : null;
   const pesando = porPesar ? p.segunda : null;
@@ -745,8 +750,12 @@ function PasoCuenta(p: {
     );
   }
 
+  if (fiando) {
+    return <Fiar cuenta={cuenta} hoy={dia.hoy} aviso={p.aviso} ocupado={p.ocupado} hacer={p.hacer} alTerminar={p.alTerminar} alSalir={() => setFiando(false)} />;
+  }
+
   if (autorizando) {
-    return <AutorizarVehiculo cuenta={cuenta} hacer={p.hacer} aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => setAutorizando(false)} alTerminar={p.alTerminar} />;
+    return <AutorizarVehiculo cuenta={cuenta} forma={forma} hacer={p.hacer} aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => setAutorizando(false)} alTerminar={p.alTerminar} />;
   }
 
   if (p.corrigiendo && paraRecipiente) {
@@ -914,12 +923,22 @@ function PasoCuenta(p: {
         </p>
 
         {cobra ? (
-          <button
-            className="btn" type="button" disabled={!cuenta.materiales.length || falta || p.ocupado || incierto}
-            onClick={() => (pideAutorizacion ? setAutorizando(true) : p.alConfirmar())}
-          >
-            {compra ? "Pagar e imprimir ticket" : "Cobrar e imprimir ticket"}
-          </button>
+          <>
+            <div className="chips forma" role="group" aria-label={compra ? "Cómo se paga" : "Cómo se cobra"}>
+              <button type="button" className="chip" aria-pressed={forma === "efectivo"} disabled={p.ocupado} onClick={() => setForma("efectivo")}>En efectivo</button>
+              <button type="button" className="chip" aria-pressed={forma === "transferencia"} disabled={p.ocupado} onClick={() => setForma("transferencia")}>Por transferencia</button>
+              {/* Solo se fía lo que se vende, y no al vehículo de otro día: ese lo termina un responsable. */}
+              {!compra && !pideAutorizacion ? (
+                <button type="button" className="chip" aria-pressed={forma === "credito"} disabled={p.ocupado} onClick={() => setForma("credito")}>A crédito</button>
+              ) : null}
+            </div>
+            <button
+              className="btn" type="button" disabled={!cuenta.materiales.length || falta || p.ocupado || incierto}
+              onClick={() => (forma === "credito" ? setFiando(true) : pideAutorizacion ? setAutorizando(true) : p.alConfirmar(forma))}
+            >
+              {forma === "credito" ? "Fiar la venta" : <>{compra ? "Pagar" : "Cobrar"}{forma === "transferencia" ? " por transferencia" : ""} e imprimir ticket</>}
+            </button>
+          </>
         ) : (
           <p className="note">La cuenta la termina quien atiende el mostrador.</p>
         )}
@@ -987,7 +1006,7 @@ function NombreDeCuenta(p: {
 // ── autorizar en el momento: el vehículo que quedó de otro día ─────────────
 
 function AutorizarVehiculo(p: {
-  cuenta: Cuenta; aviso: string; ocupado: boolean; hacer: (accion: () => Promise<void>) => Promise<void>;
+  cuenta: Cuenta; forma: FormaDePago; aviso: string; ocupado: boolean; hacer: (accion: () => Promise<void>) => Promise<void>;
   alCancelar: () => void; alTerminar: (hecha: Cuenta) => Promise<void>;
 }) {
   const [responsables, setResponsables] = useState<QuienAutoriza[] | null>(null);
@@ -1007,7 +1026,7 @@ function AutorizarVehiculo(p: {
       alAutorizar={(quien, clave) =>
         p.hacer(async () => {
           const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${p.cuenta.id}/terminar-vehiculo`, {
-            responsable: quien.id, clave, revision: p.cuenta.revision,
+            responsable: quien.id, clave, revision: p.cuenta.revision, forma: p.forma,
           });
           // Dentro de esta misma acción: una acción no llama a otra, que la guarda contra el doble toque la detendría.
           await p.alTerminar(r.cuenta);

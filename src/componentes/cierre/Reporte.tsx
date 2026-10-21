@@ -1,6 +1,7 @@
 // Lo que un día dejó asentado: los kilos de cada material, los precios especiales y el dinero. Lo
 // usan el cierre del día y el historial, que enseña este mismo reporte de un día que ya pasó.
 import type { ReactNode } from "react";
+import type { Cajon } from "../caja/tipos.ts";
 import { ajuste, fechaCorta, kilos, pesos, pesosCerrados, precio } from "../formato.ts";
 import type { Tipo } from "../mostrador/tipos.ts";
 
@@ -34,6 +35,8 @@ export interface Cierre {
   preciosEspeciales: { compras: PrecioDado[]; ventas: PrecioDado[]; diferenciaEnCompras: string; diferenciaEnVentas: string };
   porTerminar: Pendiente[];
   vehiculosPorVolver: Pendiente[];
+  /** El cajón de ese día: con cuánto se abrió, lo que entró y salió, y sus cortes. */
+  cajon: Cajon;
 }
 
 /** Una diferencia en dinero, con su signo a la vista: «+$50.00», «−$50.00». */
@@ -117,7 +120,7 @@ export function Dinero({ cierre, children }: { cierre: Cierre; children?: ReactN
         <div className="tot"><span>A cobrar por ventas</span><span className="n">{pesosCerrados(cierre.aCobrar)}</span></div>
         <div className="tot"><span>A pagar por compras</span><span className="n">{pesosCerrados(cierre.aPagar)}</span></div>
         <div className="tot adj"><span>Ajustes por redondeo</span><span className="n">{ajuste(cierre.ajustes)}</span></div>
-        <p className="note">Es lo que suman los comprobantes del día. El conteo del cajón todavía se lleva aparte.</p>
+        <p className="note">Es lo que suman los comprobantes del día, en efectivo y por transferencia. Lo que pasó por el cajón está en «El cajón».</p>
         {cierre.reaperturas.length > 0 ? (
           <p className="note">
             Este día se reabrió después de cerrarse

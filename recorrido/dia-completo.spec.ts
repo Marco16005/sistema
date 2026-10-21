@@ -1,7 +1,7 @@
 // Un día entero en el mostrador, de dar de alta el equipo a cerrar, tocando la pantalla como la
 // tocará quien atiende.
 import { expect, test } from "@playwright/test";
-import { baseNueva, contarImpresiones, darDeAltaEquipo, entrar, gente, impresiones, pesar, salir } from "./apoyo.ts";
+import { baseNueva, cerrarConCorte, contarElCajon, contarImpresiones, darDeAltaEquipo, entrar, gente, impresiones, pesar, salir } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
 
@@ -36,6 +36,8 @@ test("un día completo: arranque, precios, una compra, una venta, comprobantes y
   // ── el mostrador atiende una compra de dos materiales ──
   await entrar(page, g.luis);
   await expect(page).toHaveURL(/\/mostrador$/);
+  // Antes de atender se cuenta el cajón.
+  await contarElCajon(page, "5000");
   await expect(page.getByText("No hay cuentas abiertas. Abre una compra o una venta.")).toBeVisible();
   await page.getByRole("button", { name: "+ Compra" }).click();
   await expect(page.getByRole("heading", { name: "Compra 1" })).toBeVisible();
@@ -99,8 +101,7 @@ test("un día completo: arranque, precios, una compra, una venta, comprobantes y
   await expect(page.locator(".ticket")).toContainText("A PAGAR$179");
   await page.getByRole("button", { name: "Listo" }).click();
 
-  await page.getByRole("button", { name: "Cerrar el día" }).click();
-  await page.getByRole("button", { name: "Toca otra vez para cerrar el día" }).click();
+  await cerrarConCorte(page, g.servando);
   // Cerrado hoy, ya no se ofrece «abrir la de hoy» (que solo podía fallar): dice que se cerró, y se puede reabrir.
   await expect(page.getByRole("heading", { name: "El día de hoy ya se cerró" })).toBeVisible();
   await expect(page.getByText("Jornada cerrada · cierre 1")).toBeVisible();

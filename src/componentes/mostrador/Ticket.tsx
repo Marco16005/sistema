@@ -63,6 +63,10 @@ export function Ticket({ comprobante: inicial, negocio, impresion: primera, pued
       <div className="r"><span>Suma</span><span>{pesos(comprobante.suma)}</span></div>
       <div className="r"><span>Ajuste por redondeo</span><span>{ajuste(comprobante.ajuste)}</span></div>
       <div className="r b g"><span>{compra ? "A PAGAR" : "A COBRAR"}</span><span>{pesosCerrados(comprobante.total)}</span></div>
+      {comprobante.formaDePago === "transferencia" ? <div>{compra ? "Pagado" : "Cobrado"} por transferencia</div> : null}
+      {comprobante.formaDePago === "credito" ? (
+        <div>A crédito{comprobante.credito?.vence ? `: paga a más tardar el ${fechaDeTicket(comprobante.credito.vence)}` : ""}</div>
+      ) : null}
       <hr />
       {impresion && impresion.numero > 1
         ? <div className="c b">REIMPRESIÓN {impresion.numero} · {impresion.motivo}</div>

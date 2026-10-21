@@ -102,3 +102,8 @@
   border:max(1px,var(--borde-marcado)) solid var(--alerta);border-radius:var(--radio);
 }
 .en-mantenimiento b{font-weight:700}
+
+/* El aviso del cajón para el responsable, debajo de las pantallas: qué pasó y a dónde ir a verlo. */
+.avisos-de-caja{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--separacion-de-toque) var(--espacio-3);
+  margin:0 0 var(--espacio-3)}
+.avisos-de-caja span{flex:1 1 260px}

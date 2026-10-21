@@ -5,11 +5,10 @@ import { test } from "node:test";
 import type pg from "pg";
 import { conMundo, ruta } from "./mundo.ts";
 import type { Navegador } from "./navegador.ts";
-import { abrirJornada, conBase, escenario, una, urlApp } from "./apoyo.ts";
+import { abrirJornada, cerrarSinCorte, conBase, escenario, una, urlApp } from "./apoyo.ts";
 import type { Escenario } from "./apoyo.ts";
 import { crearBd } from "../src/servidor/bd.ts";
 import type { Bd } from "../src/servidor/bd.ts";
-import { cerrarJornada } from "../src/servidor/dominio/cierre.ts";
 import { historiaDePrecios, PERIODOS_DE_PRECIOS } from "../src/servidor/dominio/historia-de-precios.ts";
 import { ErrorDeForma } from "../src/servidor/numeros.ts";
 
@@ -21,7 +20,7 @@ const conHistoria = (prueba: (p: Patio) => Promise<void>) => conBase(async (db, 
 
 async function siguiente(p: Patio, fecha: string): Promise<string> {
   const j = await una(p.db, "SELECT id, cierres FROM jornada WHERE sucursal_id = 1 AND cerrada_en IS NULL");
-  await cerrarJornada(p.bd, p.e.responsable, { id: randomUUID(), jornada: j.id, cierres: j.cierres });
+  await cerrarSinCorte(p.db, j.id, j.cierres, p.e.responsable);
   return (await abrirJornada(p.db, p.e.responsable, fecha)).lista;
 }
 const publicar = (p: Patio, lista: string) => p.db.query("SELECT publicar_lista($1, $2)", [lista, p.e.responsable]);

@@ -79,6 +79,7 @@ test("en una base nueva el día dice todo lo que falta", () =>
       lista: null,
       vehiculosPorVolver: 0,
       listo: false,
+      cajon: null,
     });
   }));
 
