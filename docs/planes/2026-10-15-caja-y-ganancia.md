@@ -24,7 +24,7 @@
 | 4 | **Fiado**: ventas a crédito a clientes conocidos, quién debe y sus abonos | ídem |
 | 5 | **Gastos**: capturados a mano, y escoger cuáles se ven | ídem |
 | 6 | **Revisiones pendientes de Codex** (entre una construcción y otra): las correcciones del 9 de octubre sin verificar, el respaldo diario puntos 8–10, las tareas 3–7 del rediseño, lo corregido de los intentos y el sello, el recipiente (0037) y lo que se construya aquí | Codex |
-| 7 | **`publicar.sh --corregida`** | por decidir |
+| 7 | ~~`publicar.sh --corregida`~~ — **no se hace** (21 de octubre): volver al respaldo previo no pierde nada en ese caso; ver el plan de despliegue | — |
 | — | **Al final, el servidor**: `operacion/servidor.sh` y todo lo que solo se prueba ahí (sección 10 de `docs/operacion.md`) | — |
 | — | **Del usuario**: probar en los equipos de verdad; placas de las básculas; inventario con el personal | usuario |
 

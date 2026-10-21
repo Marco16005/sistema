@@ -67,8 +67,11 @@ export interface Conjunto {
 export type Marca = "empezoLaMigracion" | "noSePublica" | "seDecidioAbrir" | "abierta";
 const MARCAS: readonly Marca[] = ["empezoLaMigracion", "noSePublica", "seDecidioAbrir", "abierta"];
 
-export type ComoCierra = "publicada" | "publicada, con el respaldo sin arrancar" | "no publicada" | "sustituida" | "restaurada";
-const CIERRES: readonly ComoCierra[] = ["publicada", "publicada, con el respaldo sin arrancar", "no publicada", "sustituida", "restaurada"];
+// No hay relevo a una versión corregida: de una publicación que empezó a migrar y no abrió se vuelve
+// al respaldo previo —el negocio estuvo cerrado desde antes de tomarlo: no se pierde nada— y la
+// corregida se publica después, como cualquier otra (docs/planes/2026-10-03-despliegue.md, tarea 5).
+export type ComoCierra = "publicada" | "publicada, con el respaldo sin arrancar" | "no publicada" | "restaurada";
+const CIERRES: readonly ComoCierra[] = ["publicada", "publicada, con el respaldo sin arrancar", "no publicada", "restaurada"];
 
 export interface Manifiesto {
   formato: typeof FORMATO;
@@ -90,7 +93,7 @@ export interface Manifiesto {
   /** El respaldo tomado con la operación cerrada, por su nombre exacto; y si el vigilante se enteró. */
   respaldo: { nombre: string; vigia: boolean | null } | null;
   marcas: Record<Marca, string | null>;
-  cierre: { como: ComoCierra; en: string; marca?: string; por?: string } | null;
+  cierre: { como: ComoCierra; en: string; marca?: string } | null;
 }
 
 /** Lo que hay que decir para escribir el manifiesto de una publicación nueva. Lo demás lo pone `crear`. */
@@ -230,8 +233,7 @@ function porQueNoCierra(m: Pick<Manifiesto, "marcas" | "base" | "anterior">, com
     if (typeof marca !== "string" || !UUID.test(marca)) return "falta la marca de la base restaurada";
     if (marca === m.base.marca) return "una base restaurada no tiene la misma marca que la de antes";
   } else {
-    // «Sustituida»: el relevo a una versión corregida. Su frontera todavía está en revisión.
-    return "el relevo a una versión corregida todavía no está hecho";
+    return "no es una forma de cerrar una publicación";
   }
   if (como !== "restaurada" && marca !== undefined) return "solo una restaurada dice la marca de la base que quedó";
   return null;
@@ -345,7 +347,7 @@ function vigenteEntre(publicaciones: Manifiesto[]): Vigente | null {
       if (!deAntes) throw new Error(`La publicación ${m.publicacion} volvió al conjunto de ${publicacion}, y su manifiesto no está. No se sigue.`);
       return { publicacion, commit: deAntes.commit, conjunto: { imagenes, configuracion }, base: { marca: m.cierre!.marca! } };
     }
-    // «No publicada» y «sustituida» no cambiaron lo que corre: manda la de antes.
+    // «No publicada» no cambió lo que corre: manda la de antes.
   }
   return null;
 }
@@ -498,11 +500,11 @@ export async function fijarBase(carpeta: string, publicacion: string, marca: str
 
 /** Cierra el manifiesto. Una vez: repetir el mismo cierre no cambia nada, y otro se rechaza. */
 export async function cerrar(
-  carpeta: string, publicacion: string, como: ComoCierra, o: { marca?: string; por?: string } = {}, ahora: Date = new Date(),
+  carpeta: string, publicacion: string, como: ComoCierra, o: { marca?: string } = {}, ahora: Date = new Date(),
 ): Promise<Manifiesto> {
   const m = await leer(carpeta, publicacion);
   if (m.cierre !== null) {
-    if (m.cierre.como === como && (m.cierre.marca ?? null) === (o.marca ?? null) && (m.cierre.por ?? null) === (o.por ?? null)) return m;
+    if (m.cierre.como === como && (m.cierre.marca ?? null) === (o.marca ?? null)) return m;
     throw new Error(`La publicación ${publicacion} ya está cerrada («${m.cierre.como}»): un manifiesto cerrado no cambia.`);
   }
   const porQue = porQueNoCierra(m, como, como === "restaurada" ? o.marca : undefined);

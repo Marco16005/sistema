@@ -4,8 +4,9 @@
 #   sh operacion/volver.sh < llave-privada.txt   restaura ese respaldo y levanta la versión anterior, CERRADA
 #   sh operacion/volver.sh --abrir               abre, cuando ya se vio que todo está bien
 #
-# Es una de las dos salidas de una publicación que empezó a migrar y no llegó a decidir abrir (la
-# otra es publicar una versión corregida). No es una rama de la publicación: es un camino propio,
+# Es la salida de una publicación que empezó a migrar y no llegó a decidir abrir: el negocio estuvo
+# cerrado desde antes de tomar ese respaldo, así que no se pierde nada; después, la versión
+# corregida se publica como cualquier otra. No es una rama de la publicación: es un camino propio,
 # y lo recorre el dueño, con su llave. Como restaurar crea otra historia —la base restaurada tiene
 # otra marca y un bloque nuevo de folios—, el manifiesto de esa publicación se cierra como
 # «restaurada» y no se continúa nunca.

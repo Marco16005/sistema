@@ -558,8 +558,9 @@ abrir; reponer el servicio de respaldo y cerrar el manifiesto. Lo que promete:
 migra hasta recuperarla: `sh operacion/publicar.sh --recuperar`. Recuperar lee el manifiesto y la
 base y hace lo único que toca: si ya se había decidido abrir, termina hacia adelante; si no se
 había migrado, restablece la versión anterior, la comprueba y la abre; y si la migración empezó y
-no se decidió abrir, **se queda cerrado** y dice las dos salidas —una versión corregida, o volver
-al respaldo que se tomó antes de migrar—. Si el manifiesto no se lee o habla de otra base, se
+no se decidió abrir, **se queda cerrado** y dice la salida: volver al respaldo que se tomó antes de
+migrar —el negocio estuvo cerrado desde antes, así que trae todo— y después publicar la versión
+corregida como cualquier otra. Si el manifiesto no se lee o habla de otra base, se
 detiene: no significa «no hay nada pendiente».
 
 **Volver al respaldo previo** (`sh operacion/volver.sh < llave-privada.txt`) lo hace el dueño, con

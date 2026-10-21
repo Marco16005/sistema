@@ -200,8 +200,9 @@ sh operacion/publicar.sh --recuperar
 
 Recuperar lee lo que quedó anotado y hace lo único que toca: si ya se había decidido abrir,
 termina; si no se había migrado, restablece la versión anterior y abre; y si la migración empezó y
-no se llegó a abrir, **se queda cerrado** y dice las dos salidas: publicar una versión corregida, o
-volver al respaldo que se tomó antes de migrar.
+no se llegó a abrir, **se queda cerrado** y dice la salida: volver al respaldo que se tomó antes de
+migrar —el negocio estuvo cerrado desde antes de tomarlo, así que no se pierde nada— y después
+publicar la versión corregida como cualquier otra.
 
 **Volver al respaldo previo** lo hace quien tiene la llave:
 

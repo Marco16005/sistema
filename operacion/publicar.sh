@@ -31,7 +31,9 @@
 # Si muere a la mitad, la publicación queda sin cerrar y nada más se publica ni se levanta hasta
 # recuperarla. Recuperar lee el manifiesto y la base, y hace lo único que toca:
 #   · se decidió abrir o ya abrió —lo diga el manifiesto o la base—: termina hacia adelante;
-#   · empezó la migración y no hay señal de apertura: se queda cerrado, y dice las dos salidas;
+#   · empezó la migración y no hay señal de apertura: se queda cerrado, y dice la salida: volver al
+#     respaldo previo (el negocio estuvo cerrado desde antes de tomarlo: no se pierde nada) y
+#     después publicar la versión corregida como cualquier otra;
 #   · ni lo uno ni lo otro: restablece la versión anterior, la comprueba y la abre. La base no se tocó.
 # Si la identidad no coincide o falta evidencia, no elige el caso más cómodo: se detiene.
 #
@@ -441,11 +443,10 @@ recuperar() {
 
 La migración de la publicación $pub empezó, y no llegó a decidirse abrir.
 El negocio se queda cerrado. La migración no se repite a ciegas ni se vuelve sola: la base ya pudo cambiar.
-Hay dos salidas, las dos deliberadas:
-  · publicar una versión corregida, que termine lo que esta dejó a medias;
-  · volver al respaldo que se tomó antes de migrar: $(manifiesto dato "$pub" respaldo.nombre)
-    Lo hace el dueño, con su llave: sh operacion/volver.sh < llave-privada.txt
-    Lo que se capturó antes de cerrar está en ese respaldo; la base que falló no se borra.
+La salida es volver al respaldo que se tomó antes de migrar: $(manifiesto dato "$pub" respaldo.nombre)
+  Lo hace el dueño, con su llave: sh operacion/volver.sh < llave-privada.txt
+  El negocio estuvo cerrado desde antes de tomarlo: trae todo lo que se capturó. La base que falló
+  no se borra. Después, la versión corregida se publica como cualquier otra.
 FIN
       exit 2
       ;;

@@ -7,6 +7,13 @@
 > **Versión 2**, reescrita tras la revisión de Codex a la versión 1 (5 bloqueantes, 8 importantes,
 > 2 menores; todos atendidos: `docs/revisiones/2026-10-03-respuesta-a-la-revision-del-plan-de-despliegue.md`).
 
+> **21 de octubre de 2026: `--corregida` no se hace.** En el único caso en que serviría —la migración
+> empezó y no se decidió abrir— el negocio estuvo cerrado desde antes de tomar el respaldo previo:
+> volver a él no pierde nada, y la versión corregida se publica después como cualquier otra. Una
+> segunda salida era otra pieza que puede fallar, sin ganar nada que importe (solo el rato de
+> restaurar). Se quitó el cierre «sustituida» del manifiesto y se dice una sola salida en el guion,
+> la guía y el README.
+>
 > **Estado al 10 de octubre de 2026.** Hechas las tareas 1 a 5 (falta `--corregida`, de la 5).
 > Codex las revisó en su décima pasada, del 7 al 9 de octubre (publicar: la lógica y los guiones;
 > el respaldo diario), y lo que encontró está corregido: el detalle, hallazgo por hallazgo, en
@@ -781,6 +788,10 @@ que por eso empieza cerrando y drenando. **Si la identidad no coincide o
 falta evidencia, no se elige el caso más cómodo: se detiene.** Repetir `--recuperar` no revive una
 publicación ya cerrada ni toca una base que ya tiene actividad nueva.
 
+*(21 de octubre: de estas dos salidas queda solo la segunda, volver al respaldo previo; la
+versión corregida se publica después, como cualquier otra. Lo de abajo sobre `--corregida` queda
+como estaba diseñado, pero no se construye: ver el estado al principio.)*
+
 Las dos salidas del caso 2, las dos deliberadas y con el candado tomado:
 - **Publicar una versión corregida:** `publicar.sh --corregida`, que es la única entrada admitida
   con un manifiesto sin cerrar. El relevo tiene su frontera, en este orden, y **nunca hay un rato
@@ -976,8 +987,8 @@ efecto de cada paso** (no solo al ver escrita la marca):
         del nombre, y el aviso del relevo no salía. Corregido (va entre llaves), con una prueba
         que revisa eso en todos los guiones.
 - [ ] `publicar.sh` con su manifiesto, `--recuperar` y `--corregida`; `levantar.sh` sin construir.
-      **Hecho el 6 y 7 de octubre de 2026, salvo `--corregida`** (su frontera espera a que Codex
-      revise la versión 5 del diseño). Falta que Codex revise todo esto.
+      **Hecho el 6 y 7 de octubre de 2026, salvo `--corregida`**, que el 21 de octubre se decidió no
+      hacer (ver el estado al principio). Falta que Codex revise todo esto.
       - **El manifiesto** (`operacion/publicacion.ts`, `pruebas/32-publicacion.test.ts`): se
         escribe de modo que sobreviva a un apagón (archivo aparte, sincronizado, renombrado, y
         sincronizada su carpeta); la carpeta de una publicación aparece entera —con su manifiesto

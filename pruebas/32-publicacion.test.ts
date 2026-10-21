@@ -389,12 +389,12 @@ test("un cierre que no pudo darse así no se cree: se lee con las mismas reglas 
   conCarpeta(async (carpeta) => {
     const uno = await instalar(carpeta);
     const leido = async (publicacion: string) => JSON.parse(await readFile(join(carpeta, publicacion, "manifiesto.json"), "utf8"));
-    const noSeCree = async (publicacion: string, cambios: (m: any) => any): Promise<void> => {
+    const noSeCree = async (publicacion: string, cambios: (m: any) => any, porQue = /su cierre no pudo darse así/): Promise<void> => {
       const ruta = join(carpeta, publicacion, "manifiesto.json");
       const bueno = await readFile(ruta, "utf8");
       await writeFile(ruta, JSON.stringify(cambios(JSON.parse(bueno))));
       try {
-        for (const pregunta of [todas, pendiente, vigente]) await assert.rejects(pregunta(carpeta), /su cierre no pudo darse así/);
+        for (const pregunta of [todas, pendiente, vigente]) await assert.rejects(pregunta(carpeta), porQue);
       } finally {
         await writeFile(ruta, bueno);
       }
@@ -407,10 +407,10 @@ test("un cierre que no pudo darse así no se cree: se lee con las mismas reglas 
     await noSeCree(uno.publicacion, (m) => ({ ...m, base: { ...m.base, marca: null } }));
     await noSeCree(uno.publicacion, (m) => ({ ...m, cierre: { ...m.cierre, marca: OTRA_MARCA } }));
     await noSeCree(uno.publicacion, (m) => ({ ...m, cierre: { ...m.cierre, por: "otra" } }));
-    // «No publicada» habiendo migrado; «restaurada» sin conjunto anterior al que volver; y el relevo, que no existe todavía.
+    // «No publicada» habiendo migrado; «restaurada» sin conjunto anterior al que volver; y un relevo, que no existe.
     await noSeCree(uno.publicacion, (m) => ({ ...m, cierre: { ...m.cierre, como: "no publicada" } }));
     await noSeCree(uno.publicacion, (m) => ({ ...m, marcas: { ...m.marcas, seDecidioAbrir: null, abierta: null }, cierre: { ...m.cierre, como: "restaurada", marca: OTRA_MARCA } }));
-    await noSeCree(uno.publicacion, (m) => ({ ...m, cierre: { ...m.cierre, como: "sustituida" } }));
+    await noSeCree(uno.publicacion, (m) => ({ ...m, cierre: { ...m.cierre, como: "sustituida" } }), /no se entiende/);
 
     // Una que se restauró de verdad: su cierre dice la marca de la base que quedó, que es otra.
     const dos = identificador(T(10), "fedcba9876543210", "000002");
