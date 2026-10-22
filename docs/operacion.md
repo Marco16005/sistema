@@ -85,8 +85,35 @@ paquete de recuperación y a ningún otro lado**. De ninguno de los dos se vuelv
   al paquete, no al servidor.
 - **Un candado de un año es un año:** un respaldo diario no se puede borrar antes, ni queriendo.
 - **Los vigilantes** (está previsto Healthchecks, con aviso por correo y por Telegram): una señal
-  para cada respaldo, otra para el diario, otra para el ensayo de restauración. El latido que
-  avisa si el sitio deja de contestar está por diseñarse.
+  para cada respaldo, otra para el diario, otra para el ensayo de restauración, y **el latido del
+  sitio** (`LATIDO_VIGIA_URL`): el servicio de respaldos le pregunta al sitio por HTTPS, por el
+  proxy y con el certificado de verdad, cada 5 minutos, y si contesta se lo dice a su señal. Si el
+  sitio deja de contestar —o se cae el servidor entero— la señal deja de oírlo y alerta. En
+  Healthchecks: periodo de 5 minutos y gracia de 15 (una publicación detiene el servicio unos
+  minutos; eso no debe sonar).
+
+### 2.3 bis Los avisos del cajón, por Telegram y por correo
+
+Un corte que no cuadró, o un cajón que se abrió con otra cantidad que la que se dejó, sale en la
+barra del responsable; con esto sale además afuera, a quien se diga. Un aviso que alguien ya vio
+en la pantalla no se manda. Si un canal falla, se reintenta al minuto.
+
+- **Telegram.** En Telegram, con **@BotFather**: `/newbot`, un nombre, y da la clave del bot →
+  `AVISOS_TELEGRAM_TOKEN`. Se crea un grupo con quienes deben recibirlos (el dueño, el
+  responsable) y se agrega el bot. Para saber el número del grupo: mandar cualquier mensaje en el
+  grupo y abrir `https://api.telegram.org/bot<la clave>/getUpdates`; el número es el de
+  `"chat":{"id":…}` (empieza con `-100`) → `AVISOS_TELEGRAM_CHAT`.
+- **Correo.** Una cuenta que manda —por ejemplo `avisos@` el dominio— y su servidor de correo
+  (lo da el proveedor del dominio): `AVISOS_CORREO_SMTP=smtps://avisos%40dominio:la-clave@smtp.del-proveedor:465`
+  (la `@` de la cuenta se escribe `%40`; con el puerto 587, `smtp://…` y se cifra con STARTTLS: sin
+  cifrar no se manda nada). `AVISOS_CORREO_DE` es esa cuenta y `AVISOS_CORREO_PARA`, a quiénes,
+  separados por comas.
+
+Después de ponerlos en el `.env` y levantar, una prueba que llega de verdad:
+
+```bash
+sh operacion/compose.sh run --rm respaldo probar-avisos    # manda un aviso de prueba por cada canal
+```
 
 ### 2.4 En el servidor
 
@@ -98,8 +125,10 @@ sh operacion/entorno.sh patio.ejemplo.mx     # genera .env con claves nuevas; no
 En el `.env` falta poner lo que el guion no puede inventar: `RESPALDO_LLAVE_PUBLICA`,
 `RESPALDO_SELLO`, los dos destinos (`RESPALDO_DESTINO`, `RESPALDO_DESTINO_DIARIO`) con su servicio
 y su credencial del servidor, y las señales de los vigilantes (`RESPALDO_VIGIA_URL`,
-`RESPALDO_VIGIA_DIARIO_URL`). Sin eso, nada arranca, y dice qué falta. **Guarda una copia del
-`.env` en el paquete de recuperación.**
+`RESPALDO_VIGIA_DIARIO_URL`). Sin eso, nada arranca, y dice qué falta. Y lo que conviene poner
+aunque no lo exija: el latido (`LATIDO_VIGIA_URL`) y los avisos del cajón por Telegram y correo
+(2.3 bis); sin ellos el sistema funciona, pero nadie se entera desde fuera. **Guarda una copia
+del `.env` en el paquete de recuperación.**
 
 ```bash
 sh operacion/publicar.sh                               # construye, comprueba, migra, levanta y abre
@@ -347,8 +376,9 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
   borrar ni acortar la retención, y que la de recuperación solo lea.
 - El ensayo de restauración desde otra máquina, siguiendo solo esta guía, midiendo cuánto tarda:
   ese es el tiempo real de recuperación.
-- Apagar la aplicación y ver que llega el aviso; impedir un respaldo y ver que llega el otro. El
-  latido que avisa si el sitio no contesta está por diseñarse.
+- Apagar la aplicación y ver que el latido deja de llegar y su vigilante alerta; impedir un
+  respaldo y ver que llega su aviso; mandar los avisos de prueba por Telegram y correo
+  (`probar-avisos`) y ver que lleguen.
 - Cambiar la clave de administración de una base que ya existe.
 - Qué hacer cuando se llena el disco.
 - Lo que agregó la revisión de Codex del 21 de octubre (ver la tarea 7 del plan de despliegue):

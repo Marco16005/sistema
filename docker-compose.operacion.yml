@@ -25,6 +25,18 @@ x-respaldo: &respaldo
     RESPALDO_SELLO: "${RESPALDO_SELLO:?Falta RESPALDO_SELLO en .env}"
     # Al cambiar de llave: los sellos de las anteriores, solo para seguir comprobando lo de antes del cambio.
     RESPALDO_SELLOS_ANTERIORES: "${RESPALDO_SELLOS_ANTERIORES:-}"
+    # Lo que el servicio hace además de respaldar (operacion/avisos.ts): los avisos del cajón por
+    # Telegram y por correo, y el latido del sitio a su vigilante. Cada uno, si se configura.
+    NEGOCIO_NOMBRE: "${NEGOCIO_NOMBRE:-Recicladora}"
+    DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
+    AVISOS_TELEGRAM_TOKEN: "${AVISOS_TELEGRAM_TOKEN:-}"
+    AVISOS_TELEGRAM_CHAT: "${AVISOS_TELEGRAM_CHAT:-}"
+    AVISOS_CORREO_SMTP: "${AVISOS_CORREO_SMTP:-}"
+    AVISOS_CORREO_DE: "${AVISOS_CORREO_DE:-}"
+    AVISOS_CORREO_PARA: "${AVISOS_CORREO_PARA:-}"
+    LATIDO_VIGIA_URL: "${LATIDO_VIGIA_URL:-}"
+    # Cada cuántos segundos late (300, si no se dice; el ensayo lo apura).
+    LATIDO_CADA: "${LATIDO_CADA:-300}"
     RESPALDO_DESTINO: "${RESPALDO_DESTINO:?Falta RESPALDO_DESTINO en .env}"
     RESPALDO_HORARIO: "${RESPALDO_HORARIO:?Falta RESPALDO_HORARIO en .env}"
     RESPALDO_VIGIA_URL: "${RESPALDO_VIGIA_URL:?Falta RESPALDO_VIGIA_URL en .env}"

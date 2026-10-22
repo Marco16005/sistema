@@ -43,6 +43,9 @@ services:
   respaldo:
     volumes:
       - autoridad:/ca:ro
+    # El latido pregunta al sitio por el proxy de ensayo, con su autoridad (en el servidor, la de verdad).
+    environment:
+      NODE_EXTRA_CA_CERTS: /ca/raiz.crt
     depends_on:
       almacen_listo:
         condition: service_completed_successfully

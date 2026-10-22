@@ -172,6 +172,15 @@ operacion run --rm --no-deps -T respaldo lista --diario | grep -q "$primero" || 
 case "$registro" in *"POST /ping/diario?rid="*) ;; *) falla "el vigilante del respaldo diario no recibió su aviso";; esac
 case "$registro" in *"POST /ping/diario/fail"*) falla "el respaldo diario avisó de un fallo";; *) ;; esac
 
+paso "El latido: el servicio le pregunta al sitio, por el proxy, y le avisa a su vigilante"
+latio=""
+for _ in $(seq 1 30); do
+  case "$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)" in *"POST /ping/latido?rid="*) latio=1; break;; esac
+  sleep 1
+done
+[ -n "$latio" ] || { operacion logs --no-log-prefix --tail 20 respaldo >&2 || true; falla "el vigilante del sitio no recibió el latido"; }
+case "$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)" in *"POST /ping/latido/fail"*) falla "el latido dijo que el sitio no contesta";; *) ;; esac
+
 paso "Publicar otra vez lo mismo no hace nada, y lo dice"
 antes=$(corriendo)
 sh operacion/publicar.sh >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "publicar lo mismo otra vez falló"; }

@@ -143,6 +143,9 @@ preparar_la_instalacion() {
   poner RCLONE_CONFIG_DIARIO_ACCESS_KEY_ID diario
   poner RCLONE_CONFIG_DIARIO_SECRET_ACCESS_KEY "$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
   poner RESPALDO_VIGIA_DIARIO_URL "https://vigia.test/ping/diario"
+  # El latido del sitio, apurado: en el servidor va cada 5 minutos.
+  poner LATIDO_VIGIA_URL "https://vigia.test/ping/latido"
+  poner LATIDO_CADA 5
 
   paso "A la red, solo el proxy: la configuración de operación tal como irá al servidor"
   # Con solo el .env generado, Compose toma los dos archivos de operación sin que se le diga a mano.

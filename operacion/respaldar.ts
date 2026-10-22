@@ -29,6 +29,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { exigirEntorno } from "../src/servidor/entorno.ts";
+import { avisarPendientes, canalCorreo, canalTelegram, latir } from "./avisos.ts";
+import type { Canal } from "./avisos.ts";
+import { estadoPorHttps } from "./comprobar.ts";
 import { PUBLICACION, SELLO, destinoRclone, huellaDe, leerSellosAnteriores, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, selloDelDestino, ultimoUtilizable } from "./destino.ts";
 import type { Destino, Manifiesto } from "./destino.ts";
 import { anotarAvisados, ponerAlDia, sinComprobar } from "./diario.ts";
@@ -454,6 +457,16 @@ export async function servicio(s: Servicio): Promise<void> {
 
 // ── la consola ─────────────────────────────────────────────────────────────
 
+/** Por dónde salen los avisos del cajón, según el entorno: Telegram y correo, los que estén configurados. */
+function canalesDelEntorno(env: NodeJS.ProcessEnv, negocio: string): Canal[] {
+  const canales: Canal[] = [];
+  if (env.AVISOS_TELEGRAM_TOKEN && env.AVISOS_TELEGRAM_CHAT) canales.push(canalTelegram(env.AVISOS_TELEGRAM_TOKEN, env.AVISOS_TELEGRAM_CHAT));
+  if (env.AVISOS_CORREO_SMTP && env.AVISOS_CORREO_DE && env.AVISOS_CORREO_PARA) {
+    canales.push(canalCorreo({ url: env.AVISOS_CORREO_SMTP, de: env.AVISOS_CORREO_DE, para: env.AVISOS_CORREO_PARA.split(",").map((x) => x.trim()), negocio }));
+  }
+  return canales;
+}
+
 /** Lo que pide cada orden, además de lo que exige el entorno de operación. En desarrollo es lo único que se comprueba. */
 function pedir(env: NodeJS.ProcessEnv, nombres: string[]): void {
   const falta = nombres.filter((n) => !env[n]);
@@ -516,25 +529,68 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         // Cuando se le pide que se detenga —al publicar una versión, al apagar el servidor— no corta
         // el respaldo que tenga a medias: lo termina, y entonces sale. Si está esperando su hora, sale enseguida.
         let detener = false;
-        let despertar = (): void => {};
+        // Cada vuelta que duerme deja aquí cómo despertarla: al pedir que se detenga, se despiertan todas.
+        const despertadores = new Set<() => void>();
         for (const senal of ["SIGTERM", "SIGINT"] as const) {
           process.on(senal, () => {
             if (!detener) console.error("Se pidió detener el servicio: termina lo que tenga a medias, y sale.");
             detener = true;
-            despertar();
+            for (const d of despertadores) d();
           });
         }
-        await servicio({
+        const dormir = (ms: number): Promise<void> => new Promise((sigue) => {
+          if (detener) return sigue();
+          const despierta = (): void => {
+            clearTimeout(reloj);
+            despertadores.delete(despierta);
+            sigue();
+          };
+          const reloj = setTimeout(despierta, Math.min(ms, 2 ** 31 - 1));
+          despertadores.add(despierta);
+        });
+        /** Algo que se hace cada tanto mientras el servicio siga: si falla, se dice y se sigue. */
+        const cadaTanto = async (cada: number, que: string, hacer: () => Promise<void>, esperarPrimero = false): Promise<void> => {
+          if (esperarPrimero) await dormir(cada);
+          while (!detener) {
+            try {
+              await hacer();
+            } catch (e) {
+              console.error(`${que}: ${(e as Error).message}`);
+            }
+            await dormir(cada);
+          }
+        };
+        // Junto con los respaldos: los avisos del cajón que salen del sistema, y el latido del sitio (operacion/avisos.ts).
+        const negocio = env.NEGOCIO_NOMBRE || "Recicladora";
+        const canales = canalesDelEntorno(env, negocio);
+        const deFondo: Array<Promise<void>> = [];
+        if (canales.length > 0) {
+          console.log(`Los avisos del cajón salen también por ${canales.map((c) => c.nombre).join(" y ")}.`);
+          deFondo.push(cadaTanto(60_000, "No se pudieron revisar los avisos del cajón", async () => {
+            const db = new pg.Client({ connectionString: env.DATABASE_URL, connectionTimeoutMillis: 10_000 });
+            await db.connect();
+            try {
+              await avisarPendientes(db, canales, negocio, (linea) => console.error(linea));
+            } finally {
+              await db.end();
+            }
+          }));
+        } else {
+          console.log("Los avisos del cajón no salen del sistema: no hay Telegram ni correo configurados (AVISOS_…). Se ven en la barra del responsable.");
+        }
+        if (env.LATIDO_VIGIA_URL && env.DOMINIO) {
+          // Cada 5 minutos, si no se dice otra cosa. El primero espera un intervalo: al arrancar, el sitio
+          // puede no estar listo todavía, y eso no es que se haya caído.
+          const cada = Math.max(5, Number(env.LATIDO_CADA) || 300) * 1000;
+          const latido = vigiaHttp(env.LATIDO_VIGIA_URL);
+          console.log(`El latido del sitio sale cada ${cada / 1000} segundos.`);
+          deFondo.push(cadaTanto(cada, "No se pudo avisar el latido del sitio", () =>
+            latir(() => estadoPorHttps({ dominio: env.DOMINIO!, maquina: "proxy" }), latido), true));
+        }
+        const respaldos = servicio({
           horario: leerHorario(env.RESPALDO_HORARIO!), zona, reintento: 5 * 60_000,
           reloj: () => new Date(),
-          dormir: (ms) => new Promise((sigue) => {
-            if (detener) return sigue();
-            const reloj = setTimeout(sigue, Math.min(ms, 2 ** 31 - 1));
-            despertar = () => {
-              clearTimeout(reloj);
-              sigue();
-            };
-          }),
+          dormir,
           seguir: () => !detener,
           ultimo: async () => {
             const util = await ultimoUtilizable(respaldo.destino);
@@ -544,9 +600,27 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
           alArrancar: () => diarioAlArrancar(respaldo),
           decir: (linea) => console.error(linea),
         });
+        await Promise.all([respaldos, ...deFondo]);
       }
+    } else if (orden === "probar-avisos") {
+      // Manda un aviso de prueba por cada canal configurado: para ver, al instalar, que de verdad llegan.
+      exigirEntorno(env, ["respaldo"]);
+      const negocio = env.NEGOCIO_NOMBRE || "Recicladora";
+      const canales = canalesDelEntorno(env, negocio);
+      if (canales.length === 0) throw new Error("No hay Telegram ni correo configurados (AVISOS_… en el .env): no hay por dónde mandar.");
+      let fallaron = 0;
+      for (const canal of canales) {
+        try {
+          await canal.enviar(`${negocio} · Prueba: así llegan los avisos del cajón. Si lees esto, por ${canal.nombre} sí llegan.`);
+          console.log(`Por ${canal.nombre}: mandado. Revisa que haya llegado.`);
+        } catch (e) {
+          fallaron += 1;
+          console.error(`Por ${canal.nombre}: no salió (${(e as Error).message}).`);
+        }
+      }
+      if (fallaron > 0) process.exitCode = 1;
     } else {
-      console.error("Uso: node operacion/respaldar.ts ahora | lista [--diario] | servicio");
+      console.error("Uso: node operacion/respaldar.ts ahora | lista [--diario] | servicio | probar-avisos");
       process.exit(2);
     }
   } catch (e) {

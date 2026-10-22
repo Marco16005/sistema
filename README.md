@@ -634,8 +634,9 @@ Faltan, en este orden:
    por Codex). Están hechos el entorno estricto, la migración con ventana, la restauración, el
    respaldo y el proxy con HTTPS (ensayado en local); faltan publicar una versión, la guía del
    servidor, la revisión de Codex del bloque y el servidor real.
-3. **Las alertas fuera del sistema** (Telegram y correo) cuando un corte no cuadra: salen con el
-   servidor. Mientras, el aviso sale dentro del sistema.
+3. **Las alertas fuera del sistema** —el corte que no cuadra, por Telegram y por correo, y el
+   latido que avisa si el sitio deja de contestar— ya están hechas y probadas contra servidores de
+   mentira; se configuran y se prueban de verdad al instalar el servidor (guía, 2.3 y 2.3 bis).
 4. Lectura de básculas, tabletas y trabajo sin conexión.
 
 No se fían compras ni hay adelantos, y nada de facturas: así lo pidió el negocio.

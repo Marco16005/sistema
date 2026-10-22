@@ -87,6 +87,38 @@ export function faltasDelEntorno(env: Entorno, partes: readonly Parte[]): string
     if (env.RESPALDO_SELLOS_ANTERIORES && !env.RESPALDO_SELLOS_ANTERIORES.split(",").every((x) => /^[0-9a-f]{64}@\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(x.trim()) && !Number.isNaN(Date.parse(x.trim().split("@")[1]!)))) {
       faltas.push("RESPALDO_SELLOS_ANTERIORES no tiene su forma: «sello@momento», separados por comas, como lo da operacion/sello.ts --hasta");
     }
+    // Los avisos que salen del sistema (operacion/avisos.ts): cada canal va completo o no va.
+    const correo = /^[^\s@<>,"]+@[^\s@<>,"]+\.[^\s@<>,"]+$/;
+    if (env.AVISOS_TELEGRAM_TOKEN || env.AVISOS_TELEGRAM_CHAT) {
+      if (!env.AVISOS_TELEGRAM_TOKEN) faltas.push("Falta AVISOS_TELEGRAM_TOKEN: va junto con AVISOS_TELEGRAM_CHAT");
+      else if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(env.AVISOS_TELEGRAM_TOKEN)) faltas.push("AVISOS_TELEGRAM_TOKEN no tiene su forma: es la que da @BotFather, números, dos puntos y letras");
+      if (!env.AVISOS_TELEGRAM_CHAT) faltas.push("Falta AVISOS_TELEGRAM_CHAT: va junto con AVISOS_TELEGRAM_TOKEN");
+      else if (!/^-?\d+$/.test(env.AVISOS_TELEGRAM_CHAT)) faltas.push("AVISOS_TELEGRAM_CHAT es el número del chat o del grupo");
+    }
+    if (env.AVISOS_CORREO_SMTP || env.AVISOS_CORREO_DE || env.AVISOS_CORREO_PARA) {
+      let smtp: URL | null = null;
+      try {
+        smtp = env.AVISOS_CORREO_SMTP ? new URL(env.AVISOS_CORREO_SMTP) : null;
+      } catch {
+        smtp = null;
+      }
+      if (!smtp || !["smtps:", "smtp:"].includes(smtp.protocol) || !smtp.hostname) {
+        faltas.push("AVISOS_CORREO_SMTP es la dirección del servidor de correo: smtps://usuario:clave@servidor:465, o smtp://…:587 si cifra con STARTTLS");
+      }
+      if (!env.AVISOS_CORREO_DE || !correo.test(env.AVISOS_CORREO_DE)) faltas.push("Falta AVISOS_CORREO_DE: la dirección que manda los avisos");
+      if (!env.AVISOS_CORREO_PARA || !env.AVISOS_CORREO_PARA.split(",").every((x) => correo.test(x.trim()))) {
+        faltas.push("Falta AVISOS_CORREO_PARA, o no son direcciones de correo: a quién le llegan, separadas por comas");
+      }
+    }
+    if (env.LATIDO_VIGIA_URL) {
+      let u: URL | null = null;
+      try {
+        u = new URL(env.LATIDO_VIGIA_URL);
+      } catch {
+        u = null;
+      }
+      if (!u || u.protocol !== "https:" || u.username || u.password) faltas.push("LATIDO_VIGIA_URL es la dirección del vigilante del sitio: https://, sin usuario ni contraseña");
+    }
     if (!env.RESPALDO_LLAVE_PUBLICA) faltas.push("Falta RESPALDO_LLAVE_PUBLICA");
     else if (!LLAVE_PUBLICA_DE_AGE.test(env.RESPALDO_LLAVE_PUBLICA)) {
       faltas.push("RESPALDO_LLAVE_PUBLICA no tiene la forma de una llave pública de age (empieza con age1). La privada no va aquí");
