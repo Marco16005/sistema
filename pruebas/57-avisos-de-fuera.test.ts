@@ -99,8 +99,8 @@ test("por Telegram: el mensaje va al chat dicho, y si Telegram lo rechaza se dic
   }
 });
 
-/** Un servidor de correo de mentira: contesta lo justo, y anota lo que le dicen. */
-async function servidorDeCorreo(o: { rechazarRcpt?: boolean } = {}) {
+/** Un servidor de correo de mentira: contesta lo justo, y anota lo que le dicen. Con `inyectar`, ofrece cifrar y mete datos de más antes de hacerlo. */
+async function servidorDeCorreo(o: { rechazarRcpt?: boolean; inyectar?: boolean } = {}) {
   const dicho: string[] = [];
   const mensajes: string[] = [];
   const servidor = servidorTcp((s) => {
@@ -120,7 +120,8 @@ async function servidorDeCorreo(o: { rechazarRcpt?: boolean } = {}) {
           continue;
         }
         dicho.push(linea);
-        if (/^EHLO /.test(linea)) s.write("250-correo.prueba\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n");
+        if (/^EHLO /.test(linea)) s.write(`250-correo.prueba\r\n${o.inyectar ? "250-STARTTLS\r\n" : ""}250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n`);
+        else if (linea === "STARTTLS") s.write("220 2.0.0 adelante\r\n250 2.0.0 esto no venía cifrado\r\n");
         else if (/^AUTH PLAIN /.test(linea)) s.write("235 2.7.0 adentro\r\n");
         else if (/^MAIL FROM:/.test(linea)) s.write("250 2.1.0 bien\r\n");
         else if (/^RCPT TO:/.test(linea)) s.write(o.rechazarRcpt ? "550 5.1.1 no existe\r\n" : "250 2.1.5 bien\r\n");
@@ -171,6 +172,16 @@ test("por correo: entra con su usuario, manda a cada destinatario, con el asunto
     sin.cerrar();
   }
   await assert.rejects(enviarCorreo({ url: "smtp://u:c@smtp.patio.mx:25", de: "a@b.mx", para: ["c@d.mx"], asunto: "x", texto: "y", sinCifrar: true }), /esta misma máquina/);
+  // Lo que llega antes de cifrar, después de «adelante», no se cree: es como se cuela una respuesta
+  // falsa en la conexión cifrada (lo señaló la revisión de seguridad del 22 de octubre).
+  const inyecta = await servidorDeCorreo({ inyectar: true });
+  try {
+    await assert.rejects(enviarCorreo({ url: `smtp://u:secreta@127.0.0.1:${inyecta.puerto}`, de: "a@b.mx", para: ["c@d.mx"], asunto: "x", texto: "y" }),
+      /antes de cifrar/);
+    assert.ok(!inyecta.dicho.some((l) => l.startsWith("AUTH")), "siguió y mandó la contraseña");
+  } finally {
+    inyecta.cerrar();
+  }
 });
 
 test("el latido le dice al vigilante que el sitio contesta, y que no, con por qué", async () => {

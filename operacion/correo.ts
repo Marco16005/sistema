@@ -60,13 +60,23 @@ class Conversacion {
     this.escuchar(enlace);
   }
 
-  /** Escucha esa conexión. (Al cifrarla, se deja de escuchar la de antes: lo que llegue por ella ya va cifrado.) */
+  /**
+   * Escucha esa conexión. Al cifrarla se deja de escuchar la de antes, y lo que se hubiera leído de
+   * ella se tira: nada de lo que llegó sin cifrar vale ya.
+   */
   escuchar(enlace: Socket | TLSSocket): void {
     this.soltar();
+    this.pendiente = "";
+    this.renglones = [];
     this.enlace = enlace;
     enlace.on("data", this.alLlegar);
     enlace.on("error", this.alFallar);
     enlace.on("close", this.alCerrar);
+  }
+
+  /** ¿Llegó algo más de lo que se esperaba? Antes de cifrar, eso es que alguien quiere colar una respuesta. */
+  nadaDeMas(): boolean {
+    return this.pendiente === "" && this.renglones.length === 0;
   }
 
   soltar(): void {
@@ -169,6 +179,9 @@ export async function enviarCorreo(c: Correo): Promise<void> {
     if (!cifrado && !c.sinCifrar) {
       if (!/\bSTARTTLS\b/i.test(ehlo.texto)) throw new Error("El servidor de correo no ofrece cifrar la conexión: no se manda nada sin cifrar");
       await habla.pedir("STARTTLS", [220], "cifrar la conexión");
+      // Lo que llegue después de «adelante» y antes de cifrar se colaría como si viniera cifrado (el
+      // ataque conocido de STARTTLS): si llegó algo, no se sigue. (Revisión de seguridad del 22 de octubre.)
+      if (!habla.nadaDeMas()) throw new Error("El servidor de correo mandó algo de más antes de cifrar la conexión: no se sigue");
       habla.soltar();
       const plano = enlace as Socket;
       enlace = await enlazar(() => conectarCifrado({ socket: plano, servername: maquina }), "secureConnect", plazo);
