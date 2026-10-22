@@ -351,8 +351,10 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
   latido que avisa si el sitio no contesta está por diseñarse.
 - Cambiar la clave de administración de una base que ya existe.
 - Qué hacer cuando se llena el disco.
-- Una revisión de Codex de lo que nunca alcanzó a ver (restaurar del diario, entre otras) y de lo
-  corregido el 13 de octubre: el sello de los respaldos y los intentos de clave.
+- Lo que agregó la revisión de Codex del 21 de octubre (ver la tarea 7 del plan de despliegue):
+  alertas por separado, renovación del certificado, B2 en los dos depósitos, apagón real a media
+  publicación, el primer respaldo restaurado desde fuera, y los pasos exactos de la máquina de
+  recuperación. (Esa revisión cubrió ya lo que faltaba: restaurar del diario, el sello y los guiones.)
 
 ## 11. Las órdenes, juntas
 
