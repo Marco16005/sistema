@@ -5,8 +5,9 @@
 import type { Bd, Persona } from "../bd.ts";
 import { ErrorDeNegocio } from "../errores.ts";
 
-export type Liquidacion = "efectivo" | "transferencia" | "pendiente";
-export const LIQUIDACIONES: readonly Liquidacion[] = ["efectivo", "transferencia", "pendiente"];
+/** «credito»: a lo que debe el cliente; solo en una venta fiada, que no se deja «pendiente» (0043). */
+export type Liquidacion = "efectivo" | "transferencia" | "pendiente" | "credito";
+export const LIQUIDACIONES: readonly Liquidacion[] = ["efectivo", "transferencia", "pendiente", "credito"];
 
 export interface CorreccionDeCuenta {
   numero: number;
@@ -46,6 +47,8 @@ export interface CuentaParaCorregir {
   tipo: "compra" | "venta";
   /** El día en que se cobró, AAAA-MM-DD. */
   fecha: string;
+  /** Si se fió: entonces la diferencia va a lo que debe el cliente, o se liquida en el momento. */
+  fiada: boolean;
   renglones: RenglonParaCorregir[];
   correcciones: CorreccionDeCuenta[];
 }
@@ -53,7 +56,7 @@ export interface CuentaParaCorregir {
 /** Una cuenta cobrada, con lo que vale ahora cada material y las correcciones que lleva. Nada si no está cobrada. */
 export async function cuentaParaCorregir(bd: Bd, operacion: string): Promise<CuentaParaCorregir | null> {
   const [f] = await bd.leer(
-    `SELECT o.id, o.folio::text AS folio, o.tipo, to_char(j.fecha, 'YYYY-MM-DD') AS fecha,
+    `SELECT o.id, o.folio::text AS folio, o.tipo, to_char(j.fecha, 'YYYY-MM-DD') AS fecha, o.forma_de_pago = 'credito' AS fiada,
             (SELECT jsonb_agg(jsonb_build_object(
                       'linea', l.id, 'material', jsonb_build_object('id', m.id, 'nombre', m.nombre),
                       'kg', coalesce(u.kg_despues, l.peso_liquidable)::text, 'precio', coalesce(u.precio, l.precio_unitario)::text,
@@ -82,7 +85,7 @@ export async function cuentaParaCorregir(bd: Bd, operacion: string): Promise<Cue
     [operacion],
   );
   if (!f) return null;
-  return { id: f.id, folio: f.folio, tipo: f.tipo, fecha: f.fecha, renglones: f.renglones, correcciones: f.correcciones };
+  return { id: f.id, folio: f.folio, tipo: f.tipo, fecha: f.fecha, fiada: f.fiada, renglones: f.renglones, correcciones: f.correcciones };
 }
 
 export interface OrdenDeCorreccion {

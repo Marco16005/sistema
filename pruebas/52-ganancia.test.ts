@@ -11,7 +11,7 @@ import type { Bd } from "../src/servidor/bd.ts";
 import { abrirCuenta, agregarMaterial, confirmar } from "../src/servidor/dominio/cuentas.ts";
 import { ganancia } from "../src/servidor/dominio/ganancia.ts";
 
-const CERO = { vendido: "0.00", costo: "0.00", margen: "0.00", perdidas: "0.00", aFavor: "0.00", resultado: "0.00", kgVendido: "0.000" };
+const CERO = { vendido: "0.00", costo: "0.00", margen: "0.00", perdidas: "0.00", aFavor: "0.00", correcciones: "0.00", redondeo: "0.00", resultado: "0.00", kgVendido: "0.000" };
 /** En los totales y en cada tramo van además los gastos que cuentan (0042) y lo que queda después de ellos. */
 const SIN_GASTOS = { gastos: "0.00" };
 
@@ -48,7 +48,7 @@ const conDosDias = (prueba: (bd: Bd, db: pg.Client, e: Escenario) => Promise<voi
 test("lo vendido, lo que costó a precio promedio, el margen, lo perdido y el resultado", () =>
   conDosDias(async (bd) => {
     const g = await ganancia(bd, { desde: "2026-10-01", hasta: "2026-10-02", agrupar: "dia" });
-    const dia2 = { vendido: "150.00", costo: "115.00", margen: "35.00", perdidas: "23.00", aFavor: "0.00", resultado: "12.00", kgVendido: "50.000" };
+    const dia2 = { vendido: "150.00", costo: "115.00", margen: "35.00", perdidas: "23.00", aFavor: "0.00", correcciones: "0.00", redondeo: "0.00", resultado: "12.00", kgVendido: "50.000" };
     assert.deepEqual(g.totales, { ...dia2, ...SIN_GASTOS, utilidad: "12.00" });
     assert.deepEqual(g.serie, [
       { desde: "2026-10-01", hasta: "2026-10-01", ...CERO, ...SIN_GASTOS, utilidad: "0.00" },

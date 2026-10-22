@@ -8,11 +8,17 @@
 //   margen      vendido − costo;
 //   perdidas    lo que costaba lo que se dio de baja y lo que un conteo encontró de menos;
 //   aFavor      lo que un conteo encontró de más, a costo promedio;
-//   resultado   margen − perdidas + aFavor. Es lo que dejó el material;
+//   correcciones lo que cambió por corregir cuentas ya cobradas (0040): su dinero —lo de antes sale y
+//               lo de después entra; en una venta entra dinero, en una compra sale— y lo que costaba
+//               el material que salió o volvió al patio. No es una baja ni un conteo;
+//   redondeo    lo que se ganó o se perdió al cerrar a pesos lo pagado y lo cobrado. No es de ningún
+//               material: va en los totales y en cada tramo;
+//   resultado   margen − perdidas + aFavor + correcciones + redondeo. Es lo que dejó el material;
 //   gastos      los gastos del negocio de los tipos que cuentan, sin los anulados (0042);
 //   utilidad    resultado − gastos: lo que queda.
 // Las ventas son del día en que se cobraron (la regla del cierre); bajas y ajustes, del día de su
-// jornada. Separar no gana ni pierde: el costo pasa entero a las partes.
+// jornada; una corrección, del día en que se hizo. Separar no gana ni pierde: el costo pasa entero
+// a las partes. (Lo de las correcciones y el redondeo, desde la revisión de Codex del 21 de octubre.)
 import type { Bd } from "../bd.ts";
 
 export type Agrupar = "dia" | "semana" | "mes";
@@ -24,6 +30,8 @@ export interface Cifras {
   margen: string;
   perdidas: string;
   aFavor: string;
+  correcciones: string;
+  redondeo: string;
   resultado: string;
   kgVendido: string;
 }
@@ -60,7 +68,10 @@ export interface Ganancia {
 
 const PESOS = (que: string): string => `coalesce(${que}, 0)::numeric(16,2)::text`;
 
-/** Las cifras de un conjunto de movimientos `m` (columnas tipo, cantidad_kg, costo, importe). */
+/**
+ * Las cifras de un conjunto de renglones `m` (columnas tipo, cantidad_kg, costo, importe). Cada
+ * renglón suma a lo que dejó su dinero (importe) y lo que costaba su material (costo, con su signo).
+ */
 const CIFRAS = `
   jsonb_build_object(
     'vendido', ${PESOS("sum(m.importe) FILTER (WHERE m.tipo = 'venta')")},
@@ -68,10 +79,12 @@ const CIFRAS = `
     'margen', ${PESOS("sum(m.importe + m.costo) FILTER (WHERE m.tipo = 'venta')")},
     'perdidas', ${PESOS("-sum(m.costo) FILTER (WHERE m.tipo = 'merma' OR (m.tipo = 'ajuste' AND m.cantidad_kg < 0))")},
     'aFavor', ${PESOS("sum(m.costo) FILTER (WHERE m.tipo = 'ajuste' AND m.cantidad_kg > 0)")},
-    'resultado', ${PESOS("sum(CASE WHEN m.tipo = 'venta' THEN m.importe + m.costo ELSE m.costo END)")},
+    'correcciones', ${PESOS("sum(coalesce(m.importe, 0) + m.costo) FILTER (WHERE m.tipo = 'correccion')")},
+    'redondeo', ${PESOS("sum(m.importe) FILTER (WHERE m.tipo = 'redondeo')")},
+    'resultado', ${PESOS("sum(coalesce(m.importe, 0) + m.costo)")},
     'kgVendido', coalesce(-sum(m.cantidad_kg) FILTER (WHERE m.tipo = 'venta'), 0)::numeric(14,3)::text)`;
 
-const RESULTADO = "coalesce(sum(CASE WHEN m.tipo = 'venta' THEN m.importe + m.costo ELSE m.costo END), 0)";
+const RESULTADO = "coalesce(sum(coalesce(m.importe, 0) + m.costo), 0)";
 /** Los gastos que cuentan entre `desde` y `hasta`, y lo que queda: el resultado de esos movimientos menos ellos. */
 const UTILIDAD = (desde: string, hasta: string, donde: string): string => `
   jsonb_build_object(
@@ -83,7 +96,9 @@ const UTILIDAD = (desde: string, hasta: string, donde: string): string => `
 const CONSULTA = `
   WITH r AS (SELECT $1::date AS desde, $2::date AS hasta, s.zona FROM sucursal s WHERE s.id = 1),
   mov AS (
-    SELECT mi.material_id, mi.tipo, mi.cantidad_kg, mi.costo, l.importe,
+    -- Lo que dice el libro: ventas, bajas y ajustes; el ajuste de corregir una cuenta va aparte.
+    SELECT mi.material_id, CASE WHEN mi.correccion_id IS NOT NULL THEN 'correccion' ELSE mi.tipo END AS tipo,
+           mi.cantidad_kg, mi.costo, l.importe,
            coalesce(jc.fecha, jm.fecha, (mi.creado_en AT TIME ZONE r.zona)::date) AS fecha
     FROM movimiento_inventario mi
     LEFT JOIN operacion_linea l ON l.id = mi.linea_id
@@ -91,6 +106,17 @@ const CONSULTA = `
     LEFT JOIN jornada jc ON jc.id = o.confirmada_en_jornada
     LEFT JOIN jornada jm ON jm.id = mi.jornada_id, r
     WHERE mi.sucursal_id = 1 AND mi.tipo IN ('venta', 'merma', 'ajuste')
+    UNION ALL
+    -- El dinero de corregir una cuenta: lo de antes sale y lo de después entra, cada uno con su material.
+    SELECT x.material, 'correccion', 0, 0, CASE o.tipo WHEN 'venta' THEN 1 ELSE -1 END * x.importe, j.fecha
+    FROM correccion_de_cuenta c JOIN operacion o ON o.id = c.operacion_id JOIN jornada j ON j.id = c.jornada_id,
+         LATERAL (VALUES (c.material_despues, c.importe_despues), (c.material_antes, -c.importe_antes)) AS x(material, importe)
+    WHERE o.sucursal_id = 1
+    UNION ALL
+    -- Lo que se ganó o se perdió al cerrar a pesos: cobrar de más es ganar, pagar de más es perder.
+    SELECT NULL, 'redondeo', 0, 0, CASE o.tipo WHEN 'venta' THEN o.ajuste_redondeo ELSE -o.ajuste_redondeo END, j.fecha
+    FROM operacion o JOIN jornada j ON j.id = o.confirmada_en_jornada
+    WHERE o.sucursal_id = 1 AND o.estado = 'confirmada'
   ),
   m AS (SELECT mov.* FROM mov, r WHERE mov.fecha BETWEEN r.desde AND r.hasta),
   gas AS (

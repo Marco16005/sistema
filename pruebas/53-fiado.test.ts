@@ -63,7 +63,9 @@ for (const nuevo of [false, true]) test(`venta a crédito para cliente ${nuevo ?
   assert.equal(Number(cr.importe), 250);
   assert.equal(cr.autorizado_por, d.firma);
   assert.equal(cr.vence_el, null);
-  assert.deepEqual(await fiar(d, c, { cliente: null, nuevo: null, clave: "000000", revision: -1 }), op);
+  // Repetir el mismo fiado devuelve lo hecho, aun con datos de una pantalla vieja; sin decir a quién, es otro pedido (0043, H3).
+  assert.deepEqual(await fiar(d, c, { ...(nuevo ? { cliente: null, nuevo: "José Paz" } : {}), clave: "000000", revision: -1 }), op);
+  await rechaza(fiar(d, c, { cliente: null, nuevo: null, clave: "000000", revision: -1 }), "RC011");
   assert.equal(await contar(d.db, "credito"), 1);
   assert.equal(await contar(d.db, "bitacora", "accion='fiar'"), 1);
   const b = await una(d.db, "SELECT usuario_id, detalle FROM bitacora WHERE accion='fiar'");

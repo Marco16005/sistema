@@ -67,8 +67,15 @@ const pendientes = (esperaVehiculo: boolean): string => `
                              ORDER BY p.creada_en, p.operacion_id)
             FROM cuenta_pendiente p WHERE p.jornada_id = j.id AND ${esperaVehiculo ? "" : "NOT "}p.espera_vehiculo), '[]'::jsonb)`;
 
-/** El resumen de una jornada. Sin decir cuál: la que está abierta, o si no hay, la última. */
-export async function resumenDelCierre(bd: Bd, jornada: string | null = null): Promise<Cierre | null> {
+/**
+ * El resumen de una jornada. Sin decir cuál: la que está abierta, o si no hay, la última. Sus dos
+ * lecturas —el día y su cajón— ven la misma foto: un corte a media lectura no las deja discrepar.
+ */
+export function resumenDelCierre(bd: Bd, jornada: string | null = null): Promise<Cierre | null> {
+  return bd.instantanea((foto) => resumenEn(foto, jornada));
+}
+
+async function resumenEn(bd: Bd, jornada: string | null): Promise<Cierre | null> {
   const [f] = await bd.leer(
     `WITH j AS (
        SELECT jornada.id, fecha, cerrada_en, cierres, s.zona FROM jornada JOIN sucursal s ON s.id = jornada.sucursal_id

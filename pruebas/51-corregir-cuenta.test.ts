@@ -171,7 +171,8 @@ test("inmutable y solo SELECT para la aplicación", () => conDia(async d => {
   await corregir(d, c.linea);
   for (const sql of ["UPDATE correccion_de_cuenta SET motivo='otro'", "DELETE FROM correccion_de_cuenta", "TRUNCATE correccion_de_cuenta"]) {
     await rechaza(d.app.query(sql), "42501");
-    await rechaza(d.db.query(sql), "RC001");
+    // Desde 0043 la refieren sus ajustes en el libro de inventario: vaciarla la detiene esa llave, antes que el guardián.
+    await rechaza(d.db.query(sql), sql.startsWith("TRUNCATE") ? "0A000" : "RC001");
   }
   await rechaza(d.app.query("INSERT INTO correccion_de_cuenta DEFAULT VALUES"), "42501");
 }));

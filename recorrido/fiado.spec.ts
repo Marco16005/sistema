@@ -3,7 +3,7 @@
 // efectivo cuentan en el corte; en el Panel se ve quién debe cuánto.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { baseNueva, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
+import { adentro, baseNueva, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -69,7 +69,7 @@ test("una venta se fía a un cliente nuevo; no pasa por el cajón; el abono en e
   await expect(cajon(page)).toContainText("Debería haber$20,500.00");
   await salir(page);
 
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/fiado");
   const quien = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Quién debe" }) });
   await expect(quien.locator(".exrow")).toHaveCount(1);

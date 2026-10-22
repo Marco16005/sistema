@@ -66,10 +66,12 @@ interface Lugar {
   quitando: (Pendiente<{ linea: string; visto: string | null }> & { material: string }) | null;
   /** Ponerle, cambiarle o quitarle el recipiente a un material que ya está en la cuenta: cuál, y lo tecleado. */
   corrigiendo: { linea: string; peso: string } | null;
+  /** Cómo se paga o se cobra: se guarda con la cuenta, para que recargar a medio cobro no la regrese a efectivo. */
+  forma: FormaDePago;
 }
 const LUGAR_NUEVO: Lugar = {
   paso: "mat", familia: 0, material: null, bascula: null, peso: "", recipiente: null, tecleando: "peso",
-  pendiente: null, segunda: null, especial: null, quitando: null, corrigiendo: null,
+  pendiente: null, segunda: null, especial: null, quitando: null, corrigiendo: null, forma: "efectivo",
 };
 /** Lo que se suelta cuando un material ya entró, o cuando se elige otro. */
 const SIN_PESO: Partial<Lugar> = { material: null, bascula: null, peso: "", recipiente: null, tecleando: "peso", pendiente: null };
@@ -334,8 +336,10 @@ function Pantalla() {
         await terminada(r.cuenta);
       } catch (e) {
         if (e instanceof ErrorDeApi && e.codigo === "RC011") {
-          // No se vuelve a confirmar sola: la persona revisa lo que cambió y decide.
+          // No se vuelve a confirmar sola: la persona revisa lo que cambió y decide. Si ya se había
+          // cobrado de otra forma —un intento anterior sí entró—, lo dice el servidor.
           await refrescar(vista.id);
+          if (e.message.startsWith("Esa cuenta ya se")) throw e;
           throw new ErrorDeApi(409, "RC011", "La cuenta cambió mientras la tenías abierta. Revísala y vuelve a tocar el botón.");
         }
         throw e;
@@ -455,6 +459,7 @@ function Pantalla() {
                 especial={lugar.especial} alEspecial={(especial) => ponerLugar(vista.id, { especial })}
                 quitando={lugar.quitando} alQuitando={(quitando) => ponerLugar(vista.id, { quitando })}
                 corrigiendo={lugar.corrigiendo} alCorrigiendo={(corrigiendo) => ponerLugar(vista.id, { corrigiendo })}
+                forma={lugar.forma} alForma={(forma) => ponerLugar(vista.id, { forma })}
                 alDecir={(mensaje) => { setAviso(""); setUltimo(mensaje); void refrescar(vista.id); }}
                 alAdvertir={(texto) => { setUltimo(""); setAviso(texto); void refrescar(vista.id); }}
                 alAgregarOtro={() => irA("mat")} alConfirmar={(forma) => void confirmar(forma)} alDescartar={() => void descartar()}
@@ -642,6 +647,7 @@ function PasoCuenta(p: {
   especial: Lugar["especial"]; alEspecial: (especial: Lugar["especial"]) => void;
   quitando: Lugar["quitando"]; alQuitando: (quitando: Lugar["quitando"]) => void;
   corrigiendo: Lugar["corrigiendo"]; alCorrigiendo: (corrigiendo: Lugar["corrigiendo"]) => void;
+  forma: FormaDePago; alForma: (forma: FormaDePago) => void;
   /** Algo quedó hecho y no se tiene la cuenta como quedó: se dice, y se vuelve a pedir. */
   alDecir: (mensaje: string) => void;
   /** Algo no se pudo porque la cuenta cambió: se dice, y se vuelve a pedir. */
@@ -660,7 +666,7 @@ function PasoCuenta(p: {
   const [porDescartar, setPorDescartar] = useState(false);
   const [autorizando, setAutorizando] = useState(false);
   // Lo de todos los días es el efectivo; la transferencia y el crédito, para las cargas grandes.
-  const [forma, setForma] = useState<FormaDePago>("efectivo");
+  const { forma, alForma: setForma } = p;
   const [fiando, setFiando] = useState(false);
   const { dia } = useSesion();
   // La segunda pesada a medias vale solo si su material sigue en esta cuenta esperando esa pesada.

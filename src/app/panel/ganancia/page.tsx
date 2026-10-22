@@ -1,6 +1,7 @@
 "use client";
 // La ganancia, para quien dirige: lo que se vendió, lo que costó lo vendido (a costo promedio), lo
-// que se perdió en bajas y conteos, y lo que hay en el patio valuado a lo que costó. Se escoge el
+// que se perdió en bajas y conteos, lo que cambiaron las correcciones de cuentas cobradas y el
+// redondeo a pesos, los gastos, y lo que hay en el patio valuado a lo que costó. Se escoge el
 // periodo y si se ve por día, por semana o por mes. Solo lee: las cifras llegan hechas del servidor
 // (src/servidor/dominio/ganancia.ts).
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,6 +23,9 @@ const TOPE = 366;
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 /** Un resultado se lee con su signo: «−$57» es que se perdió. */
 const conSigno = (t: string): string => (Number(t) < 0 ? "−" : "") + pesosCerrados(String(Math.abs(Number(t))));
+/** Lo que suma o resta a lo que dejó, en palabras: «más $4 de …», «menos $3 de …»; nada si es cero. */
+const sumaOResta = (t: string, de: string): string =>
+  Number(t) === 0 ? "" : `, ${Number(t) > 0 ? "más" : "menos"} ${pesos(String(Math.abs(Number(t)).toFixed(2)))} ${de}`;
 const kg = (t: string): string => `${Number(t) >= 100 ? Math.round(Number(t)).toLocaleString("es-MX") : kilosCortos(t)} kg`;
 /** Qué parte de lo vendido quedó de margen, en por ciento. */
 const porCiento = (c: CifrasDeGanancia): string | null =>
@@ -110,6 +114,8 @@ export default function PantallaDeGanancia() {
               <small>
                 Margen{Number(t.perdidas) > 0 ? `, menos ${pesosCerrados(t.perdidas)} de bajas y faltantes` : ""}
                 {Number(t.aFavor) > 0 ? `, más ${pesosCerrados(t.aFavor)} que sobró al contar` : ""}
+                {sumaOResta(t.correcciones, "de cuentas cobradas que se corrigieron")}
+                {sumaOResta(t.redondeo, "de redondear a pesos lo pagado y lo cobrado")}
               </small>
             </div>
             <div className="indicador">
@@ -134,13 +140,14 @@ export default function PantallaDeGanancia() {
                       <summary>Ver los números</summary>
                       <div className="scroll">
                         <table>
-                          <thead><tr><th>{AGRUPAR.find((x) => x.como === como)!.columna}</th><th>Vendido</th><th>Costó</th><th>Margen</th><th>Bajas</th><th>Dejó</th><th>Gastos</th><th>Queda</th></tr></thead>
+                          <thead><tr><th>{AGRUPAR.find((x) => x.como === como)!.columna}</th><th>Vendido</th><th>Costó</th><th>Margen</th><th>Bajas</th><th>Correcciones</th><th>Redondeo</th><th>Dejó</th><th>Gastos</th><th>Queda</th></tr></thead>
                           <tbody>
                             {g.serie.map((s) => (
                               <tr key={s.desde}>
                                 <td>{delTramo(s, como)}</td>
                                 <td className="mn">{pesosCerrados(s.vendido)}</td><td className="mn">{pesosCerrados(s.costo)}</td>
                                 <td className="mn">{conSigno(s.margen)}</td><td className="mn">{pesosCerrados(s.perdidas)}</td>
+                                <td className="mn">{conSigno(s.correcciones)}</td><td className="mn">{pesos(s.redondeo)}</td>
                                 <td className="mn">{conSigno(s.resultado)}</td>
                                 <td className="mn">{pesosCerrados(s.gastos)}</td><td className="mn">{conSigno(s.utilidad)}</td>
                               </tr>
@@ -151,7 +158,7 @@ export default function PantallaDeGanancia() {
                     </details>
                   </>
                 )}
-              <p className="note">Lo que costó es el costo promedio de lo que había en el patio al venderlo. Los gastos que se restan son los de los tipos marcados en «Gastos».</p>
+              <p className="note">Lo que costó es el costo promedio de lo que había en el patio al venderlo. Lo que dejó cuenta también las cuentas ya cobradas que se corrigieron —su dinero y el material que salió o volvió al patio— y lo que se ganó o perdió al redondear a pesos. Los gastos que se restan son los de los tipos marcados en «Gastos».</p>
             </div>
           </div>
 
@@ -167,6 +174,7 @@ export default function PantallaDeGanancia() {
                         {Number(m.vendido) > 0 ? `Vendido ${pesosCerrados(m.vendido)} (${kg(m.kgVendido)}), costó ${pesosCerrados(m.costo)}` : "Sin ventas"}
                         {porCiento(m) ? ` · margen ${porCiento(m)}` : ""}
                         {Number(m.perdidas) > 0 ? ` · bajas ${pesosCerrados(m.perdidas)}` : ""}
+                        {Number(m.correcciones) !== 0 ? ` · correcciones ${conSigno(m.correcciones)}` : ""}
                       </small>
                     </span>
                     <span className="ri">{conSigno(m.resultado)}</span>

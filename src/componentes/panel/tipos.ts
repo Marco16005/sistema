@@ -257,6 +257,10 @@ export interface CifrasDeGanancia {
   margen: string;
   perdidas: string;
   aFavor: string;
+  /** Lo que cambió por corregir cuentas ya cobradas: su dinero y su material. */
+  correcciones: string;
+  /** Lo que se ganó o se perdió al cerrar a pesos lo pagado y lo cobrado. */
+  redondeo: string;
   resultado: string;
   kgVendido: string;
 }

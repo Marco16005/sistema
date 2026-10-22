@@ -13,6 +13,7 @@ import { Imprimir } from "../../../componentes/panel/Imprimir.tsx";
 import { Secciones, SoloQuienDirige } from "../../../componentes/panel/Secciones.tsx";
 import type { Gasto, Gastos, SacarSinGasto } from "../../../componentes/panel/tipos.ts";
 import { DIRIGEN, useSesion } from "../../../componentes/Sesion.tsx";
+import { SoloEnSuPestana } from "../../../componentes/SoloEnSuPestana.tsx";
 
 type Cual = "este" | "pasado" | "otro";
 const TOPE = 366;
@@ -54,7 +55,12 @@ function Anular({ gasto, alAnular }: { gasto: Gasto; alAnular: (mensaje: string)
   );
 }
 
+/** Lo guardado —un gasto del que no se supo— se lee hasta saber que esta pestaña no es copia de otra. */
 export default function PantallaDeGastos() {
+  return <SoloEnSuPestana><Gastos /></SoloEnSuPestana>;
+}
+
+function Gastos() {
   const { persona, dia } = useSesion();
   const [cual, setCual] = useState<Cual>("este");
   const [desde, setDesde] = useState(`${dia.hoy.slice(0, 8)}01`);

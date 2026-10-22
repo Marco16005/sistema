@@ -17,7 +17,7 @@ import { Abonar } from "../../componentes/caja/Abonar.tsx";
 import { ContarElCajon } from "../../componentes/caja/ContarElCajon.tsx";
 import { MoverDinero, ResumenDelCajon, queTanCuadro } from "../../componentes/caja/ElCajon.tsx";
 import { centavos, comoPesos, pesosListos } from "../../componentes/caja/tipos.ts";
-import { Correcciones } from "../../componentes/cierre/Correcciones.tsx";
+import { Correcciones, correccionPendiente } from "../../componentes/cierre/Correcciones.tsx";
 import { Dinero, Kilos, PreciosEspeciales } from "../../componentes/cierre/Reporte.tsx";
 import type { Cierre } from "../../componentes/cierre/Reporte.tsx";
 import { cuantosMateriales, pesos } from "../../componentes/formato.ts";
@@ -71,6 +71,8 @@ function Pantalla() {
   const [quienes, setQuienes] = useState<QuienAutoriza[] | null>(null);
   const [folio, setFolio] = useState("");
   const [encontrado, setEncontrado] = useState<{ comprobante: Comprobante; negocio: string } | null>(null);
+  // Una corrección de la que no se supo, de cualquier cuenta: se avisa junto a la búsqueda.
+  const [correccionSinSaber, setCorreccionSinSaber] = useState(correccionPendiente);
   const [avisoDeFolio, setAvisoDeFolio] = useState("");
 
   const fijar = (cambio: Partial<AMedias>): void => {
@@ -169,8 +171,10 @@ function Pantalla() {
     hacer(async () => {
       const p = actual.current.cierre;
       if (!p) return;
+      // Se suelta solo cuando se sabe qué pasó: si no se puede saber, se queda guardado.
+      const resuelto = await cancelarEnvio(p.id);
       fijar({ cierre: null });
-      if ((await cancelarEnvio(p.id)) === "entro") {
+      if (resuelto === "entro") {
         setCorte(null);
         setNota("Ese cierre ya había quedado registrado.");
         await verDeNuevo();
@@ -223,11 +227,11 @@ function Pantalla() {
       }
     });
 
-  const buscar = async (): Promise<void> => {
+  const buscar = async (cual = folio): Promise<void> => {
     setAvisoDeFolio("");
     setEncontrado(null);
     try {
-      setEncontrado(await pedir("GET", `/api/comprobantes?folio=${encodeURIComponent(folio.trim())}`));
+      setEncontrado(await pedir("GET", `/api/comprobantes?folio=${encodeURIComponent(cual.trim())}`));
     } catch (e) {
       setAvisoDeFolio((e as Error).message);
     }
@@ -370,6 +374,16 @@ function Pantalla() {
               <button className="btn" type="submit" disabled={!/^\d+$/.test(folio.trim())}>Buscar</button>
             </div>
             {avisoDeFolio ? <div className="flag" role="alert">{avisoDeFolio}</div> : null}
+            {correccionSinSaber && correccionSinSaber.operacion !== encontrado?.comprobante.id ? (
+              <div className="flag" role="status">
+                Quedó una corrección {correccionSinSaber.folio ? `de la cuenta ${correccionSinSaber.folio} ` : ""}sin saber si se registró.
+                {correccionSinSaber.folio ? (
+                  <button className="btn ghostbtn chico" type="button" onClick={() => { setFolio(correccionSinSaber.folio!); void buscar(correccionSinSaber.folio!); }}>
+                    Ver la cuenta {correccionSinSaber.folio}
+                  </button>
+                ) : " Búscala por su folio para terminarla."}
+              </div>
+            ) : null}
           </form>
         </div>
       ) : null}
@@ -381,7 +395,10 @@ function Pantalla() {
       ) : null}
       {encontrado ? (
         // Lo ya cobrado se corrige aquí: se liquida solo la diferencia, con la clave de quien autoriza.
-        <Correcciones key={encontrado.comprobante.id} operacion={encontrado.comprobante.id} puedeCorregir={puedeCerrar && dia.jornada !== null} alCorregir={cargar} />
+        <Correcciones
+          key={encontrado.comprobante.id} operacion={encontrado.comprobante.id} puedeCorregir={puedeCerrar && dia.jornada !== null}
+          alCorregir={cargar} alCambiarPendiente={() => setCorreccionSinSaber(correccionPendiente())}
+        />
       ) : null}
     </div>
   );

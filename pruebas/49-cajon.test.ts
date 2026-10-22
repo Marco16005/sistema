@@ -71,7 +71,9 @@ test("forma de pago: omisión, transferencia, revisión e inmutabilidad", () => 
   const efectivo = await una(d.app, "SELECT * FROM confirmar_cuenta($1,$2,$3)", [a.id, d.e.mostrador, a.revision]);
   assert.equal(efectivo.forma_de_pago, "efectivo");
   assert.equal(efectivo.revision, a.revision);
-  assert.equal((await confirmar(d, a, "transferencia")).forma_de_pago, "efectivo");
+  // Repetir con otra forma de pago es otro pedido: se rechaza; con la misma, devuelve lo hecho (0043, H3).
+  await rechaza(confirmar(d, a, "transferencia"), "RC011");
+  assert.equal((await confirmar(d, a, "efectivo")).forma_de_pago, "efectivo");
   const b = await cuentaLista(d);
   await rechaza(confirmar(d, b, "cheque"), "RC005");
   const transferencia = await confirmar(d, b, "transferencia");
@@ -88,7 +90,8 @@ test("terminar vehículo conserva la forma y cuenta en la jornada en que se term
   const c = await terminar(d.app, "transferencia");
   assert.equal(c.forma_de_pago, "transferencia");
   assert.equal(c.confirmada_en_jornada, d.e.jornada);
-  assert.equal((await terminar()).forma_de_pago, "transferencia");
+  assert.equal((await terminar(d.app, "transferencia")).forma_de_pago, "transferencia");
+  await rechaza(terminar(), "RC011");
   assert.equal(await esperado(d), 100);
 }));
 

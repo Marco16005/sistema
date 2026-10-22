@@ -5,9 +5,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import {
-  aviso, baseNueva, cerrarConCorte, conConsola, contarElCajon, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear,
-} from "./apoyo.ts";
+import { adentro, aviso, baseNueva, cerrarConCorte, conConsola, contarElCajon, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -184,7 +182,7 @@ test("el corte lo firma alguien de mostrador si un responsable le dio el permiso
   await salir(page);
 
   // Servando se lo da, en los ajustes, con su clave.
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/ajustes");
   const luis = page.locator(".administrado").filter({ has: page.getByText("Luis", { exact: true }) });
   await luis.getByRole("button", { name: "Dar a Luis el permiso de corte" }).click();

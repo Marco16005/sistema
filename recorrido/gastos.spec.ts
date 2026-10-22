@@ -3,7 +3,7 @@
 // registro, y lo que se sacó del cajón se clasifica como gasto. Quien consulta los ve, sin escribir.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { altaDePersona, baseNueva, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, salir } from "./apoyo.ts";
+import { adentro, altaDePersona, baseNueva, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, salir } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
 
@@ -33,7 +33,7 @@ test("un responsable registra gastos de otro lado y del cajón; el del cajón ba
   const g = await gente();
   await diaListo(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/gastos");
   await expect(page.getByRole("navigation", { name: "Partes del panel" }).getByRole("link", { name: "Gastos" })).toHaveAttribute("aria-current", "page");
   await expect(tarjeta(page, "Los gastos")).toContainText("No hay gastos en este periodo.");
@@ -77,7 +77,7 @@ test("anular deja el registro tachado con quién y por qué; lo sacado del cajó
   const g = await gente();
   await diaListo(g);
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/gastos");
   await llenar(page, { tipo: "Renta", deDonde: "Del cajón, hoy", concepto: "Diésel del camión", importe: "500" });
   await page.getByRole("button", { name: "Registrar el gasto de $500.00" }).click();
@@ -120,13 +120,13 @@ test("quien consulta ve los gastos, pero no registra, no anula ni cambia los tip
   await diaListo(g);
   const ana = await altaDePersona("Ana", "consulta", "3141");
   await darDeAltaEquipo(page);
-  await entrar(page, g.servando);
+  await adentro(page, g.servando);
   await page.goto("/panel/gastos");
   await llenar(page, { tipo: "Luz y agua", deDonde: "De otro lado", concepto: "Recibo de luz", importe: "1200" });
   await page.getByRole("button", { name: "Registrar el gasto de $1,200.00" }).click();
   await expect(hecho(page)).toBeVisible();
   await salir(page);
-  await entrar(page, ana);
+  await adentro(page, ana);
   await page.goto("/panel/gastos");
   await expect(tarjeta(page, "Los gastos")).toContainText("Recibo de luz");
   await expect(indicador(page, "Se resta en la ganancia")).toHaveText("$1,200");
@@ -141,7 +141,7 @@ for (const [ancho, alto] of [[1280, 620], [360, 640]] as const) {
     const g = await gente();
     await diaListo(g);
     await darDeAltaEquipo(page);
-    await entrar(page, g.servando);
+    await adentro(page, g.servando);
     const medir = async (donde: string): Promise<void> => {
       await page.evaluate(() => window.scrollTo(0, 0));
       expect(await loQueNoMide(page), donde).toEqual([]);

@@ -180,7 +180,8 @@ cuánto se queda para mañana y lo firma con su clave un responsable, o alguien 
 el responsable le dio permiso de corte. Si no cuadró, el aviso sale dentro del sistema (con el
 servidor, también por Telegram y correo). En el cierre también se **registran los abonos** de lo
 fiado y se **corrige una cuenta ya cobrada**: los kilos o el material que de verdad eran, con la
-clave de un responsable; el comprobante original no se toca, y se liquida solo la diferencia. El
+clave de un responsable; el comprobante original no se toca, y se liquida solo la diferencia —en
+una venta fiada, sobre lo que debe el cliente—. El
 plan y sus decisiones: `docs/planes/2026-10-15-caja-y-ganancia.md`.
 
 ## Cómo está armado
@@ -215,7 +216,8 @@ Lo ven el responsable y quien consulta, en `/panel`. Tiene diez partes, y una m�
   material: a cuánto se pagó y se cobró el kilo, lo que entró y salió, su precio junto a sus
   kilos, lo que ha habido en el patio y lo que se le perdió;
 - la **ganancia**: lo vendido, lo que costó a costo promedio, el margen, lo perdido en bajas y
-  conteos, los gastos y lo que queda; por día, semana o mes, por material, y el patio valuado a lo
+  conteos, lo que cambiaron las cuentas cobradas que se corrigieron, lo que se ganó o perdió al
+  redondear a pesos, los gastos y lo que queda; por día, semana o mes, por material, y el patio valuado a lo
   que costó junto a lo que valdría a precio de lista;
 - lo **fiado**: quién debe cuánto, lo vencido, y cuándo fue la última venta y el último abono;
 - los **gastos**: los del periodo y por tipo. El responsable los registra —de otro lado, con su

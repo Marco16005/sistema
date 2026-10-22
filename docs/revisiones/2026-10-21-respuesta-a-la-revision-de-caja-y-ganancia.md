@@ -1,0 +1,26 @@
+# Respuesta a la revisión de Codex de la caja y la ganancia — 21 de octubre de 2026
+
+La revisión (`2026-10-21-codex-revision-de-caja-y-ganancia-incompleta.md`, encargo 31) cubrió siete
+de sus ocho partes antes de cortarse por cuota: le faltó la demostración (parte 8). Dejó diez
+hallazgos demostrados y una sospecha. Nueve se corrigieron; uno no aplica a ninguna base que
+exista, y se dice por qué. Las pruebas que reproducen cada uno están en
+`pruebas/56-revision-de-caja.test.ts` (se vieron fallar las ocho antes de corregir) y en
+`recorrido/correcciones.spec.ts`. Lo de la base va en la migración **0043**, que vuelve a escribir
+cada función desde su última versión y cambia solo lo que se dice aquí.
+
+| | Gravedad | Qué se hizo |
+|---|---|---|
+| **H4** Ganancia contaba un ajuste por corregir una cuenta como baja o sobrante, y nunca su dinero | Alta | Cada ajuste que sale de corregir una cuenta dice de qué corrección es (`movimiento_inventario.correccion_id`, con los que ya había reconocidos por lo que 0040 escribió en ellos). Ganancia lo cuenta aparte, como **correcciones**: el dinero de antes sale, el de después entra (en una venta entra dinero; en una compra sale), cada uno con su material, y lo que costaba el material que salió o volvió al patio. Sus dos casos dan ahora lo que dicen la caja y el patio: $8 y $0. |
+| **H5** «Lo que queda» no contaba lo que se gana o pierde al cerrar a pesos | Alta | Nuevo rubro **redondeo**: en una venta, lo cobrado de más es ganancia; en una compra, lo pagado de más es pérdida. Va en los totales y en cada tramo, no en los materiales. Su caso da $1.00. |
+| **H7** Corregir una venta fiada no cambiaba lo que debe el cliente, y aceptaba abonos de más | Alta | Una corrección de una venta fiada se liquida **a lo que debe el cliente** (nuevo, solo para ventas fiadas), o en efectivo o por transferencia en el momento; **ya no se deja «pendiente»**. Lo que debe (`lo_que_debe`, la vista `saldo_de_clientes` y el tope del abono) cuenta lo corregido, también para lo vencido. Bajarle a lo fiado no puede dejarlo con saldo a favor —no hay adelantos—: lo que ya pagó de más se le devuelve. El cliente se toma antes que el patio, como al fiar y al abonar. En la pantalla: «A lo que debe el cliente» en lugar de «No se liquidó», y «Se fió de más / de menos». |
+| **H3** Repetir un cobro con otro contenido devolvía éxito con lo que se había hecho | Media | Confirmar, fiar y terminar un vehículo que ya están cobrados devuelven lo hecho solo si se pide lo mismo; con otra forma de pago, otro cliente, otro plazo u otra firma se rechazan (RC011, «ya se cobró… hay que volver a verla»). Tres pruebas viejas fijaban lo permisivo y se cambiaron. |
+| **H1** Terminar un vehículo y corregir una cuenta podían esperarse una a otra | Media | Un solo orden: jornada, patio y al final la clave. Al revisar todas las funciones se encontraron **dos más con el orden al revés**, contar un material y corregir un movimiento de inventario; las tres toman ahora el patio antes de la clave. Su prueba, con la misma intercalación, pasa sin bloqueo. |
+| **H2** El resumen del cierre podía mezclar el día abierto con su cajón ya cortado | Media | Las dos lecturas van en una sola foto de la base (`Bd.instantanea`: solo lectura, REPEATABLE READ, una conexión). |
+| **H8** «Autoriza otra persona» soltaba el envío antes de saber si había entrado | Media | En correcciones y en el corte se pregunta primero qué pasó con el envío; solo con la respuesta se suelta. Si no se puede saber, se queda guardado y con la misma persona. |
+| **H9** Buscar otra cuenta escondía —y podía pisar— una corrección de la que no se supo | Media | Mientras haya una corrección sin saberse no se empieza otra en ninguna cuenta: se dice cuál es, junto a la búsqueda y en la cuenta que se abra, con un botón para ir a ella. El envío guarda su folio. Recorrido nuevo: se pierde la respuesta, se recarga, se intenta otra cuenta, se va a la primera y entra una sola vez. |
+| **H10** Cobrar y fiar no guardaban lo elegido | Media | **En parte.** La forma de pago se guarda con cada cuenta: recargar a medio cobro ya no la regresa a efectivo. Lo que se elige al fiar (cliente, plazo, quien firma) no se guarda; pero desde H3, si un intento incierto sí entró, repetirlo con otros datos se rechaza en vez de dar por hecho otro pedido. |
+| **Sospecha** Gastos leía lo guardado antes de saber si la pestaña es copia | — | Gastos va ahora detrás de `SoloEnSuPestana`, como el mostrador, el cierre y el inventario. |
+| **H6** El recálculo histórico de 0039 ordena por identificador, no por el orden en que se asentó | Alta | **No se corrige, porque no corre sobre ninguna base que lo necesite.** El recálculo solo toca movimientos anteriores a 0039. La instalación de verdad nace con todas las migraciones, sin historia; la demostración del usuario se volvió a sembrar el 21 de octubre ya con 0042, y su costo lo puso el disparador, que ordena bien. Las bases de pruebas nacen vacías. Si alguna vez hubiera que migrar historia anterior a 0039, el arreglo es el que propone Codex: reconstruir el orden por `creado_en` y las referencias. Queda dicho en el plan. |
+
+**Lo que no se revisó:** la parte 8 (la demostración). La revisión de las correcciones de este
+documento la hará Codex en una pasada posterior, junto con lo demás pendiente, no en cadena.

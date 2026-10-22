@@ -4,7 +4,9 @@
 // diferencia; el comprobante original no cambia. Lo autoriza con su clave una persona facultada.
 //
 // Corregir es un envío con clave: como reabrir el día, lo que salió y no se supo si llegó se queda
-// guardado en esta pestaña hasta saberlo, y mientras tanto solo se puede mandar ese mismo.
+// guardado en esta pestaña hasta saberlo, y mientras tanto solo se puede mandar ese mismo. Hay un
+// solo lugar para guardarlo: mientras haya una corrección sin saberse, no se empieza otra en
+// ninguna cuenta (revisión de Codex del 21 de octubre).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Autorizar } from "../Autorizar.tsx";
 import type { QuienAutoriza } from "../Autorizar.tsx";
@@ -15,7 +17,7 @@ import type { Pendiente } from "../inventario/piezas.tsx";
 import type { Catalogo } from "../mostrador/tipos.ts";
 import { Teclado, Visor } from "../Teclado.tsx";
 
-type Liquidacion = "efectivo" | "transferencia" | "pendiente";
+type Liquidacion = "efectivo" | "transferencia" | "pendiente" | "credito";
 
 interface Correccion {
   numero: number; materialAntes: string; materialDespues: string; kgAntes: string; kgDespues: string; precio: string;
@@ -23,33 +25,47 @@ interface Correccion {
   motivo: string; autorizo: string; registro: string;
 }
 interface Renglon { linea: string; material: { id: number; nombre: string }; kg: string; precio: string; importe: string; correcciones: number }
-interface Cuenta { id: string; folio: string; tipo: "compra" | "venta"; fecha: string; renglones: Renglon[]; correcciones: Correccion[] }
+interface Cuenta { id: string; folio: string; tipo: "compra" | "venta"; fecha: string; fiada: boolean; renglones: Renglon[]; correcciones: Correccion[] }
 
 type Envio = Pendiente<{ linea: string; kg: string; material: number; vistas: number; liquidacion: Liquidacion; motivo: string; autoriza: string }>
-  & { quien: QuienAutoriza; operacion: string };
+  & { quien: QuienAutoriza; operacion: string; folio?: string };
 const DONDE = "feruga.correccion";
 
-/** Qué quiere decir una diferencia: quién le debe a quién. */
-export function queSignifica(tipo: "compra" | "venta", diferencia: string): string {
+/** Qué quiere decir una diferencia: quién le debe a quién. En una venta fiada, cuánto se fió de más o de menos. */
+export function queSignifica(tipo: "compra" | "venta", diferencia: string, fiada = false): string {
   const d = Number(diferencia);
   const cuanto = pesos(String(Math.abs(d).toFixed(2)));
   if (d === 0) return "Sin diferencia de dinero";
+  if (fiada) return d > 0 ? `Se fió de menos: ${cuanto}` : `Se fió de más: ${cuanto}`;
   if (tipo === "compra") return d > 0 ? `Se pagó de menos: falta pagarle ${cuanto}` : `Se pagó de más: el vendedor devuelve ${cuanto}`;
   return d > 0 ? `Se cobró de menos: el cliente debe ${cuanto}` : `Se cobró de más: se le devuelven ${cuanto}`;
 }
-const COMO: Record<Liquidacion, string> = { efectivo: "en efectivo", transferencia: "por transferencia", pendiente: "sin liquidar" };
+const COMO: Record<Liquidacion, string> = { efectivo: "en efectivo", transferencia: "por transferencia", pendiente: "sin liquidar", credito: "a lo que debe el cliente" };
+const BOTON: Record<Liquidacion, string> = { efectivo: "En efectivo, hoy", transferencia: "Por transferencia", pendiente: "No se liquidó", credito: "A lo que debe el cliente" };
 
-function recordar(operacion: string): Envio | null {
+function guardado(): Envio | null {
   try {
-    const v = JSON.parse(sessionStorage.getItem(DONDE) ?? "null");
-    return v && v.operacion === operacion ? v : null;
+    return JSON.parse(sessionStorage.getItem(DONDE) ?? "null");
   } catch {
     return null;
   }
 }
+const recordar = (operacion: string): Envio | null => {
+  const v = guardado();
+  return v && v.operacion === operacion ? v : null;
+};
+/** La corrección de la que no se supo, si hay: de qué cuenta es, y su folio si se guardó. */
+export function correccionPendiente(): { operacion: string; folio: string | null } | null {
+  const v = guardado();
+  return v ? { operacion: v.operacion, folio: v.folio ?? null } : null;
+}
 
 /** Lo que lleva corregido una cuenta y, si `puedeCorregir`, corregirla. `alCorregir` avisa que cambió (el cajón, si fue en efectivo). */
-export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operacion: string; puedeCorregir: boolean; alCorregir?: () => void }) {
+export function Correcciones({ operacion, puedeCorregir, alCorregir, alCambiarPendiente }: {
+  operacion: string; puedeCorregir: boolean; alCorregir?: () => void;
+  /** Cambió lo que queda sin saberse (se guardó una corrección incierta, o se resolvió): la pantalla lo vuelve a mirar. */
+  alCambiarPendiente?: () => void;
+}) {
   const [cuenta, setCuenta] = useState<Cuenta | null>(null);
   const [pendiente, setPendiente] = useState<Envio | null>(() => recordar(operacion));
   const actual = useRef(pendiente);
@@ -74,6 +90,7 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
       // Sin dónde guardar, sigue; solo no sobrevive a una recarga.
     }
     setPendiente(v);
+    alCambiarPendiente?.();
   };
 
   const enAutorizar = autorizando || pendiente !== null;
@@ -95,7 +112,7 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
     setCorrigiendo(null);
     setCuenta(quedo);
     const ultima = quedo.correcciones.at(-1);
-    setHecho(ultima ? `Corregido. ${queSignifica(quedo.tipo, ultima.diferencia)}, ${COMO[ultima.liquidacion]}.` : "Corregido.");
+    setHecho(ultima ? `Corregido. ${queSignifica(quedo.tipo, ultima.diferencia, quedo.fiada)}, ${COMO[ultima.liquidacion]}.` : "Corregido.");
     alCorregir?.();
   };
 
@@ -107,7 +124,7 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
           const c = corrigiendo!;
           const renglon = cuenta!.renglones.find((x) => x.linea === c.linea)!;
           return {
-            id: identificador(), quien, operacion,
+            id: identificador(), quien, operacion, folio: cuenta!.folio,
             cuerpo: { linea: c.linea, kg: c.kg.replace(/\.$/, ""), material: c.material ?? renglon.material.id, vistas: renglon.correcciones, liquidacion: c.liquidacion!, motivo: c.motivo.trim(), autoriza: quien.id },
           };
         },
@@ -116,12 +133,15 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
       if (r) terminar(r.cuenta);
     });
 
+  // Primero se sabe qué pasó con ese envío, y solo entonces se suelta: si no se puede saber, se
+  // queda guardado y con la misma persona.
   const soltar = (): Promise<void> =>
     hacer(async () => {
       const p = actual.current;
       if (!p) return;
+      const resuelto = await cancelarEnvio(p.id);
       fijar(null);
-      if ((await cancelarEnvio(p.id)) === "entro") {
+      if (resuelto === "entro") {
         setHecho("Esa corrección ya había quedado registrada.");
         traer();
         alCorregir?.();
@@ -129,6 +149,9 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
     });
 
   if (!cuenta) return aviso ? <div className="flag" role="alert">{aviso}</div> : null;
+  // Otra cuenta tiene una corrección de la que no se supo: esa se resuelve primero.
+  const deOtra = pendiente === null ? correccionPendiente() : null;
+  const otraSinSaber = deOtra !== null && deOtra.operacion !== operacion;
 
   if (enAutorizar && puedeCorregir) {
     const c = pendiente?.cuerpo ?? (corrigiendo ? { ...corrigiendo, kg: corrigiendo.kg } : null);
@@ -165,12 +188,17 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
           <div className="ren" key={c.numero + c.fecha + c.hora}>
             <div className="rn">
               <b>{c.materialAntes === c.materialDespues ? c.materialDespues : `${c.materialAntes} → ${c.materialDespues}`}: {kilos(c.kgAntes)} → {kilos(c.kgDespues)} kg</b>
-              <small>{queSignifica(cuenta.tipo, c.diferencia)}, {COMO[c.liquidacion]} · {fechaCorta(c.fecha)}, {c.hora} · {c.motivo} · autorizó {c.autorizo}, lo registró {c.registro}</small>
+              <small>{queSignifica(cuenta.tipo, c.diferencia, cuenta.fiada)}, {COMO[c.liquidacion]} · {fechaCorta(c.fecha)}, {c.hora} · {c.motivo} · autorizó {c.autorizo}, lo registró {c.registro}</small>
             </div>
           </div>
         ))}
 
-        {puedeCorregir && !corrigiendo ? (
+        {puedeCorregir && otraSinSaber ? (
+          <p className="flag" role="status">
+            Quedó una corrección {deOtra!.folio ? `de la cuenta ${deOtra!.folio} ` : ""}sin saber si se registró. Primero se resuelve esa: búscala por su folio.
+          </p>
+        ) : null}
+        {puedeCorregir && !otraSinSaber && !corrigiendo ? (
           <>
             <p className="lbl" style={{ marginTop: 16 }}>¿Qué material se corrige?</p>
             {cuenta.renglones.map((r) => (
@@ -185,7 +213,7 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
           </>
         ) : null}
 
-        {puedeCorregir && corrigiendo && renglon ? (
+        {puedeCorregir && !otraSinSaber && corrigiendo && renglon ? (
           <div className="manual">
             <p className="que"><b>{renglon.material.nombre}</b><span>Ahora: {kilos(renglon.kg)} kg a {pesos(renglon.precio)} el kilo, {pesos(renglon.importe)}</span></p>
             <p className="lbl">¿Cuántos kilos eran de verdad?</p>
@@ -203,17 +231,18 @@ export function Correcciones({ operacion, puedeCorregir, alCorregir }: { operaci
             )}
             {kgListos ? (
               <p className="queda" role="status">
-                {diferencia !== null ? queSignifica(cuenta.tipo, diferencia) : "Con otro material, la diferencia la calcula el sistema al precio de lista de ese día."}
+                {diferencia !== null ? queSignifica(cuenta.tipo, diferencia, cuenta.fiada) : "Con otro material, la diferencia la calcula el sistema al precio de lista de ese día."}
               </p>
             ) : null}
             <p className="lbl" style={{ marginTop: 16 }}>¿Cómo se liquida la diferencia?</p>
             <div className="chips" role="group" aria-label="Cómo se liquida">
-              {(Object.keys(COMO) as Liquidacion[]).map((l) => (
+              {(cuenta.fiada ? ["credito", "efectivo", "transferencia"] as const : ["efectivo", "transferencia", "pendiente"] as const).map((l) => (
                 <button key={l} type="button" className="chip" aria-pressed={corrigiendo.liquidacion === l} onClick={() => setCorrigiendo({ ...corrigiendo, liquidacion: l })}>
-                  {l === "efectivo" ? "En efectivo, hoy" : l === "transferencia" ? "Por transferencia" : "No se liquidó"}
+                  {BOTON[l]}
                 </button>
               ))}
             </div>
+            {cuenta.fiada ? <p className="note">Esta venta se fió: la diferencia puede ir a lo que debe el cliente, o pagarse en el momento.</p> : null}
             <label>
               <span className="lbl">¿Por qué se corrige?</span>
               <input className="campo" type="text" value={corrigiendo.motivo} maxLength={200} autoComplete="off" placeholder="Se pesó con el costal, se anotó otro material…"

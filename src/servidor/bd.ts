@@ -11,6 +11,11 @@ export interface Bd {
   leer<F extends Record<string, any> = Record<string, any>>(sql: string, valores?: unknown[]): Promise<F[]>;
   /** Una acción completa: o queda escrita entera o no queda nada. */
   enTransaccion<T>(persona: Persona | null, accion: (c: pg.PoolClient) => Promise<T>): Promise<T>;
+  /**
+   * Varias lecturas que ven la misma foto de la base: una transacción de solo lectura en
+   * REPEATABLE READ, en una sola conexión. Lo que se escriba mientras tanto no se ve a medias.
+   */
+  instantanea<T>(accion: (bd: Bd) => Promise<T>): Promise<T>;
   cerrar(): Promise<void>;
 }
 
@@ -71,6 +76,42 @@ export function crearBd(url: string, opciones: OpcionesBd = {}): Bd {
       } finally {
         c.removeListener("error", alCaerse);
         // Una conexión caída o que no pudo deshacer no vuelve al pool: se destruye y el pool abre otra.
+        c.release(caida || inservible);
+      }
+    },
+
+    async instantanea(accion) {
+      const c = await pool.connect();
+      let caida = false;
+      const alCaerse = (): void => {
+        caida = true;
+      };
+      c.on("error", alCaerse);
+      let inservible = false;
+      try {
+        await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        const misma: Bd = {
+          async leer(sql, valores = []) {
+            return (await c.query(sql, valores)).rows;
+          },
+          enTransaccion: () => Promise.reject(new Error("Dentro de una instantánea solo se lee")),
+          instantanea: (otra) => otra(misma),
+          cerrar: async () => {},
+        };
+        const resultado = await accion(misma);
+        await c.query("COMMIT");
+        return resultado;
+      } catch (e) {
+        if (!caida) {
+          try {
+            await c.query("ROLLBACK");
+          } catch {
+            inservible = true;
+          }
+        }
+        throw traducir(e);
+      } finally {
+        c.removeListener("error", alCaerse);
         c.release(caida || inservible);
       }
     },

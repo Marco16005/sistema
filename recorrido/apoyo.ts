@@ -95,6 +95,12 @@ export async function entrar(page: Page, persona: Persona): Promise<void> {
   await expect(page.locator(".barra")).toContainText(persona.nombre);
 }
 
+/** Entra, y espera a que la aplicación termine de llevar a esa persona a su pantalla antes de pedir otra. */
+export async function adentro(page: Page, persona: Persona): Promise<void> {
+  await entrar(page, persona);
+  await page.waitForURL((u) => u.pathname !== "/");
+}
+
 export async function salir(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Salir", exact: true }).click();
   await expect(page.getByRole("heading", { name: "¿Quién atiende?" })).toBeVisible();

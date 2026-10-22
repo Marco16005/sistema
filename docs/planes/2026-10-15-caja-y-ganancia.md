@@ -13,6 +13,14 @@
 > terminó de integrarlos); Claude, la base de los gastos, el servidor, las pantallas y los
 > recorridos. Sigue la parte 6: que Codex revise todo esto. La demo del usuario sigue en 0037 hasta
 > actualizarla.
+>
+> **Revisada por Codex el 21 de octubre** (informe 31, cortado por cuota en la parte 7 de 8): diez
+> hallazgos, nueve corregidos en la migración **0043** —la ganancia cuenta las correcciones y el
+> redondeo; una venta fiada se corrige sobre lo que debe el cliente; un cobro repetido con otros
+> datos se rechaza; un solo orden de candados; el resumen del cierre de una sola lectura; y tres de
+> pantalla— y uno que no aplica: el recálculo histórico de 0039 ordena por identificador, y no corre
+> sobre ninguna base que tenga historia anterior (ver
+> `docs/revisiones/2026-10-21-respuesta-a-la-revision-de-caja-y-ganancia.md`).
 
 ## El orden
 

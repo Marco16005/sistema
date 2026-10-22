@@ -5,16 +5,10 @@
 // 45-administracion y 46-clientes-en-pantalla); aquí, lo que ve y hace quien administra.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { altaDePersona, aviso, baseNueva, conConsola, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
+import { adentro, altaDePersona, aviso, baseNueva, conConsola, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
 import type { Gente, Persona } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
-
-/** Entra, y espera a que la aplicación termine de llevar a esa persona a su pantalla antes de pedir otra. */
-async function adentro(page: Page, persona: Persona): Promise<void> {
-  await entrar(page, persona);
-  await page.waitForURL((u) => u.pathname !== "/");
-}
 
 /** El día en marcha (con lo que haya en el patio), este equipo dado de alta, Servando adentro y en los ajustes. */
 async function enAjustes(page: Page, g: Gente, saldos: Array<[string, string]> = []): Promise<void> {
