@@ -3,13 +3,19 @@
 // le dice a un vigilante de fuera que el sitio contesta. Se prueban contra un Telegram y un servidor
 // de correo de mentira, en esta máquina.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { createServer as servidorTcp } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { avisarPendientes, canalTelegram, latir, textoDeAviso } from "../operacion/avisos.ts";
+import { avisarPendientes, canalTelegram, discoDe, latir, revisarSitio, textoDeAviso } from "../operacion/avisos.ts";
 import type { Canal } from "../operacion/avisos.ts";
+import { estadoPorHttps } from "../operacion/comprobar.ts";
 import { enviarCorreo } from "../operacion/correo.ts";
 import { faltasDelEntorno } from "../src/servidor/entorno.ts";
 import { conBase, escenario, una } from "./apoyo.ts";
@@ -190,6 +196,78 @@ test("el latido le dice al vigilante que el sitio contesta, y que no, con por qu
   await latir(async () => ({ abierta: true }), vigia);
   await latir(async () => { throw new Error("el sitio no contestó a tiempo"); }, vigia);
   assert.deepEqual(dicho, ["bien", "falló: el sitio no contestó a tiempo"]);
+});
+
+const DIA = 86_400_000;
+const GB = 1e9;
+
+test("el latido avisa antes de que el sitio se caiga: si queda poco disco o si el certificado no se renovó", async () => {
+  const ahora = new Date("2026-10-22T12:00:00Z");
+  const sano = { desde: new Date(ahora.getTime() - 10 * DIA), hasta: new Date(ahora.getTime() + 80 * DIA) };
+  const sinRenovar = { desde: new Date(ahora.getTime() - 80 * DIA), hasta: new Date(ahora.getTime() + 10 * DIA) };
+  const revisa = (certificado: unknown, disco: () => Promise<{ libre: number; total: number }>) =>
+    revisarSitio({ estado: async () => ({ certificado: certificado as never }), disco, ahora: () => ahora });
+
+  // Todo bien: 40 de 100 GB libres, y al certificado le quedan 80 de sus 90 días.
+  await revisa(sano, async () => ({ libre: 40 * GB, total: 100 * GB }));
+  // Menos del 10 % libre…
+  await assert.rejects(revisa(sano, async () => ({ libre: 8 * GB, total: 100 * GB })),
+    (e: Error) => /Queda poco disco: 8\.0 GB libres de 100 GB \(8 %\)/.test(e.message));
+  // …o menos de 5 GB, aunque sean más del 10 % de un disco chico.
+  await assert.rejects(revisa(sano, async () => ({ libre: 4 * GB, total: 20 * GB })), /Queda poco disco: 4\.0 GB libres de 20 GB/);
+  // Le quedan 10 de sus 90 días: debió renovarse cuando le quedaba un tercio (30) y no se renovó.
+  await assert.rejects(revisa(sinRenovar, async () => ({ libre: 40 * GB, total: 100 * GB })),
+    (e: Error) => /El certificado del sitio vence en 10 días \(el 1 de noviembre\) y no se ha renovado/.test(e.message) && !/disco/.test(e.message));
+  // Las dos cosas a la vez se dicen las dos.
+  await assert.rejects(revisa(sinRenovar, async () => ({ libre: 1 * GB, total: 100 * GB })),
+    (e: Error) => /poco disco/.test(e.message) && /certificado/.test(e.message));
+  // Si no se puede ver el disco, también se avisa: callar sería no vigilar.
+  await assert.rejects(revisa(sano, async () => { throw new Error("EACCES"); }), /No se pudo ver cuánto disco queda/);
+  // Sin datos del certificado no se inventa un problema (que sea válido ya lo exige la conexión).
+  await revisa(null, async () => ({ libre: 40 * GB, total: 100 * GB }));
+  // Y si el sitio no contesta, eso es lo que se dice.
+  await assert.rejects(
+    revisarSitio({ estado: async () => { throw new Error("el sitio no contestó a tiempo"); }, disco: async () => ({ libre: 40 * GB, total: 100 * GB }) }),
+    /el sitio no contestó a tiempo/);
+
+  // El disco de verdad, el de esta máquina: se lee y tiene sentido.
+  const d = await discoDe("/");
+  assert.ok(d.total > 0 && d.libre >= 0 && d.libre <= d.total, `disco raro: ${JSON.stringify(d)}`);
+});
+
+test("el latido lee el certificado que de verdad presenta el sitio, y avisa si está por vencer sin renovarse", async () => {
+  const carpeta = mkdtempSync(join(tmpdir(), "certificado-"));
+  try {
+    const hoy = Date.now();
+    const fecha = (ms: number) => new Date(ms).toISOString().replace(/[-:T]/g, "").replace(/\.\d+/, "");
+    // Uno de 90 días al que le quedan 10: el que un proxy debió renovar y no renovó.
+    execFileSync("openssl", [
+      "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+      "-keyout", join(carpeta, "llave.pem"), "-out", join(carpeta, "cert.pem"),
+      "-subj", "/CN=patio.prueba", "-addext", "subjectAltName=DNS:patio.prueba",
+      "-not_before", fecha(hoy - 80 * DIA), "-not_after", fecha(hoy + 10 * DIA),
+    ], { stdio: "ignore" });
+    const cert = readFileSync(join(carpeta, "cert.pem"), "utf8");
+    const sitio = createHttpsServer({ key: readFileSync(join(carpeta, "llave.pem")), cert }, (_q, r) => {
+      r.setHeader("content-type", "application/json");
+      r.end(JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b" }));
+    });
+    sitio.listen(0, "127.0.0.1");
+    await once(sitio, "listening");
+    try {
+      const o = { dominio: "patio.prueba", maquina: "127.0.0.1", puerto: (sitio.address() as AddressInfo).port, ca: cert };
+      const e = await estadoPorHttps(o);
+      assert.ok(e.certificado, "no leyó el certificado");
+      assert.ok(Math.abs(e.certificado.hasta.getTime() - (hoy + 10 * DIA)) < 5_000, `vence ${e.certificado.hasta.toISOString()}`);
+      assert.ok(Math.abs(e.certificado.desde.getTime() - (hoy - 80 * DIA)) < 5_000, `desde ${e.certificado.desde.toISOString()}`);
+      await assert.rejects(revisarSitio({ estado: () => estadoPorHttps(o), disco: async () => ({ libre: 40 * GB, total: 100 * GB }) }),
+        /El certificado del sitio vence en (9|10) días/);
+    } finally {
+      sitio.close();
+    }
+  } finally {
+    rmSync(carpeta, { recursive: true, force: true });
+  }
 });
 
 test("en el entorno, lo de los avisos de fuera va completo o no va", () => {

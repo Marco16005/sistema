@@ -1223,7 +1223,9 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
 - [ ] **Lo que agregó la revisión de Codex del 21 de octubre** (informe 32), que solo se prueba ahí:
       - las alertas del diario y del ensayo por separado, también que no llegue el aviso y que se
         pierda el latido; que las reciba de verdad quien da soporte, no solo un «200»;
-      - el certificado real: su renovación y el aviso antes de que venza, además de emitirlo;
+      - el certificado real: su renovación y el aviso antes de que venza, además de emitirlo (el
+        aviso ya está, 22 de octubre: el latido falla si le queda menos de un sexto de su vida, y
+        también si queda menos del 10 % del disco; falta verlo con el certificado de verdad);
       - cambiar `BD_CLAVE` en una base que ya existe, y el disco lleno (espacio para la base
         apartada, la restaurada, los temporales y las imágenes anteriores);
       - B2 en los dos depósitos: versiones anteriores después de pisar un objeto, retención de

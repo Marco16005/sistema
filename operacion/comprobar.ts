@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { request } from "node:https";
 import { connect } from "node:tls";
+import type { TLSSocket } from "node:tls";
 import { pathToFileURL } from "node:url";
 import { encabezadoDelComprobador } from "../src/servidor/comprobador.ts";
 import { faltasDelEntorno } from "../src/servidor/entorno.ts";
@@ -102,6 +103,17 @@ export interface EstadoDelSitio {
   esquema: string | null;
   /** La marca de la base sobre la que contesta. */
   base: string | null;
+  /** El certificado que presentó, para ver si está por vencer (operacion/avisos.ts, `revisarSitio`). */
+  certificado: { desde: Date; hasta: Date } | null;
+}
+
+/** Desde cuándo y hasta cuándo vale el certificado que presentó esa conexión; null si no se puede saber. */
+function vigenciaDe(enlace: TLSSocket): { desde: Date; hasta: Date } | null {
+  const c = typeof enlace.getPeerCertificate === "function" ? enlace.getPeerCertificate() : null;
+  if (!c || !c.valid_from || !c.valid_to) return null;
+  const desde = new Date(c.valid_from);
+  const hasta = new Date(c.valid_to);
+  return Number.isNaN(desde.getTime()) || Number.isNaN(hasta.getTime()) ? null : { desde, hasta };
 }
 
 /**
@@ -109,14 +121,16 @@ export interface EstadoDelSitio {
  * está listo (no contesta 200). Con `clave` —la de sesión de la instalación— se acredita como el
  * comprobador y recibe el detalle.
  */
-export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: number; plazo?: number; clave?: string }): Promise<EstadoDelSitio> {
+export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: number; plazo?: number; clave?: string; ca?: string }): Promise<EstadoDelSitio> {
   return new Promise((bien, mal) => {
     const peticion = request(
       {
         host: o.maquina ?? o.dominio, port: o.puerto ?? 443, servername: o.dominio, path: "/api/salud", method: "GET",
         headers: { Host: o.dominio, ...(o.clave ? encabezadoDelComprobador(o.clave) : {}) }, timeout: o.plazo ?? 10_000, rejectUnauthorized: true,
+        ...(o.ca ? { ca: o.ca } : {}),
       },
       (respuesta) => {
+        const certificado = vigenciaDe(respuesta.socket as TLSSocket);
         let cuerpo = "";
         respuesta.setEncoding("utf8");
         respuesta.on("data", (trozo: string) => { if (cuerpo.length < 10_000) cuerpo += trozo; });
@@ -126,7 +140,7 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
             const d = JSON.parse(cuerpo) as Record<string, unknown>;
             if (d.bien !== true || typeof d.abierta !== "boolean") throw new Error("sin forma");
             const texto = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
-            bien({ abierta: d.abierta, version: texto(d.version), esquema: texto(d.esquema), base: texto(d.base) });
+            bien({ abierta: d.abierta, version: texto(d.version), esquema: texto(d.esquema), base: texto(d.base), certificado });
           } catch {
             mal(new Error("el sitio contestó 200, pero no con lo que dice la salud de esta aplicación"));
           }

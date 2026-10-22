@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { exigirEntorno } from "../src/servidor/entorno.ts";
-import { avisarPendientes, canalCorreo, canalTelegram, latir } from "./avisos.ts";
+import { avisarPendientes, canalCorreo, canalTelegram, discoDe, latir, revisarSitio } from "./avisos.ts";
 import type { Canal } from "./avisos.ts";
 import { estadoPorHttps } from "./comprobar.ts";
 import { PUBLICACION, SELLO, destinoRclone, huellaDe, leerSellosAnteriores, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, selloDelDestino, ultimoUtilizable } from "./destino.ts";
@@ -580,12 +580,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         }
         if (env.LATIDO_VIGIA_URL && env.DOMINIO) {
           // Cada 5 minutos, si no se dice otra cosa. El primero espera un intervalo: al arrancar, el sitio
-          // puede no estar listo todavía, y eso no es que se haya caído.
+          // puede no estar listo todavía, y eso no es que se haya caído. Además de que conteste, revisa
+          // el disco de Docker («/» de este contenedor) y el certificado que presenta (`revisarSitio`).
           const cada = Math.max(5, Number(env.LATIDO_CADA) || 300) * 1000;
           const latido = vigiaHttp(env.LATIDO_VIGIA_URL);
           console.log(`El latido del sitio sale cada ${cada / 1000} segundos.`);
           deFondo.push(cadaTanto(cada, "No se pudo avisar el latido del sitio", () =>
-            latir(() => estadoPorHttps({ dominio: env.DOMINIO!, maquina: "proxy" }), latido), true));
+            latir(() => revisarSitio({ estado: () => estadoPorHttps({ dominio: env.DOMINIO!, maquina: "proxy" }), disco: () => discoDe("/") }), latido), true));
         }
         const respaldos = servicio({
           horario: leerHorario(env.RESPALDO_HORARIO!), zona, reintento: 5 * 60_000,

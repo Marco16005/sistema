@@ -8,10 +8,12 @@
 //     ninguno. Lo que se manda queda dicho en la base (aviso.enviado_en).
 //   · el latido: cada tanto se le pregunta al sitio, por HTTPS y por el proxy, si contesta; si sí, se
 //     le avisa a un vigilante de fuera (Healthchecks). Si el sitio deja de contestar —o se cae el
-//     servidor entero—, el vigilante deja de oírlo y alerta.
+//     servidor entero—, el vigilante deja de oírlo y alerta. Y avisa antes de que se caiga: si queda
+//     poco disco, o si el certificado está por vencer sin que el proxy lo haya renovado.
 //
 // Las claves (la del bot de Telegram, la contraseña del correo) nunca salen en un error ni en el registro.
 import { randomUUID } from "node:crypto";
+import { statfs } from "node:fs/promises";
 import { enviarCorreo } from "./correo.ts";
 
 /** Por donde sale un aviso. */
@@ -121,6 +123,67 @@ export async function avisarPendientes(
     }
   }
   return { enviados, pendientes };
+}
+
+/** El certificado que presenta el sitio: desde cuándo y hasta cuándo vale. */
+export interface Certificado {
+  desde: Date;
+  hasta: Date;
+}
+
+/** Un disco, en bytes: lo que queda libre para quien no es root, y lo que mide. */
+export interface Disco {
+  libre: number;
+  total: number;
+}
+
+/** Cuánto disco queda donde está esa ruta. Dentro de un contenedor, «/» es el disco donde Docker guarda todo. */
+export async function discoDe(ruta: string): Promise<Disco> {
+  const s = await statfs(ruta);
+  return { libre: s.bavail * s.bsize, total: s.blocks * s.bsize };
+}
+
+const GB = 1e9;
+const DIA = 86_400_000;
+const numero = (n: number, decimales: number): string =>
+  n.toLocaleString("es-MX", { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
+
+/**
+ * Lo que el latido revisa además de que el sitio conteste, para avisar ANTES de que se caiga:
+ *   · el disco: menos del 10 % libre, o menos de 5 GB. Lleno, la base deja de escribir y no hay
+ *     lugar para restaurar ni para publicar.
+ *   · el certificado: el proxy lo renueva solo cuando le queda un tercio de su vida (en uno de 90
+ *     días, a los 30 de vencer). Si le queda menos de un sexto (unos 15 días) es que no ha podido.
+ * Falla con lo que encontró, dicho en llano; el vigilante lo enseña con su alerta.
+ */
+export async function revisarSitio(o: {
+  estado: () => Promise<{ certificado?: Certificado | null }>;
+  disco: () => Promise<Disco>;
+  ahora?: () => Date;
+}): Promise<void> {
+  const { certificado } = await o.estado();
+  const ahora = (o.ahora ?? (() => new Date()))().getTime();
+  const problemas: string[] = [];
+  try {
+    const d = await o.disco();
+    if (d.libre < 5 * GB || d.libre < 0.1 * d.total) {
+      const parte = d.total > 0 ? ` (${Math.floor((100 * d.libre) / d.total)} %)` : "";
+      problemas.push(`Queda poco disco: ${numero(d.libre / GB, 1)} GB libres de ${numero(d.total / GB, 0)} GB${parte}. Ver «Se llenó el disco» en la guía.`);
+    }
+  } catch (e) {
+    problemas.push(`No se pudo ver cuánto disco queda (${(e as Error).message}).`);
+  }
+  if (certificado) {
+    const quedan = certificado.hasta.getTime() - ahora;
+    const vida = certificado.hasta.getTime() - certificado.desde.getTime();
+    if (quedan < vida / 6) {
+      const dias = Math.floor(quedan / DIA);
+      const cuando = quedan <= 0 ? "ya venció" : dias === 0 ? "vence hoy" : `vence en ${dias} ${dias === 1 ? "día" : "días"}`;
+      const fecha = certificado.hasta.toLocaleDateString("es-MX", { day: "numeric", month: "long", timeZone: "UTC" });
+      problemas.push(`El certificado del sitio ${cuando} (el ${fecha}) y no se ha renovado: el proxy debió renovarlo cuando le quedaba un tercio de su vida.`);
+    }
+  }
+  if (problemas.length > 0) throw new Error(problemas.join(" "));
 }
 
 /** Un latido: si el sitio contesta, se le dice al vigilante; si no, también, con por qué. */

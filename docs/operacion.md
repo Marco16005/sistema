@@ -137,7 +137,10 @@ paquete de recuperación y a ningún otro lado**. De ninguno de los dos se vuelv
   proxy y con el certificado de verdad, cada 5 minutos, y si contesta se lo dice a su señal. Si el
   sitio deja de contestar —o se cae el servidor entero— la señal deja de oírlo y alerta. En
   Healthchecks: periodo de 5 minutos y gracia de 15 (una publicación detiene el servicio unos
-  minutos; eso no debe sonar).
+  minutos; eso no debe sonar). **Y avisa antes de que se caiga:** si queda menos del 10 % del
+  disco (o menos de 5 GB), o si al certificado le queda menos de un sexto de su vida (unos 15
+  días en uno de 90) sin que el proxy lo haya renovado, el latido sale como falla, con lo que
+  encontró dicho en llano; la señal alerta enseguida y enseña ese texto.
 
 ### 2.3 bis Los avisos del cajón, por Telegram y por correo
 
@@ -380,6 +383,14 @@ día se quedó sin ningún respaldo que sirva, ese día ya no se puede reconstru
 
 **Llegó el aviso del ensayo.** Pasaron 35 días sin restaurar de verdad: hacer la sección 6.
 
+**Llegó la alerta del latido.** En Healthchecks, el último mensaje de esa señal dice qué fue: que
+el sitio no contestó (lo que sigue), que queda poco disco («Se llenó el disco», abajo) o que el
+certificado no se ha renovado. Lo del certificado casi siempre es que el dominio dejó de apuntar al
+servidor o que el puerto 80 ya no llega: `comprobacion certificado` (abajo) dice cuál presenta y
+cuándo vence, y `sh operacion/compose.sh logs --tail 200 proxy` dice por qué no lo renovó. Si la
+señal solo dejó de oírse, sin mensaje, es que el servidor entero —o el servicio de respaldos— no
+está corriendo.
+
 **El sitio no contesta, o dice que el sistema no está disponible.**
 
 ```bash
@@ -408,8 +419,8 @@ mismo día: generar otra pareja (2.2), poner la pública y el sello nuevos en el
 uno falso si además puede escribir en el almacenamiento. Cambiar la llave como arriba; los
 respaldos anteriores no se pueden borrar antes de que venza su candado.
 
-**Se llenó el disco.** — *por probar en el servidor.* No hay nada automático que lo evite ni lo
-avise, y ningún guion borra imágenes de publicaciones anteriores. Los respaldos no se acumulan
+**Se llenó el disco.** — *por probar en el servidor.* El latido avisa antes, cuando queda menos
+del 10 % o menos de 5 GB. Ningún guion borra todavía imágenes de publicaciones anteriores. Los respaldos no se acumulan
 en el servidor: se suben, y lo que quedó en la máquina se borra. Queda por definir qué se limpia y
 cuándo.
 
@@ -421,7 +432,8 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
   desechable) y comprobar ahí lo que el ensayo no puede: que los servicios arrancan y vuelven a
   arrancar después de reiniciar, que se entra con llave y ya no con contraseña desde otra máquina,
   y que desde fuera, por IPv4 e IPv6, solo contestan los puertos 22, 80 y 443.
-- El certificado del dominio de verdad, y el aviso antes de que venza.
+- El certificado del dominio de verdad, y que se renueva solo (si no, el latido avisa: está
+  probado con un certificado hecho a propósito, no con el de verdad).
 - Los permisos reales del almacenamiento contratado: que la credencial del servidor no pueda
   borrar ni acortar la retención, y que la de recuperación solo lea.
 - El ensayo de restauración desde otra máquina, siguiendo solo esta guía, midiendo cuánto tarda:
