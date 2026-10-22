@@ -17,6 +17,7 @@ import { SoloEnSuPestana } from "../SoloEnSuPestana.tsx";
 import { COBRAN, LoQueFalta, faltaContarElCajon, useSesion } from "../Sesion.tsx";
 import { Teclado, Visor } from "../Teclado.tsx";
 import { Fiar } from "./Fiar.tsx";
+import type { DatosDeFiado } from "./Fiar.tsx";
 import { PrecioEspecial, precioNuevo } from "./PrecioEspecial.tsx";
 import type { EstadoDePrecio } from "./PrecioEspecial.tsx";
 import { Ticket } from "./Ticket.tsx";
@@ -68,10 +69,17 @@ interface Lugar {
   corrigiendo: { linea: string; peso: string } | null;
   /** Cómo se paga o se cobra: se guarda con la cuenta, para que recargar a medio cobro no la regrese a efectivo. */
   forma: FormaDePago;
+  /** Lo elegido para fiarla —cliente, plazo— y quién firmó si salió y no se supo. */
+  fiado: DatosDeFiado | null;
+  /**
+   * Un cobro —cobrar, fiar, terminar un vehículo— salió y no se supo si entró. Si al volver la cuenta
+   * ya no está abierta, se averigua: si se cobró, se muestra su comprobante para imprimirlo.
+   */
+  cobrando: boolean;
 }
 const LUGAR_NUEVO: Lugar = {
   paso: "mat", familia: 0, material: null, bascula: null, peso: "", recipiente: null, tecleando: "peso",
-  pendiente: null, segunda: null, especial: null, quitando: null, corrigiendo: null, forma: "efectivo",
+  pendiente: null, segunda: null, especial: null, quitando: null, corrigiendo: null, forma: "efectivo", fiado: null, cobrando: false,
 };
 /** Lo que se suelta cuando un material ya entró, o cuando se elige otro. */
 const SIN_PESO: Partial<Lugar> = { material: null, bascula: null, peso: "", recipiente: null, tecleando: "peso", pendiente: null };
@@ -144,12 +152,49 @@ function Pantalla() {
     setMemoria((m) => ({ ...m, lugares: { ...m.lugares, [id]: { ...(m.lugares[id] ?? LUGAR_NUEVO), ...cambio } } }));
   }, []);
 
+  /**
+   * Cobrar es un envío: antes de salir queda dicho con la cuenta —también en lo guardado, ya, por si
+   * la página se va antes de redibujarse—, y se suelta en cuanto el servidor contesta algo.
+   */
+  const cobrar = useCallback(async <T,>(id: string, peticion: () => Promise<T>): Promise<T> => {
+    const marcar = (cobrando: boolean): void => {
+      ponerLugar(id, { cobrando });
+      try {
+        const m = recordar();
+        sessionStorage.setItem(DONDE, JSON.stringify({ ...m, lugares: { ...m.lugares, [id]: { ...(m.lugares[id] ?? LUGAR_NUEVO), cobrando } } }));
+      } catch {
+        // Sin dónde guardar, sigue; solo no sobrevive a una recarga.
+      }
+    };
+    marcar(true);
+    try {
+      const r = await peticion();
+      marcar(false);
+      return r;
+    } catch (e) {
+      marcar(e instanceof ErrorDeApi && (e.codigo === "RED" || e.estado >= 500));
+      throw e;
+    }
+  }, [ponerLugar]);
+
   /** Vuelve a pedir las cuentas abiertas y la que se está viendo. `preferida` es a cuál pasar. */
   const refrescar = useCallback(async (preferida?: string | null) => {
     const turno = ++cargaEnCurso.current;
     try {
       const { cuentas: abiertas } = await pedir<{ cuentas: CuentaEnLista[] }>("GET", "/api/cuentas");
       if (turno !== cargaEnCurso.current) return;
+      // Un cobro del que no se supo, de una cuenta que ya no está abierta: se cobró, y no se vio su comprobante.
+      const cobrada = Object.entries(recordar().lugares).find(([k, l]) => l.cobrando && !abiertas.some((c) => c.id === k))?.[0];
+      if (cobrada) {
+        try {
+          const visto = await pedir<{ comprobante: Comprobante; negocio: string }>("GET", `/api/comprobantes/${cobrada}`);
+          if (turno !== cargaEnCurso.current) return;
+          setTicket({ ...visto, impresion: null });
+          setUltimo("Esa cuenta sí se había cobrado: aquí está su comprobante, para imprimirlo.");
+        } catch {
+          // Se descartó, o no se pudo ver: no hay comprobante que enseñar.
+        }
+      }
       let id = preferida === undefined ? recordar().activa : preferida;
       if (!id || !abiertas.some((c) => c.id === id)) id = abiertas[0]?.id ?? null;
       const llegada = id ? (await pedir<{ cuenta: Cuenta }>("GET", `/api/cuentas/${id}`)).cuenta : null;
@@ -332,7 +377,7 @@ function Pantalla() {
     hacer(async () => {
       if (!vista) return;
       try {
-        const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${vista.id}/confirmar`, { revision: vista.revision, forma });
+        const r = await cobrar(vista.id, () => pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${vista.id}/confirmar`, { revision: vista.revision, forma }));
         await terminada(r.cuenta);
       } catch (e) {
         if (e instanceof ErrorDeApi && e.codigo === "RC011") {
@@ -460,6 +505,8 @@ function Pantalla() {
                 quitando={lugar.quitando} alQuitando={(quitando) => ponerLugar(vista.id, { quitando })}
                 corrigiendo={lugar.corrigiendo} alCorrigiendo={(corrigiendo) => ponerLugar(vista.id, { corrigiendo })}
                 forma={lugar.forma} alForma={(forma) => ponerLugar(vista.id, { forma })}
+                fiado={lugar.fiado} alFiado={(fiado) => ponerLugar(vista.id, { fiado })}
+                cobrar={(peticion) => cobrar(vista.id, peticion)}
                 alDecir={(mensaje) => { setAviso(""); setUltimo(mensaje); void refrescar(vista.id); }}
                 alAdvertir={(texto) => { setUltimo(""); setAviso(texto); void refrescar(vista.id); }}
                 alAgregarOtro={() => irA("mat")} alConfirmar={(forma) => void confirmar(forma)} alDescartar={() => void descartar()}
@@ -648,6 +695,9 @@ function PasoCuenta(p: {
   quitando: Lugar["quitando"]; alQuitando: (quitando: Lugar["quitando"]) => void;
   corrigiendo: Lugar["corrigiendo"]; alCorrigiendo: (corrigiendo: Lugar["corrigiendo"]) => void;
   forma: FormaDePago; alForma: (forma: FormaDePago) => void;
+  fiado: DatosDeFiado | null; alFiado: (fiado: DatosDeFiado | null) => void;
+  /** Manda un cobro dejándolo dicho con la cuenta mientras no se sepa si entró. */
+  cobrar: <T>(peticion: () => Promise<T>) => Promise<T>;
   /** Algo quedó hecho y no se tiene la cuenta como quedó: se dice, y se vuelve a pedir. */
   alDecir: (mensaje: string) => void;
   /** Algo no se pudo porque la cuenta cambió: se dice, y se vuelve a pedir. */
@@ -667,7 +717,8 @@ function PasoCuenta(p: {
   const [autorizando, setAutorizando] = useState(false);
   // Lo de todos los días es el efectivo; la transferencia y el crédito, para las cargas grandes.
   const { forma, alForma: setForma } = p;
-  const [fiando, setFiando] = useState(false);
+  // Si se dejó a medias —o salió y no se supo—, al volver a la cuenta se sigue fiando.
+  const [fiando, setFiando] = useState(p.fiado !== null && p.forma === "credito");
   const { dia } = useSesion();
   // La segunda pesada a medias vale solo si su material sigue en esta cuenta esperando esa pesada.
   const porPesar = p.segunda ? cuenta.materiales.find((m) => m.id === p.segunda!.linea && m.porPesar) ?? null : null;
@@ -757,11 +808,16 @@ function PasoCuenta(p: {
   }
 
   if (fiando) {
-    return <Fiar cuenta={cuenta} hoy={dia.hoy} aviso={p.aviso} ocupado={p.ocupado} hacer={p.hacer} alTerminar={p.alTerminar} alSalir={() => setFiando(false)} />;
+    return (
+      <Fiar
+        cuenta={cuenta} hoy={dia.hoy} aviso={p.aviso} ocupado={p.ocupado} guardado={p.fiado} alGuardar={p.alFiado} cobrar={p.cobrar}
+        hacer={p.hacer} alTerminar={p.alTerminar} alSalir={() => setFiando(false)}
+      />
+    );
   }
 
   if (autorizando) {
-    return <AutorizarVehiculo cuenta={cuenta} forma={forma} hacer={p.hacer} aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => setAutorizando(false)} alTerminar={p.alTerminar} />;
+    return <AutorizarVehiculo cuenta={cuenta} forma={forma} cobrar={p.cobrar} hacer={p.hacer} aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => setAutorizando(false)} alTerminar={p.alTerminar} />;
   }
 
   if (p.corrigiendo && paraRecipiente) {
@@ -1013,6 +1069,7 @@ function NombreDeCuenta(p: {
 
 function AutorizarVehiculo(p: {
   cuenta: Cuenta; forma: FormaDePago; aviso: string; ocupado: boolean; hacer: (accion: () => Promise<void>) => Promise<void>;
+  cobrar: <T>(peticion: () => Promise<T>) => Promise<T>;
   alCancelar: () => void; alTerminar: (hecha: Cuenta) => Promise<void>;
 }) {
   const [responsables, setResponsables] = useState<QuienAutoriza[] | null>(null);
@@ -1031,9 +1088,9 @@ function AutorizarVehiculo(p: {
       aviso={p.aviso} ocupado={p.ocupado} alCancelar={p.alCancelar}
       alAutorizar={(quien, clave) =>
         p.hacer(async () => {
-          const r = await pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${p.cuenta.id}/terminar-vehiculo`, {
+          const r = await p.cobrar(() => pedir<{ cuenta: Cuenta }>("POST", `/api/cuentas/${p.cuenta.id}/terminar-vehiculo`, {
             responsable: quien.id, clave, revision: p.cuenta.revision, forma: p.forma,
-          });
+          }));
           // Dentro de esta misma acción: una acción no llama a otra, que la guarda contra el doble toque la detendría.
           await p.alTerminar(r.cuenta);
         })}

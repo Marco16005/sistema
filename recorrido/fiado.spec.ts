@@ -3,7 +3,7 @@
 // efectivo cuentan en el corte; en el Panel se ve quién debe cuánto.
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { adentro, baseNueva, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
+import { adentro, baseNueva, conConsola, contarImpresiones, darDeAltaEquipo, diaListo, entrar, gente, loQueNoMide, pesar, salir, teclear } from "./apoyo.ts";
 import type { Gente } from "./apoyo.ts";
 
 test.beforeEach(baseNueva);
@@ -120,3 +120,94 @@ for (const [ancho, alto] of [[1280, 620], [360, 640]] as const) {
     await medir("un abono");
   });
 }
+
+/** Abre una venta de 300 kg de cartón, la pone a crédito para un cliente nuevo y pide la clave, sin teclearla. */
+async function hastaLaClaveDeFiar(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "+ Venta" }).click();
+  await pesar(page, "Cartón", "Báscula 2", "300");
+  await page.getByRole("button", { name: "A crédito" }).click();
+  await page.getByRole("button", { name: "Fiar la venta" }).click();
+  await page.getByRole("button", { name: "Es un cliente nuevo" }).click();
+  await page.getByLabel("Nombre del cliente nuevo").fill("Fundidora del Norte");
+  await page.getByRole("button", { name: "Pedir la clave de quien autoriza" }).click();
+}
+/** La siguiente petición a esa ruta: llega y su respuesta se pierde, o no llega. */
+async function cortar(page: Page, patron: RegExp, llega: boolean): Promise<void> {
+  let ya = false;
+  await page.route(patron, async (ruta) => {
+    if (ya || ruta.request().method() !== "POST") return ruta.fallback();
+    ya = true;
+    if (llega) await ruta.fetch();
+    await ruta.abort();
+  });
+}
+const creditos = async (): Promise<number> => (await conConsola(async (db) => (await db.query("SELECT count(*)::int AS n FROM credito")).rows[0])).n;
+
+test("si fiar sí entró y la respuesta se pierde, al recargar se ve su comprobante: no se fía dos veces", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.luis);
+  await hastaLaClaveDeFiar(page);
+  await cortar(page, /\/api\/cuentas\/[^/]+\/fiar$/, true);
+  const hoja = page.getByRole("dialog", { name: "Fiar la venta" });
+  await hoja.getByRole("button", { name: /^Servando/ }).click();
+  await teclear(page, g.servando.clave);
+  await hoja.getByRole("button", { name: "Fiar a nombre de Servando" }).click();
+  await expect(hoja).toContainText("No se supo si la venta se fió");
+
+  await page.reload();
+  await expect(page.locator(".ticket").first()).toContainText("Cliente: Fundidora del Norte");
+  await expect(page.locator(".ticket").first()).toContainText("A crédito");
+  await page.getByRole("button", { name: "Listo" }).click();
+  expect(await creditos()).toBe(1);
+  await expect(page.getByText("No hay cuentas abiertas")).toBeVisible();
+});
+
+test("si fiar no llegó, al recargar se vuelve a la misma venta con los mismos datos y la misma persona, y se fía una vez", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.luis);
+  await hastaLaClaveDeFiar(page);
+  await cortar(page, /\/api\/cuentas\/[^/]+\/fiar$/, false);
+  const hoja = page.getByRole("dialog", { name: "Fiar la venta" });
+  await hoja.getByRole("button", { name: /^Servando/ }).click();
+  await teclear(page, g.servando.clave);
+  await hoja.getByRole("button", { name: "Fiar a nombre de Servando" }).click();
+  await expect(hoja).toContainText("No se supo si la venta se fió");
+  expect(await creditos()).toBe(0);
+
+  await page.reload();
+  const otraVez = page.getByRole("dialog", { name: "Fiar la venta" });
+  await expect(otraVez).toContainText("No se supo si la venta se fió");
+  await expect(otraVez).toContainText("a nombre de Fundidora del Norte");
+  await teclear(page, g.servando.clave);
+  await otraVez.getByRole("button", { name: "Fiar a nombre de Servando" }).click();
+  await expect(page.locator(".ticket").first()).toContainText("Cliente: Fundidora del Norte");
+  await page.getByRole("button", { name: "Listo" }).click();
+  expect(await creditos()).toBe(1);
+});
+
+test("si un cobro en efectivo entró y la respuesta se pierde, al recargar se ve su comprobante", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const g = await gente();
+  await diaListo(g);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.luis);
+  await page.getByRole("button", { name: "+ Compra" }).click();
+  await pesar(page, "Cartón", "Báscula 2", "30");
+  await cortar(page, /\/api\/cuentas\/[^/]+\/confirmar$/, true);
+  await page.getByRole("button", { name: "Pagar e imprimir ticket" }).click();
+  await expect(page.locator('.flag[role="alert"]')).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".ticket").first()).toContainText("30.000 kg × $2.10");
+  await page.getByRole("button", { name: "Listo" }).click();
+  const { n } = await conConsola(async (db) => (await db.query("SELECT count(*)::int AS n FROM operacion WHERE estado = 'confirmada'")).rows[0]);
+  expect(n).toBe(1);
+});
