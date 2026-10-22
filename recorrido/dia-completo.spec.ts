@@ -29,7 +29,7 @@ test("un día completo: arranque, precios, una compra, una venta, comprobantes y
   await page.getByLabel("Precio de compra de Aluminio bote").fill("28");
   await page.getByLabel("Precio de venta de Aluminio bote").fill("33");
   await page.getByRole("button", { name: "Publicar lista del día" }).click();
-  await expect(page.getByText("Lista publicada. Ya se puede atender.")).toBeVisible();
+  await expect(page.getByText("Lista publicada. Antes de atender, falta contar el cajón.")).toBeVisible();
   await expect(page.getByLabel("Precio de compra de Cartón")).toHaveCount(0); // publicada: ya no se edita
   await salir(page);
 

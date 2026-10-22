@@ -183,16 +183,22 @@ function Pantalla() {
     try {
       const { cuentas: abiertas } = await pedir<{ cuentas: CuentaEnLista[] }>("GET", "/api/cuentas");
       if (turno !== cargaEnCurso.current) return;
-      // Un cobro del que no se supo, de una cuenta que ya no está abierta: se cobró, y no se vio su comprobante.
-      const cobrada = Object.entries(recordar().lugares).find(([k, l]) => l.cobrando && !abiertas.some((c) => c.id === k))?.[0];
-      if (cobrada) {
+      // Los cobros de los que no se supo, de cuentas que ya no están abiertas: se cobraron, y no se vio su
+      // comprobante. Se enseña uno a la vez —al tocar «Listo» sigue el siguiente—. Cada uno se suelta solo
+      // cuando se trajo su comprobante, o cuando el servidor dice que no lo hay (se descartó). Si no se pudo
+      // preguntar, se queda, y se vuelve a intentar. (Revisión de Codex del 22 de octubre.)
+      const resueltas = new Set<string>();
+      for (const [cobrada] of Object.entries(recordar().lugares).filter(([k, l]) => l.cobrando && !abiertas.some((c) => c.id === k))) {
         try {
           const visto = await pedir<{ comprobante: Comprobante; negocio: string }>("GET", `/api/comprobantes/${cobrada}`);
           if (turno !== cargaEnCurso.current) return;
           setTicket({ ...visto, impresion: null });
           setUltimo("Esa cuenta sí se había cobrado: aquí está su comprobante, para imprimirlo.");
-        } catch {
-          // Se descartó, o no se pudo ver: no hay comprobante que enseñar.
+          resueltas.add(cobrada);
+          break;
+        } catch (e) {
+          if (e instanceof ErrorDeApi && e.estado === 404) resueltas.add(cobrada);
+          else if (turno === cargaEnCurso.current) setAviso("No se pudo traer el comprobante de una cuenta que se cobró sin respuesta. Se vuelve a intentar al recargar.");
         }
       }
       let id = preferida === undefined ? recordar().activa : preferida;
@@ -203,7 +209,9 @@ function Pantalla() {
       setCuenta(llegada);
       setMemoria((m) => {
         // Las cuentas que ya no están abiertas no dejan su lugar guardado.
-        const lugares = Object.fromEntries(Object.entries(m.lugares).filter(([k]) => abiertas.some((c) => c.id === k)));
+        // Salvo los cobros sin respuesta que todavía no se resuelven: esos esperan a que se traiga su comprobante.
+        const lugares = Object.fromEntries(Object.entries(m.lugares).filter(([k, l]) =>
+          abiertas.some((c) => c.id === k) || (l.cobrando && !resueltas.has(k))));
         if (llegada) {
           let l = lugares[llegada.id] ?? { ...LUGAR_NUEVO, paso: llegada.materiales.length ? "cta" : "mat" };
           // Un envío de resultado desconocido que sí había llegado: ya está en la cuenta, no hay nada que reintentar.
@@ -505,7 +513,7 @@ function Pantalla() {
                 quitando={lugar.quitando} alQuitando={(quitando) => ponerLugar(vista.id, { quitando })}
                 corrigiendo={lugar.corrigiendo} alCorrigiendo={(corrigiendo) => ponerLugar(vista.id, { corrigiendo })}
                 forma={lugar.forma} alForma={(forma) => ponerLugar(vista.id, { forma })}
-                fiado={lugar.fiado} alFiado={(fiado) => ponerLugar(vista.id, { fiado })}
+                fiado={lugar.fiado} alFiado={(fiado) => ponerLugar(vista.id, { fiado })} cobrando={lugar.cobrando}
                 cobrar={(peticion) => cobrar(vista.id, peticion)}
                 alDecir={(mensaje) => { setAviso(""); setUltimo(mensaje); void refrescar(vista.id); }}
                 alAdvertir={(texto) => { setUltimo(""); setAviso(texto); void refrescar(vista.id); }}
@@ -696,6 +704,8 @@ function PasoCuenta(p: {
   corrigiendo: Lugar["corrigiendo"]; alCorrigiendo: (corrigiendo: Lugar["corrigiendo"]) => void;
   forma: FormaDePago; alForma: (forma: FormaDePago) => void;
   fiado: DatosDeFiado | null; alFiado: (fiado: DatosDeFiado | null) => void;
+  /** Un cobro de esta cuenta salió y no se supo si entró. */
+  cobrando: boolean;
   /** Manda un cobro dejándolo dicho con la cuenta mientras no se sepa si entró. */
   cobrar: <T>(peticion: () => Promise<T>) => Promise<T>;
   /** Algo quedó hecho y no se tiene la cuenta como quedó: se dice, y se vuelve a pedir. */
@@ -810,7 +820,7 @@ function PasoCuenta(p: {
   if (fiando) {
     return (
       <Fiar
-        cuenta={cuenta} hoy={dia.hoy} aviso={p.aviso} ocupado={p.ocupado} guardado={p.fiado} alGuardar={p.alFiado} cobrar={p.cobrar}
+        cuenta={cuenta} hoy={dia.hoy} aviso={p.aviso} ocupado={p.ocupado} guardado={p.fiado} alGuardar={p.alFiado} cobrar={p.cobrar} alNoSaber={p.alNoSaber}
         hacer={p.hacer} alTerminar={p.alTerminar} alSalir={() => setFiando(false)}
       />
     );
@@ -986,14 +996,18 @@ function PasoCuenta(p: {
 
         {cobra ? (
           <>
+            {/* Un cobro que salió y no se supo no cambia de forma: se manda el mismo otra vez. */}
             <div className="chips forma" role="group" aria-label={compra ? "Cómo se paga" : "Cómo se cobra"}>
-              <button type="button" className="chip" aria-pressed={forma === "efectivo"} disabled={p.ocupado} onClick={() => setForma("efectivo")}>En efectivo</button>
-              <button type="button" className="chip" aria-pressed={forma === "transferencia"} disabled={p.ocupado} onClick={() => setForma("transferencia")}>Por transferencia</button>
+              <button type="button" className="chip" aria-pressed={forma === "efectivo"} disabled={p.ocupado || p.cobrando} onClick={() => setForma("efectivo")}>En efectivo</button>
+              <button type="button" className="chip" aria-pressed={forma === "transferencia"} disabled={p.ocupado || p.cobrando} onClick={() => setForma("transferencia")}>Por transferencia</button>
               {/* Solo se fía lo que se vende, y no al vehículo de otro día: ese lo termina un responsable. */}
               {!compra && !pideAutorizacion ? (
-                <button type="button" className="chip" aria-pressed={forma === "credito"} disabled={p.ocupado} onClick={() => setForma("credito")}>A crédito</button>
+                <button type="button" className="chip" aria-pressed={forma === "credito"} disabled={p.ocupado || p.cobrando} onClick={() => setForma("credito")}>A crédito</button>
               ) : null}
             </div>
+            {p.cobrando ? (
+              <p className="flag" role="status">No se supo si {compra ? "se pagó" : "se cobró"}. Toca el botón otra vez: si ya había entrado, no se {compra ? "paga" : "cobra"} dos veces.</p>
+            ) : null}
             <button
               className="btn" type="button" disabled={!cuenta.materiales.length || falta || p.ocupado || incierto}
               onClick={() => (forma === "credito" ? setFiando(true) : pideAutorizacion ? setAutorizando(true) : p.alConfirmar(forma))}
@@ -1005,7 +1019,7 @@ function PasoCuenta(p: {
           <p className="note">La cuenta la termina quien atiende el mostrador.</p>
         )}
         <button
-          className="btn ghostbtn chico" type="button" disabled={p.ocupado || incierto}
+          className="btn ghostbtn chico" type="button" disabled={p.ocupado || incierto || p.cobrando}
           onClick={() => (cuenta.materiales.length && !porDescartar ? setPorDescartar(true) : p.alDescartar())}
         >
           {porDescartar ? `Toca otra vez para descartar ${nombreDe(cuenta)}` : "Descartar esta cuenta"}

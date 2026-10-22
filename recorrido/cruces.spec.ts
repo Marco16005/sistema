@@ -82,7 +82,7 @@ test("con el día sin abrir, el mostrador lo dice y lleva a resolverlo", async (
   await page.getByLabel("Precio de compra de Cartón").fill("2,1"); // con coma, como se escribe
   await page.getByLabel("Precio de venta de Cartón").fill("2.5");
   await page.getByRole("button", { name: "Publicar lista del día" }).click();
-  await expect(page.getByText("Lista publicada. Ya se puede atender.")).toBeVisible();
+  await expect(page.getByText("Lista publicada. Antes de atender, falta contar el cajón.")).toBeVisible();
   await salir(page);
   await entrar(page, g.luis);
   // Y antes de atender, cuenta el cajón.

@@ -328,3 +328,16 @@ test("una hoja nueva no le cae encima a lo que ya existía: lo que el panel y lo
   }
   assert.deepEqual(repetidas, []);
 });
+
+// Lo encontró Codex el 22 de octubre (R33-5 y R33-6): el texto de la cuenta elegida se transparentaba
+// —4.26 a 1 sobre el azul— y «De otro día» iba a 15 px sin ser un rótulo.
+test("en la cuenta elegida el texto no se transparenta —es la letra de un botón lleno—, y «De otro día» va a 17 px", async () => {
+  const pantallas = (await hojasDeEstilo()).find((h) => h.camino.endsWith("pantallas.css"))!.css;
+  const reglas = [...pantallas.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, selector, cuerpo]) => ({ selector: selector!.trim(), cuerpo: cuerpo! }));
+  for (const r of reglas.filter((x) => x.selector.includes('.cta[aria-pressed="true"]'))) {
+    assert.doesNotMatch(r.cuerpo, /opacity\s*:\s*(0?\.\d+|0)\b/, `${r.selector} transparenta su texto`);
+  }
+  const otro = reglas.find((x) => /(^|,)\s*\.cta \.otro\s*$/.test(x.selector));
+  assert.ok(otro, "no está la regla de «De otro día»");
+  assert.doesNotMatch(otro!.cuerpo, /--letra-chica|1[0-6]px/, "«De otro día» va más chico que 17 px");
+});

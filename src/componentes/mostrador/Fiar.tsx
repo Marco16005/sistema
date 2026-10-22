@@ -6,6 +6,9 @@
 // Repetirlo con lo mismo no fía dos veces: si la cuenta ya quedó cobrada así, la base la devuelve
 // como está; con otros datos, lo rechaza. Lo elegido se guarda con la cuenta (en la memoria del
 // mostrador): recargar no lo pierde, y si salió y no se supo, se ofrece mandar eso mismo otra vez.
+// Mientras no se sepa, lo elegido no se cambia ni se descarta (revisión de Codex del 22 de octubre):
+// solo se manda otra vez, igual. Cambiar quién firma se puede después de preguntar por la cuenta:
+// si ya no está abierta, el fiado entró, y el mostrador enseña su comprobante.
 import { useEffect, useState } from "react";
 import { Autorizar } from "../Autorizar.tsx";
 import type { QuienAutoriza } from "../Autorizar.tsx";
@@ -15,8 +18,11 @@ import type { Cuenta } from "./tipos.ts";
 
 interface Cliente { id: string; nombre: string }
 
-/** Lo elegido para fiar una cuenta, y quién firmó si salió y no se supo si entró. */
-export interface DatosDeFiado { cliente: Cliente | null; nuevo: string | null; vence: string; sinSaber: QuienAutoriza | null }
+/**
+ * Lo elegido para fiar una cuenta; quién firmó si salió y no se supo si entró; y si lo elegido ya
+ * salió alguna vez sin saberse —entonces no se cambia hasta que el servidor conteste algo—.
+ */
+export interface DatosDeFiado { cliente: Cliente | null; nuevo: string | null; vence: string; sinSaber: QuienAutoriza | null; salio?: boolean }
 
 /** Que no haya respuesta, o que el servidor falle, no dice si entró. */
 const noSeSupo = (e: unknown): boolean => e instanceof ErrorDeApi && (e.codigo === "RED" || e.estado >= 500);
@@ -29,12 +35,15 @@ export function Fiar(p: {
   cobrar: <T>(peticion: () => Promise<T>) => Promise<T>;
   hacer: (accion: () => Promise<void>) => Promise<void>;
   alTerminar: (hecha: Cuenta) => Promise<void>; alSalir: () => void;
+  /** Vuelve a pedir la cuenta: si ya no está abierta, el mostrador averigua si se cobró y enseña su comprobante. */
+  alNoSaber: () => Promise<void>;
 }) {
   // Si la cuenta ya está a nombre de alguien (por un precio especial), se le fía a esa misma persona.
   const fijo = p.cuenta.cliente;
   const [clientes, setClientes] = useState<Cliente[] | null>(null);
   const [datos, setDatos] = useState<DatosDeFiado>(() => p.guardado ?? { cliente: fijo, nuevo: null, vence: "", sinSaber: null });
   const { cliente, nuevo, vence, sinSaber } = datos;
+  const fijado = datos.salio === true;
   const poner = (cambio: Partial<DatosDeFiado>): void => {
     const quedan = { ...datos, ...cambio };
     setDatos(quedan);
@@ -64,8 +73,21 @@ export function Fiar(p: {
           ? `No se supo si la venta se fió. Teclea la clave otra vez: con los mismos datos, si ya había entrado no se fía dos veces. (${pesosCerrados(p.cuenta.resumen.total)} a nombre de ${nombre}.)`
           : `${pesosCerrados(p.cuenta.resumen.total)} a nombre de ${nombre}${vence ? `, que paga a más tardar el ${vence.split("-").reverse().join("/")}` : ""}. Lo autoriza una persona facultada.`}
         personas={quienes} quien={sinSaber ?? undefined} boton={(quien) => `Fiar a nombre de ${quien}`} cancelar="Regresar"
-        alSoltar={async () => poner({ sinSaber: null })}
-        aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => setAutorizando(false)}
+        alSoltar={async () => {
+          // Antes de soltar a quien firmó, se pregunta por la cuenta: si ya no está abierta, el fiado entró.
+          try {
+            await pedir("GET", `/api/cuentas/${p.cuenta.id}`);
+          } catch (e) {
+            if (e instanceof ErrorDeApi && e.estado === 404) {
+              p.alGuardar(null);
+              await p.alNoSaber();
+              return;
+            }
+            throw e;
+          }
+          poner({ sinSaber: null });
+        }}
+        aviso={p.aviso} ocupado={p.ocupado} alCancelar={() => { if (!sinSaber) setAutorizando(false); }}
         alAutorizar={(quien, clave) =>
           p.hacer(async () => {
             try {
@@ -77,8 +99,10 @@ export function Fiar(p: {
               // Dentro de esta misma acción: una acción no llama a otra, que la guarda contra el doble toque la detendría.
               await p.alTerminar(r.cuenta);
             } catch (e) {
-              // Sin respuesta, se queda dicho quién firmó: el siguiente intento es ese mismo. Con respuesta, ya se sabe.
-              poner({ sinSaber: noSeSupo(e) ? quien : null });
+              // Sin respuesta, se queda dicho quién firmó y lo elegido queda fijo: el siguiente intento es ese
+              // mismo. Con respuesta, ya se sabe que no entró, y se puede cambiar.
+              const incierto = noSeSupo(e);
+              poner({ sinSaber: incierto ? quien : null, salio: incierto });
               throw e;
             }
           })}
@@ -87,6 +111,21 @@ export function Fiar(p: {
   }
 
   const listo = nombre !== "" && (!vence || vence >= p.hoy);
+  if (fijado) {
+    return (
+      <div className="card">
+        <div className="pad">
+          <p className="que"><b>Fiar la venta</b><span>{pesosCerrados(p.cuenta.resumen.total)} a nombre de {nombre}{vence ? `, que paga a más tardar el ${vence.split("-").reverse().join("/")}` : ""}.</span></p>
+          <div className="flag" role="status">
+            No se supo si la venta se fió. Mientras no se sepa no se cambia nada: se manda lo mismo otra vez, y si ya había entrado no se fía dos veces.
+          </div>
+          {p.aviso ? <div className="flag" role="alert">{p.aviso}</div> : null}
+          <button className="btn" type="button" disabled={p.ocupado} onClick={() => setAutorizando(true)}>Pedir la clave de quien autoriza</button>
+          <button className="btn ghostbtn chico" type="button" disabled={p.ocupado} onClick={() => void p.hacer(p.alNoSaber)}>Ver si ya entró</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="card">
       <div className="pad">

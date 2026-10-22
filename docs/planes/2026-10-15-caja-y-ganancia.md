@@ -21,6 +21,12 @@
 > pantalla— y uno que no aplica: el recálculo histórico de 0039 ordena por identificador, y no corre
 > sobre ninguna base que tenga historia anterior (ver
 > `docs/revisiones/2026-10-21-respuesta-a-la-revision-de-caja-y-ganancia.md`).
+>
+> **Verificado por Codex el 22 de octubre** (informe 33): cerró seis de esas correcciones y dejó
+> siete hallazgos más, todos corregidos (migración **0044** para el orden de candados de contar y
+> corregir inventario y la firma al terminar un vehículo; y en pantalla, un fiado o cobro sin
+> respuesta ya no deja cambiar nada y su comprobante se recupera aunque falle la primera vez):
+> `docs/revisiones/2026-10-22-respuesta-a-la-revision-de-pantallas-y-recipiente.md`.
 
 ## El orden
 

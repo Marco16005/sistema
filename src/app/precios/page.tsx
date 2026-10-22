@@ -79,8 +79,10 @@ export default function PantallaDePrecios() {
     try {
       if (c.cambios.length) recibir(await pedir<Lista>("POST", "/api/precios", c));
       if (publicar) {
-        ponerDia((await pedir<{ dia: Dia }>("POST", "/api/precios/publicar")).dia);
-        setGuardado("Lista publicada. Ya se puede atender.");
+        const nuevo = (await pedir<{ dia: Dia }>("POST", "/api/precios/publicar")).dia;
+        ponerDia(nuevo);
+        // Lo mismo que pide el mostrador: sin contar el cajón no se atiende (revisión de Codex del 22 de octubre).
+        setGuardado(nuevo.cajon && !nuevo.cajon.contado ? "Lista publicada. Antes de atender, falta contar el cajón." : "Lista publicada. Ya se puede atender.");
       } else {
         setGuardado(c.cambios.length ? "Precios guardados. Falta publicarlos." : "No había cambios.");
       }
@@ -121,7 +123,7 @@ export default function PantallaDePrecios() {
                   </div>
                   {(["compra", "venta"] as const).map((lado) => editable ? (
                     <input
-                      key={lado} type="text" inputMode="decimal" autoComplete="off" placeholder="—"
+                      key={lado} type="text" inputMode="decimal" autoComplete="off" placeholder="—" readOnly={ocupado}
                       aria-label={`Precio de ${lado} de ${m.nombre}`} value={escrito[m.id]?.[lado] ?? ""}
                       onChange={(e) => { setGuardado(""); setEscrito((antes) => ({ ...antes, [m.id]: { ...(antes[m.id] ?? { compra: "", venta: "" }), [lado]: e.target.value } })); }}
                     />

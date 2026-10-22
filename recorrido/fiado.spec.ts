@@ -211,3 +211,71 @@ test("si un cobro en efectivo entró y la respuesta se pierde, al recargar se ve
   const { n } = await conConsola(async (db) => (await db.query("SELECT count(*)::int AS n FROM operacion WHERE estado = 'confirmada'")).rows[0]);
   expect(n).toBe(1);
 });
+
+test("si fiar salió sin saberse, lo elegido no se cambia: «Regresar» no lo suelta, y cambiar quién firma pregunta antes por la cuenta", async ({ page }) => {
+  // Lo encontró Codex el 22 de octubre (R33-3).
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const g = await gente();
+  await diaListo(g, [["Cartón", "500"]]);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.luis);
+  await hastaLaClaveDeFiar(page);
+  await cortar(page, /\/api\/cuentas\/[^/]+\/fiar$/, false);
+  const hoja = page.getByRole("dialog", { name: "Fiar la venta" });
+  await hoja.getByRole("button", { name: /^Servando/ }).click();
+  await teclear(page, g.servando.clave);
+  await hoja.getByRole("button", { name: "Fiar a nombre de Servando" }).click();
+  await expect(hoja).toContainText("No se supo si la venta se fió");
+  // «Regresar» no suelta nada: sigue la misma hoja.
+  await hoja.getByRole("button", { name: "Regresar" }).click();
+  await expect(hoja).toContainText("No se supo si la venta se fió");
+  // Otra persona puede firmar, después de preguntar por la cuenta: sigue abierta, así que no había entrado.
+  await hoja.getByRole("button", { name: "Autoriza otra persona" }).click();
+  await expect(hoja.getByRole("button", { name: /^Servando/ })).toBeVisible();
+  await hoja.getByRole("button", { name: "Regresar" }).click();
+  // Lo elegido quedó fijo: no se cambia el cliente ni se descarta el fiado.
+  await expect(page.getByText("Mientras no se sepa no se cambia nada")).toBeVisible();
+  await expect(page.getByText("a nombre de Fundidora del Norte")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Es un cliente nuevo" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "No fiar: regresar a la cuenta" })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("Mientras no se sepa no se cambia nada")).toBeVisible();
+  await page.getByRole("button", { name: "Pedir la clave de quien autoriza" }).click();
+  await hoja.getByRole("button", { name: /^Servando/ }).click();
+  await teclear(page, g.servando.clave);
+  await hoja.getByRole("button", { name: "Fiar a nombre de Servando" }).click();
+  await expect(page.locator(".ticket").first()).toContainText("Cliente: Fundidora del Norte");
+  await page.getByRole("button", { name: "Listo" }).click();
+  expect(await creditos()).toBe(1);
+});
+
+test("si al recargar no se pudo traer el comprobante de un cobro sin respuesta, no se olvida: se trae la vez siguiente", async ({ page }) => {
+  // Lo encontró Codex el 22 de octubre (R33-4).
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const g = await gente();
+  await diaListo(g);
+  await contarImpresiones(page);
+  await darDeAltaEquipo(page);
+  await entrar(page, g.luis);
+  await page.getByRole("button", { name: "+ Compra" }).click();
+  await pesar(page, "Cartón", "Báscula 2", "30");
+  await cortar(page, /\/api\/cuentas\/[^/]+\/confirmar$/, true);
+  await page.getByRole("button", { name: "Pagar e imprimir ticket" }).click();
+  await expect(page.locator('.flag[role="alert"]')).toBeVisible();
+  // Al recargar, traer su comprobante falla una vez.
+  let fallo = false;
+  await page.route(/\/api\/comprobantes\/[0-9a-f-]+$/, async (ruta) => {
+    if (fallo || ruta.request().method() !== "GET") return ruta.fallback();
+    fallo = true;
+    await ruta.abort();
+  });
+  await page.reload();
+  await expect(page.getByText("No se pudo traer el comprobante de una cuenta que se cobró sin respuesta")).toBeVisible();
+  await expect(page.locator(".ticket")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".ticket").first()).toContainText("30.000 kg × $2.10");
+  await page.getByRole("button", { name: "Listo" }).click();
+  await page.reload();
+  await expect(page.locator(".ticket")).toHaveCount(0);
+});

@@ -215,3 +215,49 @@ test("H2: el resumen del cierre sale de una sola foto de la base, aunque el día
       await otra.end();
     }
   }));
+
+// ── la segunda revisión (informe 33, 22 de octubre) ─────────────────────────
+
+/** Detiene a otra conexión con la jornada tomada para cambiarla —como mover dinero o cerrar— y corre `accion` mientras. */
+async function contraLaJornada(d: Dia, accion: () => Promise<unknown>): Promise<[string, string]> {
+  const otra = await conectar(d.base);
+  try {
+    await otra.query("BEGIN");
+    await otra.query("SELECT id FROM jornada WHERE id = $1 FOR UPDATE", [d.e.jornada]);
+    const pid = await pidDe(d.app);
+    const primero = desenlace(accion());
+    await esperarQueEspere(d.db, pid);
+    const mover = await desenlace(otra.query("SELECT mover_caja($1, $2, 'meter', 1, 'Cambio', $3, $4, $5, $6)",
+      [randomUUID(), d.e.jornada, d.firma, CLAVE, d.huella, d.e.mostrador]));
+    await otra.query("COMMIT");
+    return [await primero, mover];
+  } finally {
+    await otra.query("ROLLBACK").catch(() => {});
+    await otra.end();
+  }
+}
+
+test("R33-1: contar un material y mover dinero a la vez no se bloquean: contar toma la jornada antes que el patio y la clave", () =>
+  conDia(async (d) => {
+    const cuando = (await una(d.db, "SELECT clock_timestamp()::text AS t")).t;
+    assert.deepEqual(await contraLaJornada(d, () => d.app.query("SELECT contar_material($1, $2, 0, $3, 0, 'Conteo', $4, $5, $6, $7)",
+      [randomUUID(), d.e.mat["Cartón"], cuando, d.firma, CLAVE, d.huella, d.e.mostrador])), ["pasó", "pasó"]);
+  }));
+
+test("R33-1: corregir un movimiento de inventario y mover dinero a la vez tampoco", () =>
+  conDia(async (d) => {
+    const c = await cuenta(d, "compra", "100", "transferencia");
+    const mov = (await una(d.db, "SELECT id FROM movimiento_inventario WHERE linea_id = $1", [c.linea])).id;
+    assert.deepEqual(await contraLaJornada(d, () => d.app.query("SELECT * FROM corregir_movimiento($1, $2, $3, 90, 0, 'Se pesó mal', $4, $5, $6, $7)",
+      [randomUUID(), mov, d.e.mat["Cartón"], d.firma, CLAVE, d.huella, d.e.mostrador])), ["pasó", "pasó"]);
+  }));
+
+test("R33-2: repetir terminar un vehículo con otra persona firmando se rechaza; con la misma, devuelve lo hecho", () =>
+  conDia(async (d) => {
+    const { vehiculo } = await vehiculoDeAyer(d);
+    const otraFirma = await personaConClave(d.db, "Otra firma", "responsable", CLAVE, true);
+    const terminar = (quien: string) => una(d.app, "SELECT * FROM terminar_vehiculo($1, $2, $3, $4, $5)", [vehiculo.id, vehiculo.revision, quien, CLAVE, d.huella]);
+    const primero = await terminar(d.firma);
+    await rechaza(terminar(otraFirma), "RC011");
+    assert.equal((await terminar(d.firma)).folio, primero.folio);
+  }));
