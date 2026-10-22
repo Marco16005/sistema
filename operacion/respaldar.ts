@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { exigirEntorno } from "../src/servidor/entorno.ts";
-import { PUBLICACION, SELLO, destinoRclone, huellaDe, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, selloDelDestino, ultimoUtilizable } from "./destino.ts";
+import { PUBLICACION, SELLO, destinoRclone, huellaDe, leerSellosAnteriores, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, selloDelDestino, ultimoUtilizable } from "./destino.ts";
 import type { Destino, Manifiesto } from "./destino.ts";
 import { anotarAvisados, ponerAlDia, sinComprobar } from "./diario.ts";
 import type { AlDia, Comprobados, Eleccion, Elecciones } from "./diario.ts";
@@ -471,7 +471,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       pedir(env, [cual]);
       // Ver qué hay no pide el sello; saber cuál sirve, sí.
       if (env.RESPALDO_SELLO && !SELLO.test(env.RESPALDO_SELLO)) throw new Error("RESPALDO_SELLO no tiene su forma: 64 letras hexadecimales");
-      const destino = destinoRclone(env[cual]!, {}, { sello: env.RESPALDO_SELLO || null });
+      const destino = destinoRclone(env[cual]!, {}, { sello: env.RESPALDO_SELLO || null, anteriores: leerSellosAnteriores(env.RESPALDO_SELLOS_ANTERIORES) });
       const hay = await respaldos(destino);
       for (const r of hay) console.log(`${r.momento.toLocaleString("es-MX")}  ${String(r.bytes).padStart(12)} bytes  ${r.objeto}`);
       console.log(hay.length === 0 ? "No hay ningún respaldo en el destino." : hay.length === 1 ? "1 respaldo." : `${hay.length} respaldos. El último es el de abajo.`);
@@ -486,16 +486,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       exigirEntorno(env, ["administracion", "respaldo"]);
       pedir(env, ["DATABASE_URL", "RESPALDO_LLAVE_PUBLICA", "RESPALDO_DESTINO", "RESPALDO_SELLO", ...(orden === "servicio" ? ["RESPALDO_HORARIO"] : [])]);
       const sello = env.RESPALDO_SELLO!;
+      // Los de llaves que ya se cambiaron: el servidor sigue comprobando lo de antes, y sella solo con la vigente.
+      const anteriores = leerSellosAnteriores(env.RESPALDO_SELLOS_ANTERIORES);
       const zona = env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const respaldo: Respaldo = {
-        base: env.DATABASE_URL!, llavePublica: env.RESPALDO_LLAVE_PUBLICA!, destino: destinoRclone(env.RESPALDO_DESTINO!, {}, { sello }),
+        base: env.DATABASE_URL!, llavePublica: env.RESPALDO_LLAVE_PUBLICA!, destino: destinoRclone(env.RESPALDO_DESTINO!, {}, { sello, anteriores }),
         ...(env.RESPALDO_VIGIA_URL ? { vigia: vigiaHttp(env.RESPALDO_VIGIA_URL) } : {}),
         // En operación, la publicación que corre (la pone el Compose). Lo que no sea una, no se anota.
         ...(env.VERSION && PUBLICACION.test(env.VERSION) ? { publicacion: env.VERSION } : {}),
         // El diario, si hay depósito para él (en operación lo hay siempre: lo exige el entorno).
         ...(env.RESPALDO_DESTINO_DIARIO ? {
           diario: {
-            destino: destinoRclone(env.RESPALDO_DESTINO_DIARIO, {}, { sello }), zona, comprobados: sinComprobar(),
+            destino: destinoRclone(env.RESPALDO_DESTINO_DIARIO, {}, { sello, anteriores }), zona, comprobados: sinComprobar(),
             ...(env.RESPALDO_VIGIA_DIARIO_URL ? { vigia: vigiaHttp(env.RESPALDO_VIGIA_DIARIO_URL) } : {}),
           },
         } : {}),

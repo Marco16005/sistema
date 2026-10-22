@@ -83,6 +83,10 @@ export function faltasDelEntorno(env: Entorno, partes: readonly Parte[]): string
     else if (!/^[0-9a-f]{64}$/.test(env.RESPALDO_SELLO)) {
       faltas.push("RESPALDO_SELLO no tiene su forma (64 letras hexadecimales): es lo que da operacion/sello.ts con la llave privada. La llave privada misma no va aquí");
     }
+    // Los sellos de llaves que ya se cambiaron, si hay: solo comprueban lo de antes del cambio (operacion/destino.ts).
+    if (env.RESPALDO_SELLOS_ANTERIORES && !env.RESPALDO_SELLOS_ANTERIORES.split(",").every((x) => /^[0-9a-f]{64}@\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(x.trim()) && !Number.isNaN(Date.parse(x.trim().split("@")[1]!)))) {
+      faltas.push("RESPALDO_SELLOS_ANTERIORES no tiene su forma: «sello@momento», separados por comas, como lo da operacion/sello.ts --hasta");
+    }
     if (!env.RESPALDO_LLAVE_PUBLICA) faltas.push("Falta RESPALDO_LLAVE_PUBLICA");
     else if (!LLAVE_PUBLICA_DE_AGE.test(env.RESPALDO_LLAVE_PUBLICA)) {
       faltas.push("RESPALDO_LLAVE_PUBLICA no tiene la forma de una llave pública de age (empieza con age1). La privada no va aquí");

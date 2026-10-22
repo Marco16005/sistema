@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { nombreDeManifiesto, nombreDeObjeto, selloDe, selloDeNota } from "../operacion/destino.ts";
-import type { Destino, Entrada, Manifiesto } from "../operacion/destino.ts";
+import type { Destino, Entrada, Manifiesto, SelloAnterior } from "../operacion/destino.ts";
 import { REPASAR_CADA, REVALIDAR_CADA, anotarAvisados, diaDelPatio, eleccionesEnMemoria, ponerAlDia, sinComprobar } from "../operacion/diario.ts";
 import type { AlDia, Comprobados, Eleccion, Elecciones } from "../operacion/diario.ts";
 
@@ -23,6 +23,8 @@ const SELLO_DE_PRUEBA = "5e".repeat(32);
 class Deposito implements Destino {
   /** La clave del sello: la misma en el depósito de cada hora y en el diario, como en el servidor. */
   sello = SELLO_DE_PRUEBA;
+  /** Los sellos de llaves que ya se cambiaron: solo comprueban lo de antes del cambio. */
+  anteriores: SelloAnterior[] = [];
   objetos = new Map<string, Buffer>();
   subidas: string[] = [];
   bajadas: string[] = [];
@@ -90,7 +92,8 @@ let cuenta = 0;
 
 /** Deja en el depósito un respaldo de cada hora, tomado en ese instante, como lo deja quien respalda. Devuelve su nombre. */
 function respaldoDe(
-  deposito: Deposito, instante: string, como: { sinManifiesto?: boolean; manifiestoDanado?: boolean; nombreDeAntes?: boolean; archivoDanado?: boolean } = {},
+  deposito: Deposito, instante: string,
+  como: { sinManifiesto?: boolean; manifiestoDanado?: boolean; nombreDeAntes?: boolean; archivoDanado?: boolean; sello?: string } = {},
 ): string {
   cuenta += 1;
   const corrida = `00000000-0000-4000-8000-${String(cuenta).padStart(12, "0")}`;
@@ -102,7 +105,7 @@ function respaldoDe(
     sha256: createHash("sha256").update(contenido).digest("hex"), pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: "age1" + "q".repeat(58),
     esquema: "0025_precio_especial.sql",
   };
-  const manifiesto: Manifiesto = { ...dicho, sello: selloDe(dicho, SELLO_DE_PRUEBA) };
+  const manifiesto: Manifiesto = { ...dicho, sello: selloDe(dicho, como.sello ?? SELLO_DE_PRUEBA) };
   // Dañado: lo que quedó guardado pesa lo mismo y no es lo que dice su manifiesto.
   deposito.objetos.set(objeto, como.archivoDanado ? Buffer.alloc(contenido.length, "#") : contenido);
   if (!como.sinManifiesto) deposito.objetos.set(nombreDeManifiesto(objeto), Buffer.from(como.manifiestoDanado ? "{ no es json" : JSON.stringify(manifiesto, null, 2) + "\n"));
@@ -778,6 +781,86 @@ test("con el tiempo vencido no se empieza ninguna subida ni bajada grande: ni el
   soloElegido.diario.tropiezo = () => null;
   soloElegido.diario.tarda = laEleccionTarda;
   assert.deepEqual(await aDestiempo(soloElegido, "2026-10-06T15:00:30Z"), [], "empezó a traer el elegido sin tiempo");
+});
+
+test("lo que tarda un manifiesto cuenta: si se lleva lo que quedaba no se empieza el archivo grande, tampoco al repasar; y a lo grande nunca se le da más de lo que queda", async () => {
+  // Lo encontró Codex el 21 de octubre (H32-1): el tiempo se miraba antes del manifiesto, no entre él y el archivo.
+  const P = 50_000;
+  const tarde = (d: Deposito, empieza: number) => d.plazos.filter((x) => x.nombre.endsWith(".dump.age") && x.al - empieza >= P).map((x) => `${x.operacion} ${x.nombre}`);
+
+  // El manifiesto del elegido se lleva todo el tiempo: no se baja el archivo.
+  const m = mundo();
+  const r = respaldoDe(m.origen, "2026-10-06T13:00:00.000Z");
+  m.origen.tarda = (nombre, operacion) => (operacion === "bajar" && nombre === nombreDeManifiesto(r) ? P : 0);
+  let empieza = m.origen.reloj();
+  const hecho = await m.correr("2026-10-06T13:00:30Z", { presupuesto: P });
+  assert.deepEqual([hecho.subidos, hecho.pendientes], [[], 1]);
+  assert.deepEqual(tarde(m.origen, empieza), [], "bajó el archivo sin tiempo");
+
+  // Al repasar un diario sin original: su manifiesto se lleva el tiempo, y su archivo no se baja.
+  const v = mundo();
+  const viejo = respaldoDe(v.diario, "2026-10-05T13:00:00.000Z");
+  respaldoDe(v.origen, "2026-10-06T13:00:00.000Z");
+  v.diario.tarda = (nombre, operacion) => (operacion === "bajar" && nombre === nombreDeManifiesto(viejo) ? P : 0);
+  empieza = v.origen.reloj();
+  await v.correr("2026-10-06T13:00:30Z", { presupuesto: P });
+  assert.deepEqual(tarde(v.diario, empieza), [], "bajó el diario a repasar sin tiempo");
+  // Y no queda dicho que no se pudo repasar: le toca otra vez en la corrida siguiente.
+  const despues = await v.correr("2026-10-06T14:00:30Z");
+  assert.deepEqual([despues.huecos, fallasDe(despues)], [[], []]);
+  assert.ok(v.diario.bajadas.includes(viejo), "no lo repasó en la corrida siguiente");
+
+  // Con poco tiempo, lo grande recibe ese poco como plazo, no el minuto de las notas.
+  const c = mundo();
+  respaldoDe(c.origen, "2026-10-06T13:00:00.000Z");
+  c.origen.tarda = (_nombre, operacion) => (operacion === "listar" ? P - 10_000 : 0);
+  empieza = c.origen.reloj();
+  await c.correr("2026-10-06T13:00:30Z", { presupuesto: P });
+  const grandes = [...c.origen.plazos, ...c.diario.plazos].filter((x) => x.nombre.endsWith(".dump.age"));
+  assert.ok(grandes.length > 0);
+  for (const g of grandes) assert.ok(g.plazo! <= P - (g.al - empieza), `${g.operacion} ${g.nombre}: plazo ${g.plazo} con ${P - (g.al - empieza)} de tiempo`);
+});
+
+test("al cambiar la llave, lo sellado con la anterior se sigue acreditando con su sello anterior —solo lo de antes del cambio—; sin él, se avisa", async () => {
+  // Lo encontró Codex el 21 de octubre (H32-3): con solo el sello nuevo, los diarios de antes se avisaban como perdidos.
+  const NUEVO = "ab".repeat(32);
+  const cambio = new Date("2026-10-06T06:00:00.000Z");
+  const preparar = (conAnterior: boolean) => {
+    const m = mundo();
+    const viejo = respaldoDe(m.origen, "2026-10-05T13:00:00.000Z");
+    return { m, viejo, rotar: () => {
+      for (const d of [m.origen, m.diario]) {
+        d.sello = NUEVO;
+        d.anteriores = conAnterior ? [{ clave: SELLO_DE_PRUEBA, hasta: cambio }] : [];
+      }
+      m.reiniciar();       // que vuelva a comprobar lo de antes
+    } };
+  };
+
+  const { m, viejo, rotar } = preparar(true);
+  await m.correr("2026-10-05T13:00:30Z");
+  assert.ok(m.diario.objetos.has(viejo));
+  rotar();
+  const nuevo = respaldoDe(m.origen, "2026-10-06T13:00:00.000Z", { sello: NUEVO });
+  const hecho = await m.correr("2026-10-06T13:00:30Z");
+  assert.deepEqual([hecho.huecos, fallasDe(hecho)], [[], []]);
+  assert.deepEqual(hecho.subidos, [{ dia: "2026-10-06", objeto: nuevo }]);
+  // El sello anterior no acredita nada de después del cambio.
+  const falso = respaldoDe(m.origen, "2026-10-06T14:00:00.000Z", { sello: SELLO_DE_PRUEBA });
+  const otro = mundo();
+  for (const d of [otro.origen, otro.diario]) { d.sello = NUEVO; d.anteriores = [{ clave: SELLO_DE_PRUEBA, hasta: cambio }]; }
+  otro.origen.objetos.set(falso, m.origen.objetos.get(falso)!);
+  otro.origen.objetos.set(nombreDeManifiesto(falso), m.origen.objetos.get(nombreDeManifiesto(falso))!);
+  const conElFalso = await otro.correr("2026-10-06T14:00:30Z");
+  assert.deepEqual(conElFalso.subidos, [], "un sello anterior acreditó un respaldo de después del cambio");
+
+  // Sin el sello anterior en el servidor, lo de antes no se puede acreditar: se dice. (Por eso la guía pide ponerlo.)
+  const sin = preparar(false);
+  await sin.m.correr("2026-10-05T13:00:30Z");
+  sin.rotar();
+  respaldoDe(sin.m.origen, "2026-10-06T13:00:00.000Z", { sello: NUEVO });
+  const sinAnterior = await sin.m.correr("2026-10-06T13:00:30Z");
+  assert.deepEqual(sinAnterior.huecos.map((h) => h.dia), ["2026-10-05"]);
 });
 
 test("un día al que se le acaba el tiempo no se queda «pendiente» para siempre: a la segunda corrida seguida se dice, como falla", async () => {

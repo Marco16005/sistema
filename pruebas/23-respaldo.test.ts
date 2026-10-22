@@ -17,7 +17,7 @@ import type { Credencial, Cubo } from "./almacen.ts";
 import { comoApp, compraDe, contar as cuantos, una, urlDe } from "./apoyo.ts";
 import { LIMPIO, administradorConClave, basesCon, conDestino, conPatio, correr as programa, llaves, procesos, retrato, urlEn } from "./patio.ts";
 import type { Patio, Proceso } from "./patio.ts";
-import { claveDeSello, destinoRclone, leerManifiesto, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, traer, ultimoUtilizable } from "../operacion/destino.ts";
+import { claveDeSello, destinoRclone, leerManifiesto, leerSellosAnteriores, nombreDeManifiesto, nombreDeObjeto, respaldos, selloDe, traer, ultimoUtilizable } from "../operacion/destino.ts";
 import { identidadDe } from "../operacion/llave.ts";
 import type { Destino, Manifiesto } from "../operacion/destino.ts";
 import { ESQUEMA_ESPERADO } from "../src/servidor/esquema.ts";
@@ -787,6 +787,14 @@ test("la clave del sello sale de la llave privada: siempre la misma, otra con ot
   assert.equal(sinLlave.codigo, 1);
   assert.match(sinLlave.queja, /llave privada de age/);
   assert.equal((await consola("operacion/sello.ts", ["de más"], {}, a.privada)).codigo, 2);
+  // Al cambiar de llave, con la anterior: el renglón de su sello para seguir comprobando lo de antes, con el momento del cambio.
+  const anterior = await consola("operacion/sello.ts", ["--hasta=2026-12-01T06:00:00Z"], {}, a.privada);
+  assert.deepEqual({ codigo: anterior.codigo, salida: anterior.salida.trim() }, { codigo: 0, salida: `RESPALDO_SELLOS_ANTERIORES=${clave}@2026-12-01T06:00:00Z` });
+  assert.equal((await consola("operacion/sello.ts", ["--hasta=mañana"], {}, a.privada)).codigo, 2);
+  assert.deepEqual(leerSellosAnteriores(`${clave}@2026-12-01T06:00:00Z, ${"ab".repeat(32)}@2027-01-01T00:00:00-06:00`),
+    [{ clave, hasta: new Date("2026-12-01T06:00:00Z") }, { clave: "ab".repeat(32), hasta: new Date("2027-01-01T06:00:00Z") }]);
+  assert.deepEqual(leerSellosAnteriores(""), []);
+  for (const malo of [clave, `${clave}@ayer`, `${clave}@2026-12-01T06:00:00`, `xx@2026-12-01T06:00:00Z`]) assert.throws(() => leerSellosAnteriores(malo), /no tiene su forma/, malo);
 });
 
 // Lo encontró Codex (docs/revisiones/2026-10-13-codex-revision-de-los-intentos-y-el-sello.md, B3): la

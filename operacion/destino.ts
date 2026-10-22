@@ -43,6 +43,40 @@ export interface Destino {
    * ella (nada) el destino sirve para ver qué hay, pero no acredita ningún respaldo.
    */
   sello: string | null;
+  /** Los sellos de llaves que ya se cambiaron: solo comprueban lo que se tomó antes del cambio. Nunca sellan. */
+  anteriores?: readonly SelloAnterior[];
+}
+
+/**
+ * El sello de una llave que ya se cambió. Cuando se cambia la llave, el servidor sella con la nueva;
+ * lo de antes sigue sellado con la vieja, y para seguir acreditándolo —y no avisarlo como perdido—
+ * guarda su sello, nunca su llave privada. Solo vale para lo que se tomó antes de `hasta`: un
+ * respaldo nuevo con un sello viejo no se cree. (Lo encontró Codex el 21 de octubre.)
+ */
+export interface SelloAnterior {
+  clave: string;
+  hasta: Date;
+}
+
+/**
+ * Los sellos anteriores como van en el entorno (RESPALDO_SELLOS_ANTERIORES): «sello@momento», separados
+ * por comas; el momento, el del cambio de llave, con su zona (2026-12-01T06:00:00Z). Vacío: ninguno.
+ */
+export function leerSellosAnteriores(texto: string | undefined): SelloAnterior[] {
+  if (!texto || texto.trim() === "") return [];
+  return texto.split(",").map((parte) => {
+    const [clave, momento] = parte.trim().split("@");
+    const hasta = new Date(momento ?? "");
+    if (!clave || !SELLO.test(clave) || !momento || !/(Z|[+-]\d{2}:\d{2})$/.test(momento) || Number.isNaN(hasta.getTime())) {
+      throw new Error("RESPALDO_SELLOS_ANTERIORES no tiene su forma: «sello@momento», separados por comas; el sello de 64 letras hexadecimales y el momento del cambio con su zona, como lo da operacion/sello.ts --hasta");
+    }
+    return { clave, hasta };
+  });
+}
+
+/** Las claves que acreditan algo tomado en ese momento: la vigente, y las anteriores que todavía valían entonces. */
+export function clavesPara(clave: string, anteriores: readonly SelloAnterior[], momento: Date): string[] {
+  return [clave, ...anteriores.filter((a) => momento.getTime() < a.hasta.getTime()).map((a) => a.clave)];
 }
 
 export interface OpcionesDeDestino {
@@ -51,6 +85,8 @@ export interface OpcionesDeDestino {
    * también cuando es nada: que un destino no compruebe sellos no puede pasar por descuido.
    */
   sello: string | null;
+  /** Los sellos de llaves que ya se cambiaron, solo para comprobar lo de antes (ver `SelloAnterior`). */
+  anteriores?: readonly SelloAnterior[];
   /** Cuánto puede tardar cada subida, bajada o listado, en milisegundos. */
   plazo?: number;
   /**
@@ -66,6 +102,7 @@ const REMOTO_Y_CAMINO = /^[A-Za-z0-9_]+:[^:]+$/;
 export function destinoRclone(camino: string, entorno: Record<string, string>, o: OpcionesDeDestino): Destino {
   if (!REMOTO_Y_CAMINO.test(camino)) throw new Error("El destino del respaldo va como remoto:cubo/carpeta");
   if (o.sello !== null && !SELLO.test(o.sello)) throw new Error("El sello de los respaldos no tiene su forma: 64 letras hexadecimales. Se saca de la llave privada con operacion/sello.ts");
+  if ((o.anteriores ?? []).some((a) => !SELLO.test(a.clave))) throw new Error("Un sello anterior no tiene su forma: 64 letras hexadecimales");
   const raiz = camino.replace(/\/+$/, "");
   const plazo = o.plazo ?? 30 * 60_000;
   // Sin archivo de configuración: solo cuenta lo que diga el entorno. Pocos reintentos y con plazo:
@@ -75,6 +112,7 @@ export function destinoRclone(camino: string, entorno: Record<string, string>, o
   const rclone = (args: string[], cuanto = plazo): Promise<string> => correr("rclone", [...comunes, ...args], { entorno, plazo: cuanto });
   return {
     sello: o.sello,
+    anteriores: o.anteriores ?? [],
     // Sin mirar antes ni después: la credencial del servidor no tiene por qué poder leer para subir,
     // y la comprobación de lo subido la hace quien respalda, bajándolo.
     subir: async (archivo, nombre, cuanto) => {
@@ -251,7 +289,7 @@ function delMismoMomento(instantanea: number, de: Respaldado): boolean {
  * Lo que un manifiesto debe decir para acreditar ese respaldo: completo, con forma, con su momento,
  * con el tamaño del objeto que hay, y con el sello de esa clave. Si no, falla con `ManifiestoInvalido`.
  */
-export function leerManifiesto(texto: string, de: Respaldado, clave: string): Manifiesto {
+export function leerManifiesto(texto: string, de: Respaldado, clave: string, anteriores: readonly SelloAnterior[] = []): Manifiesto {
   let m: Partial<Manifiesto>;
   try {
     m = JSON.parse(texto) as Partial<Manifiesto>;
@@ -273,7 +311,8 @@ export function leerManifiesto(texto: string, de: Respaldado, clave: string): Ma
     formato: 1, corrida: m.corrida!, instantanea: m.instantanea!, objeto: m.objeto!, bytes: m.bytes!, sha256: m.sha256!,
     pgDump: m.pgDump!, llavePublica: m.llavePublica!, esquema: m.esquema!, ...(m.publicacion !== undefined ? { publicacion: m.publicacion } : {}),
   };
-  if (!esElSello(m.sello, selloDe(limpio, clave))) {
+  // Con la clave vigente, o con la de una llave anterior si se tomó antes de que se cambiara.
+  if (!clavesPara(clave, anteriores, new Date(limpio.instantanea)).some((k) => esElSello(m.sello, selloDe(limpio, k)))) {
     throw new ManifiestoInvalido(
       `El manifiesto de ${de.objeto} no lleva el sello de este negocio: no lo tomó este sistema con esta llave, o alguien lo cambió después. No acredita ningún respaldo`,
     );
@@ -301,7 +340,7 @@ export async function manifiestoDe(destino: Destino, de: Respaldado, carpeta: st
   const archivo = join(carpeta, "manifiesto.json");
   try {
     await destino.bajar(nombreDeManifiesto(de.objeto), archivo, PLAZO_DE_MANIFIESTO);
-    return leerManifiesto(await readFile(archivo, "utf8"), de, clave);
+    return leerManifiesto(await readFile(archivo, "utf8"), de, clave, destino.anteriores ?? []);
   } finally {
     await rm(archivo, { force: true });
   }

@@ -45,7 +45,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ManifiestoInvalido, esElSello, huellaDe, leerManifiesto, nombreDeManifiesto, respaldosEntre, selloDeNota, selloDelDestino } from "./destino.ts";
+import { ManifiestoInvalido, clavesPara, esElSello, huellaDe, leerManifiesto, nombreDeManifiesto, respaldosEntre, selloDeNota, selloDelDestino } from "./destino.ts";
+import type { SelloAnterior } from "./destino.ts";
 import type { Destino, Manifiesto, Respaldado } from "./destino.ts";
 
 const formatos = new Map<string, Intl.DateTimeFormat>();
@@ -166,8 +167,12 @@ const NOTA_DE_ELECCION = "elección del diario";
 const NOTA_DE_HUECO = "aviso de un día sin diario";
 const selloDeEleccion = (e: Eleccion, clave: string): string => selloDeNota(NOTA_DE_ELECCION, [e.formato, e.dia, e.objeto, e.bytes, e.sha256], clave);
 
+/** Las claves que acreditan una anotación de ese día: la vigente, y las de llaves cambiadas después de que empezó. */
+const clavesDelDia = (dia: string, clave: string, anteriores: readonly SelloAnterior[]): string[] =>
+  clavesPara(clave, anteriores, new Date(`${dia}T00:00:00Z`));
+
 /** Lo escrito en el depósito diario como elección de ese día, si se lee, es de ese día y lleva su sello. Si no, nada. */
-function leerEleccion(texto: string, dia: string, clave: string): Eleccion | null {
+function leerEleccion(texto: string, dia: string, clave: string, anteriores: readonly SelloAnterior[] = []): Eleccion | null {
   let e: (Partial<Eleccion> & { sello?: unknown }) | null;
   try {
     e = JSON.parse(texto) as Partial<Eleccion> & { sello?: unknown };
@@ -177,7 +182,7 @@ function leerEleccion(texto: string, dia: string, clave: string): Eleccion | nul
   if (!e || e.formato !== 1 || e.dia !== dia || typeof e.objeto !== "string" || typeof e.bytes !== "number" || !Number.isSafeInteger(e.bytes) ||
       typeof e.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.sha256)) return null;
   const eleccion = copia(e as Eleccion);
-  return esElSello(e.sello, selloDeEleccion(eleccion, clave)) ? eleccion : null;
+  return clavesDelDia(dia, clave, anteriores).some((k) => esElSello(e.sello, selloDeEleccion(eleccion, k))) ? eleccion : null;
 }
 
 const eleccionDe = (dia: string): string => `elecciones/${dia}.json`;
@@ -229,17 +234,27 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
   const empezo = reloj();
   const total = p.presupuesto ?? PRESUPUESTO;
   const queda = (): number => total - (reloj() - empezo);
-  /** El plazo de subir, bajar o listar algo grande: lo que quede de la corrida, y al menos un minuto. */
-  const plazo = (): number => Math.max(NOTA, queda());
   /** Con el tiempo vencido no se empieza nada más. */
   const aTiempo = (): void => {
     if (queda() <= 0) throw new SinTiempo("se acabó el tiempo de la corrida");
   };
+  /**
+   * El plazo de subir, bajar o listar algo grande: lo que de verdad quede de la corrida. Se pide
+   * justo antes de empezarlo, y si ya no queda nada, no se empieza. (El minuto fijo es de las notas:
+   * a lo grande no se le da más de lo que queda. Lo encontró Codex el 21 de octubre.)
+   */
+  const plazo = (): number => {
+    aTiempo();
+    return queda();
+  };
+  /** Los dos listados del principio: sin ellos no se sabe nada, y van con al menos el minuto de las notas. */
+  const plazoDeLista = (): number => Math.max(NOTA, queda());
+  const anteriores = p.diario.anteriores ?? [];
   const turno = p.turno ?? (async () => {});
   const hoy = diaDelPatio(p.ahora, p.zona);
   const ahora = p.ahora.getTime();
-  const deCadaHora = respaldosEntre(await p.origen.listar(plazo()));
-  const enDiario = await p.diario.listar(plazo());
+  const deCadaHora = respaldosEntre(await p.origen.listar(plazoDeLista()));
+  const enDiario = await p.diario.listar(plazoDeLista());
   const tamano = new Map(enDiario.map((e) => [e.nombre, e.bytes]));
   const pares = respaldosEntre(enDiario);
   const diarios = new Map(pares.map((r) => [r.objeto, r]));
@@ -292,7 +307,8 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     }
     // Una anotación que no se lee, o que no lleva el sello de este negocio, no acredita que alguien se haya enterado: se avisa otra vez.
     if (!nota || nota.formato !== 1 || nota.dia !== dia || typeof nota.motivo !== "string" || typeof nota.avisado !== "string") return false;
-    if (!esElSello(nota.sello, selloDeNota(NOTA_DE_HUECO, [1, dia, nota.motivo, nota.avisado], clave))) return false;
+    const { motivo, avisado, sello } = nota;
+    if (!clavesDelDia(dia, clave, anteriores).some((k) => esElSello(sello, selloDeNota(NOTA_DE_HUECO, [1, dia, motivo, avisado], k)))) return false;
     p.comprobados.avisados.add(dia);
     return true;
   };
@@ -304,7 +320,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
   /** Baja el manifiesto de ese respaldo a un archivo y lo valida. Devuelve lo que dice, y el archivo tal como bajó. */
   const manifiestoDe = async (destino: Destino, de: Respaldado, archivo: string): Promise<Manifiesto> => {
     await destino.bajar(nombreDeManifiesto(de.objeto), archivo, NOTA);
-    return leerManifiesto(await readFile(archivo, "utf8"), de, selloDelDestino(destino));
+    return leerManifiesto(await readFile(archivo, "utf8"), de, selloDelDestino(destino), destino.anteriores ?? []);
   };
   const coincide = async (archivo: string, con: { bytes: number; sha256: string }): Promise<boolean> => {
     const h = await huellaDe(archivo);
@@ -377,7 +393,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     if (tamano.has(eleccionDe(dia))) {
       const archivo = join(carpeta, "eleccion.json");
       await p.diario.bajar(eleccionDe(dia), archivo, NOTA);
-      escrita = leerEleccion(await readFile(archivo, "utf8"), dia, clave);
+      escrita = leerEleccion(await readFile(archivo, "utf8"), dia, clave, anteriores);
       if (!eleccion) {
         if (!escrita) throw new Error(`la elección del diario del ${dia} no se puede leer, o no lleva el sello de este negocio: no se elige otro respaldo sin que alguien lo vea`);
         // Aunque venga sellada: el diario de un día es un respaldo de ese día, y eso lo dice su nombre.
@@ -497,6 +513,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     const cual = porRepasar[0]?.r;
     if (!cual) return;
     const dia = diaDelPatio(cual.momento, p.zona);
+    const antes = p.comprobados.intentados.get(cual.objeto);
     p.comprobados.intentados.set(cual.objeto, ahora);
     let entero = false;
     try {
@@ -506,6 +523,12 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
       entero = await coincide(bajado, m);
       await rm(bajado, { force: true });
     } catch (e) {
+      // Sin tiempo no se dice nada: le toca otra vez, con su mismo turno, en la corrida siguiente.
+      if (e instanceof SinTiempo) {
+        if (antes === undefined) p.comprobados.intentados.delete(cual.objeto);
+        else p.comprobados.intentados.set(cual.objeto, antes);
+        return;
+      }
       if (!(e instanceof ManifiestoInvalido)) {
         p.comprobados.tropiezos.set(cual.objeto, `no se pudo repasar el respaldo diario del ${dia} (${cual.objeto}): ${(e as Error).message}`);
         return;

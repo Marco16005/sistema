@@ -54,14 +54,14 @@ test("de un respaldo se sabe qué publicación corría cuando se tomó, y de qu�
       await cubo.poner(objeto, cifrado);
       await cubo.poner(nombreDeManifiesto(objeto), sellado({
         formato: 1, corrida, instantanea: momento, objeto, bytes: cifrado.length, sha256: "a".repeat(64), pgDump: "pg_dump (PostgreSQL) 17.6",
-        llavePublica: "age1" + "q".repeat(58), esquema: "0026_mantenimiento.sql", ...(publicacion ? { publicacion } : {}),
+        llavePublica: llave.publica, esquema: "0026_mantenimiento.sql", ...(publicacion ? { publicacion } : {}),
       }, llave.privada));
       return objeto;
     };
     const deAntes = await respaldo("2026-10-06T12:00:00.000Z", "11111111-1111-4111-8111-111111111111");
     const elUltimo = await respaldo("2026-10-06T13:00:00.000Z", "22222222-2222-4222-8222-222222222222", PUB);
 
-    assert.deepEqual(await versionDe(destino), { objeto: elUltimo, publicacion: PUB, commit: "fedcba987654" });
+    assert.deepEqual(await versionDe(destino, llave.publica), { objeto: elUltimo, publicacion: PUB, commit: "fedcba987654" });
     assert.equal((await orden_([], delDueno)).salida, `${elUltimo} ${PUB} fedcba987654`);
     assert.equal((await orden_([elUltimo], delDueno)).salida, `${elUltimo} ${PUB} fedcba987654`);
     const sinPublicacion = await orden_([deAntes], delDueno);
@@ -101,6 +101,28 @@ test("de un respaldo se sabe qué publicación corría cuando se tomó, y de qu�
     assert.equal(conElCambio.salida, "", "se dijo un commit que nadie selló");
   }));
 
+test("si el servidor tiene el sello de la llave del dueño y la pública de otra, la comprobación desde fuera lo dice: esos respaldos no se abren con su llave", () =>
+  conCubo(async (cubo) => {
+    // La revisión de Codex del 21 de octubre (H32-2): el sello solo dice que el manifiesto es auténtico; la
+    // pública con que se cifró también tiene que ser la de esa llave.
+    const delDueno = await llaves();
+    const otra = await llaves();
+    const entorno = { ...cubo.entorno(cubo.recuperacion), RESPALDO_DESTINO: cubo.destino };
+    const objeto = nombreDeObjeto(new Date("2026-10-06T18:00:00.000Z"), "77777777-7777-4777-8777-777777777777");
+    const cifrado = randomBytes(2000);
+    await cubo.poner(objeto, cifrado);
+    await cubo.poner(nombreDeManifiesto(objeto), sellado({
+      formato: 1, corrida: "77777777-7777-4777-8777-777777777777", instantanea: "2026-10-06T18:00:00.000Z", objeto, bytes: cifrado.length,
+      sha256: "a".repeat(64), pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: otra.publica, esquema: "0026_mantenimiento.sql", publicacion: PUB,
+    }, delDueno.privada));
+    const destino = destinoRclone(cubo.destino, cubo.entorno(cubo.recuperacion), { sello: claveDeSello(delDueno.privada) });
+    await assert.rejects(versionDe(destino, delDueno.publica), /se cifró para otra llave/);
+    const r = await orden([], entorno, delDueno.privada);
+    assert.equal(r.codigo, 1);
+    assert.match(r.queja, /se cifró para otra llave/);
+    assert.equal(r.salida, "");
+  }));
+
 test("un respaldo que dice una publicación que no lo es no sirve para saber en qué commit instalar", () =>
   conCubo(async (cubo) => {
     const llave = await llaves();
@@ -111,9 +133,9 @@ test("un respaldo que dice una publicación que no lo es no sirve para saber en 
     // Aunque lo selle quien tiene la clave: lo que no es una publicación no pasa.
     const manifiesto = (publicacion: string) => sellado({
       formato: 1, corrida: "55555555-5555-4555-8555-555555555555", instantanea: "2026-10-06T16:00:00.000Z", objeto, bytes: cifrado.length, sha256: "a".repeat(64),
-      pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: "age1" + "q".repeat(58), esquema: "0026_mantenimiento.sql", publicacion,
+      pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: llave.publica, esquema: "0026_mantenimiento.sql", publicacion,
     }, llave.privada);
     await cubo.poner(nombreDeManifiesto(objeto), manifiesto("la-de-ayer; rm -rf /"));
     // Lo que diga el manifiesto va a dar a un guion: tiene que ser el identificador de una publicación, y nada más.
-    await assert.rejects(versionDe(destino, objeto), /dice algo que no puede ser/);
+    await assert.rejects(versionDe(destino, llave.publica, objeto), /dice algo que no puede ser/);
   }));

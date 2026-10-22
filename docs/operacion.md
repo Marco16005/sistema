@@ -117,10 +117,12 @@ de recuperación:
 node operacion/version-del-respaldo.ts < llave-privada.txt   # dice el respaldo, su publicación y su commit
 ```
 
-Si contesta, el respaldo lleva el sello de esa llave: la pública y el sello del servidor son los
-suyos. Si dice que no lleva el sello de este negocio, el `.env` tiene el sello de otra llave: se
-corrige (2.2), `sh operacion/levantar.sh`, y se toma otro respaldo. Hasta no ver esto, los
-respaldos no cuentan.
+Si contesta, el respaldo lleva el sello de esa llave y está cifrado para ella: la pública y el sello
+del servidor son los suyos. Si dice que no lleva el sello de este negocio, o que se cifró para otra
+llave, el `.env` tiene un renglón de otra llave: se ponen los dos que da `operacion/sello.ts` (2.2),
+`sh operacion/levantar.sh`, y se toma otro respaldo. Y lo que de verdad lo acredita es abrirlo:
+**el primer ensayo de restauración (sección 6) se hace ese mismo día**, desde fuera y con la llave
+del dueño. Hasta no ver las dos cosas, los respaldos no cuentan.
 
 Si el certificado no se emite, el sitio no se da por disponible y la operación no se abre. La
 salida nunca es quitar la cookie segura ni servir por HTTP: se revisa que el dominio apunte al
@@ -201,8 +203,18 @@ sh operacion/publicar.sh --recuperar
 Recuperar lee lo que quedó anotado y hace lo único que toca: si ya se había decidido abrir,
 termina; si no se había migrado, restablece la versión anterior y abre; y si la migración empezó y
 no se llegó a abrir, **se queda cerrado** y dice la salida: volver al respaldo que se tomó antes de
-migrar —el negocio estuvo cerrado desde antes de tomarlo, así que no se pierde nada— y después
-publicar la versión corregida como cualquier otra.
+migrar y después publicar la versión corregida como cualquier otra. El negocio estuvo cerrado desde
+antes de tomar ese respaldo: **no se pierde ninguna operación del negocio** hecha por los caminos
+de la aplicación. (Sí cambia otra cosa: la base restaurada tiene otra marca, las sesiones se cierran
+y los folios siguen en un bloque nuevo.) El orden, en la misma ventana y sin volver a atender entre
+uno y otro: `sh operacion/volver.sh < llave-privada.txt`, `sh operacion/volver.sh --abrir`, y
+`sh operacion/publicar.sh` con la versión corregida.
+
+**Si el respaldo previo no se puede restaurar** —venció, no se encuentra, la llave no es la suya, o no
+hay espacio para la base apartada, la restaurada y los temporales— no hay salida automática: la base
+que falló sigue apartada y sin tocar, y se arregla a mano con soporte. Para que no llegue a pasar: el
+cierre no dura más que la retención de los respaldos, el disco tiene espacio para dos bases más, y
+la llave es la que se comprobó desde fuera (2.4).
 
 **Volver al respaldo previo** lo hace quien tiene la llave:
 
@@ -274,7 +286,7 @@ Por eso los respaldos son cada hora: lo que se puede perder es, cuando mucho, un
 | `BD_CLAVE` (administración de la base) | — | **Cambiar el archivo no cambia la clave de una base que ya existe.** Primero se cambia en la base, después en el `.env`. *No hay guion para esto ni se ha ensayado: por probar en el servidor.* |
 | La credencial del almacenamiento (la del servidor) | Si queda mal puesta, los respaldos fallan y llega el aviso. | Se crea la nueva con el proveedor, va al `.env`, y `sh operacion/levantar.sh`. Tomar un respaldo enseguida para ver que sube |
 | La credencial de recuperación | — | Con el proveedor. Va al paquete, no al servidor |
-| La llave de los respaldos | Los respaldos nuevos se cifran y se sellan con la nueva. **Los anteriores se abren y se comprueban con la anterior.** | Se genera otra pareja fuera del servidor (2.2); la pública y el sello nuevos van al `.env`; `sh operacion/levantar.sh`; y se toma un respaldo. La llave anterior se conserva en el paquete mientras existan respaldos suyos: 30 días los de cada hora, un año los diarios |
+| La llave de los respaldos | Los respaldos nuevos se cifran y se sellan con la nueva. **Los anteriores se abren con la anterior**, y el servidor los sigue comprobando con el sello de la anterior —solo los de antes del cambio—: sin él, los diarios de antes se avisarían como perdidos. | Se genera otra pareja fuera del servidor (2.2). Fuera del servidor, con la llave **anterior** y el momento del cambio: `node operacion/sello.ts --hasta=2026-12-01T06:00:00Z < llave-anterior.txt`. Al `.env` van la pública y el sello nuevos **y** ese renglón (`RESPALDO_SELLOS_ANTERIORES`; si ya había uno, se agrega con una coma). `sh operacion/levantar.sh`; se toma un respaldo y se comprueba desde fuera, con la llave nueva (2.4). La llave anterior se conserva en el paquete, y su sello en el `.env`, mientras existan respaldos suyos: 30 días los de cada hora, un año los diarios |
 | La clave de una persona | Se cierran sus sesiones. | En Panel → Ajustes, o `sh operacion/compose.sh run --rm consola persona clave "Luis"` |
 
 Después de cambiar cualquiera del `.env`: **actualizar la copia del paquete de recuperación.**

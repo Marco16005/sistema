@@ -6,7 +6,10 @@
 //
 // Lo que dice el manifiesto se cree solo si lleva el sello de la llave del dueño (operacion/destino.ts):
 // por eso este programa pide la llave privada, por la entrada estándar, igual que restaurar. Sin
-// eso, quien pudiera escribir en el almacenamiento decidiría en qué commit se pone la carpeta.
+// eso, quien pudiera escribir en el almacenamiento decidiría en qué commit se pone la carpeta. Y el
+// respaldo tiene que estar cifrado para ESA llave: el sello solo dice que el manifiesto es auténtico,
+// y un servidor con el sello de una llave y la pública de otra toma respaldos sellados que el dueño
+// no puede abrir (revisión de Codex del 21 de octubre). Por eso también se compara la pública.
 //
 // Las imágenes se construyen ahí, de ese commit: lo que se confía es el repositorio. Del
 // almacenamiento se baja el respaldo —cifrado para el dueño, y auditado al restaurarlo— y nada que
@@ -22,6 +25,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { claveDeSello, destinoRclone, manifiestoDe, respaldos, ultimoUtilizable } from "./destino.ts";
 import type { Destino } from "./destino.ts";
+import { identidadDe } from "./llave.ts";
 
 export interface DelRespaldo {
   objeto: string;
@@ -33,9 +37,10 @@ export interface DelRespaldo {
 
 /**
  * Qué publicación corría cuando se tomó ese respaldo —o el último—, y de qué commit es: lo dice su
- * manifiesto. Uno que no lo dice es de antes de que se publicara así.
+ * manifiesto. Uno que no lo dice es de antes de que se publicara así. `publica` es la de la llave del
+ * dueño: el respaldo tiene que estar cifrado para ella.
  */
-export async function versionDe(destino: Destino, objeto?: string): Promise<DelRespaldo> {
+export async function versionDe(destino: Destino, publica: string, objeto?: string): Promise<DelRespaldo> {
   const carpeta = await mkdtemp(join(tmpdir(), "feruga-version-"));
   try {
     let manifiesto;
@@ -50,6 +55,13 @@ export async function versionDe(destino: Destino, objeto?: string): Promise<DelR
       const de = (await respaldos(destino)).find((r) => r.objeto === objeto);
       if (!de) throw new Error(`No hay un respaldo con ese nombre en el destino: ${objeto}`);
       manifiesto = await manifiestoDe(destino, de, carpeta);
+    }
+    if (manifiesto.llavePublica !== publica) {
+      throw new Error(
+        `El respaldo ${manifiesto.objeto} lleva el sello de esta llave, pero se cifró para otra llave (${manifiesto.llavePublica}): ` +
+        "el servidor tiene el sello de esta llave y la pública de otra, y con esta llave no se abre. Se ponen en su .env los dos " +
+        "renglones que da operacion/sello.ts con esta llave, se levanta otra vez y se toma otro respaldo.",
+      );
     }
     if (manifiesto.publicacion === undefined) {
       throw new Error(`El respaldo ${manifiesto.objeto} no dice qué publicación corría cuando se tomó: es de antes de que se publicara así, o de desarrollo. De él no se instala con este guion.`);
@@ -73,7 +85,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (!process.env.RESPALDO_DESTINO) throw new Error("Falta RESPALDO_DESTINO");
     let llave = "";
     for await (const trozo of process.stdin) llave += trozo;
-    const de = await versionDe(destinoRclone(process.env.RESPALDO_DESTINO, {}, { sello: claveDeSello(llave) }), args[0]);
+    const de = await versionDe(destinoRclone(process.env.RESPALDO_DESTINO, {}, { sello: claveDeSello(llave) }), identidadDe(llave).publica, args[0]);
     console.log(`${de.objeto} ${de.publicacion} ${de.commit}`);
   } catch (e) {
     console.error((e as Error).message);

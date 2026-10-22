@@ -72,6 +72,10 @@ test("cada cosa que falta o viene de desarrollo se rechaza diciendo cuál", () =
     [{ RESPALDO_SELLO: undefined }, /Falta RESPALDO_SELLO/],
     [{ RESPALDO_SELLO: "0F".repeat(32) }, /RESPALDO_SELLO no tiene su forma/],
     [{ RESPALDO_SELLO: "AGE-SECRET-KEY-1" + "Q".repeat(58) }, /RESPALDO_SELLO no tiene su forma.*La llave privada misma no va aquí/],
+    // Los sellos de llaves cambiadas: «sello@momento», el momento con su zona (revisión de Codex del 21 de octubre).
+    [{ RESPALDO_SELLOS_ANTERIORES: "0f".repeat(32) }, /RESPALDO_SELLOS_ANTERIORES no tiene su forma/],
+    [{ RESPALDO_SELLOS_ANTERIORES: `${"0f".repeat(32)}@2026-12-01T06:00:00` }, /RESPALDO_SELLOS_ANTERIORES no tiene su forma/],
+    [{ RESPALDO_SELLOS_ANTERIORES: `AGE-SECRET-KEY-1${"Q".repeat(58)}@2026-12-01T06:00:00Z` }, /RESPALDO_SELLOS_ANTERIORES no tiene su forma/],
     [{ RESPALDO_LLAVE_PUBLICA: undefined }, /RESPALDO_LLAVE_PUBLICA/],
     [{ RESPALDO_LLAVE_PUBLICA: "AGE-SECRET-KEY-1QQQQQQ" }, /RESPALDO_LLAVE_PUBLICA/],
     [{ RESPALDO_DESTINO: "" }, /RESPALDO_DESTINO/],

@@ -1215,6 +1215,20 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
 - [ ] **Una pasada de Codex sobre lo pendiente**, una sola: del respaldo diario, restaurar del
       diario, las precisiones del diseño y el veredicto (nunca los revisó); y la verificación de
       lo corregido el 9 de octubre (guiones, diario y rediseño).
+- [ ] **Lo que agregó la revisión de Codex del 21 de octubre** (informe 32), que solo se prueba ahí:
+      - las alertas del diario y del ensayo por separado, también que no llegue el aviso y que se
+        pierda el latido; que las reciba de verdad quien da soporte, no solo un «200»;
+      - el certificado real: su renovación y el aviso antes de que venza, además de emitirlo;
+      - cambiar `BD_CLAVE` en una base que ya existe, y el disco lleno (espacio para la base
+        apartada, la restaurada, los temporales y las imágenes anteriores);
+      - B2 en los dos depósitos: versiones anteriores después de pisar un objeto, retención de
+        manifiestos y anotaciones además de lo cifrado, el ciclo de 30 y 365 días, leer versiones con
+        la credencial de recuperación, y los límites de listar y bajar con un volumen como el real;
+      - apagón o reinicio de verdad del servidor y de Docker a media publicación, migración o vuelta;
+      - el primer respaldo **restaurado** desde fuera con la llave del dueño (no solo leído), y la
+        mezcla de llaves en las dos direcciones;
+      - la máquina de recuperación: los pasos exactos —con qué se corre `node operacion/*.ts`, sus
+        dependencias, `age`, `rclone` y `pg_restore`— probados desde una máquina limpia (A9).
 - [ ] Anotar en la guía lo que no salió como estaba escrito.
 
 ## Fuera, para después
