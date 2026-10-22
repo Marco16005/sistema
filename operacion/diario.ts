@@ -167,12 +167,26 @@ const NOTA_DE_ELECCION = "elección del diario";
 const NOTA_DE_HUECO = "aviso de un día sin diario";
 const selloDeEleccion = (e: Eleccion, clave: string): string => selloDeNota(NOTA_DE_ELECCION, [e.formato, e.dia, e.objeto, e.bytes, e.sha256], clave);
 
-/** Las claves que acreditan una anotación de ese día: la vigente, y las de llaves cambiadas después de que empezó. */
-const clavesDelDia = (dia: string, clave: string, anteriores: readonly SelloAnterior[]): string[] =>
-  clavesPara(clave, anteriores, new Date(`${dia}T00:00:00Z`));
+/** El momento en que termina ese día en el patio: la medianoche siguiente, en su zona. */
+function finDelDia(dia: string, zona: string): Date {
+  // Las zonas van por cuartos de hora: se busca el primero que ya es otro día, desde antes de que pueda empezar en cualquiera.
+  const desde = Date.parse(`${dia}T00:00:00Z`) - 14 * 3_600_000;
+  for (let t = desde; t <= desde + 52 * 3_600_000; t += 15 * 60_000) {
+    if (diaDelPatio(new Date(t), zona) > dia) return new Date(t);
+  }
+  throw new Error(`No se pudo saber cuándo termina el ${dia} en ${zona}`);
+}
+
+/**
+ * Las claves que acreditan una anotación de ese día: la vigente, y las de llaves anteriores solo si
+ * el día ya había terminado en el patio cuando se cambiaron. Una anotación del día del cambio pudo
+ * escribirse ya con la nueva: con la vieja no se cree. (Lo señaló la revisión de seguridad del 22 de octubre.)
+ */
+const clavesDelDia = (dia: string, zona: string, clave: string, anteriores: readonly SelloAnterior[]): string[] =>
+  anteriores.length === 0 ? [clave] : clavesPara(clave, anteriores, new Date(finDelDia(dia, zona).getTime() - 1));
 
 /** Lo escrito en el depósito diario como elección de ese día, si se lee, es de ese día y lleva su sello. Si no, nada. */
-function leerEleccion(texto: string, dia: string, clave: string, anteriores: readonly SelloAnterior[] = []): Eleccion | null {
+function leerEleccion(texto: string, dia: string, zona: string, clave: string, anteriores: readonly SelloAnterior[] = []): Eleccion | null {
   let e: (Partial<Eleccion> & { sello?: unknown }) | null;
   try {
     e = JSON.parse(texto) as Partial<Eleccion> & { sello?: unknown };
@@ -182,7 +196,7 @@ function leerEleccion(texto: string, dia: string, clave: string, anteriores: rea
   if (!e || e.formato !== 1 || e.dia !== dia || typeof e.objeto !== "string" || typeof e.bytes !== "number" || !Number.isSafeInteger(e.bytes) ||
       typeof e.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.sha256)) return null;
   const eleccion = copia(e as Eleccion);
-  return clavesDelDia(dia, clave, anteriores).some((k) => esElSello(e.sello, selloDeEleccion(eleccion, k))) ? eleccion : null;
+  return clavesDelDia(dia, zona, clave, anteriores).some((k) => esElSello(e.sello, selloDeEleccion(eleccion, k))) ? eleccion : null;
 }
 
 const eleccionDe = (dia: string): string => `elecciones/${dia}.json`;
@@ -308,7 +322,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     // Una anotación que no se lee, o que no lleva el sello de este negocio, no acredita que alguien se haya enterado: se avisa otra vez.
     if (!nota || nota.formato !== 1 || nota.dia !== dia || typeof nota.motivo !== "string" || typeof nota.avisado !== "string") return false;
     const { motivo, avisado, sello } = nota;
-    if (!clavesDelDia(dia, clave, anteriores).some((k) => esElSello(sello, selloDeNota(NOTA_DE_HUECO, [1, dia, motivo, avisado], k)))) return false;
+    if (!clavesDelDia(dia, p.zona, clave, anteriores).some((k) => esElSello(sello, selloDeNota(NOTA_DE_HUECO, [1, dia, motivo, avisado], k)))) return false;
     p.comprobados.avisados.add(dia);
     return true;
   };
@@ -393,7 +407,7 @@ export async function ponerAlDia(p: Pendiente): Promise<AlDia> {
     if (tamano.has(eleccionDe(dia))) {
       const archivo = join(carpeta, "eleccion.json");
       await p.diario.bajar(eleccionDe(dia), archivo, NOTA);
-      escrita = leerEleccion(await readFile(archivo, "utf8"), dia, clave, anteriores);
+      escrita = leerEleccion(await readFile(archivo, "utf8"), dia, p.zona, clave, anteriores);
       if (!eleccion) {
         if (!escrita) throw new Error(`la elección del diario del ${dia} no se puede leer, o no lleva el sello de este negocio: no se elige otro respaldo sin que alguien lo vea`);
         // Aunque venga sellada: el diario de un día es un respaldo de ese día, y eso lo dice su nombre.

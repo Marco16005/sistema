@@ -863,6 +863,26 @@ test("al cambiar la llave, lo sellado con la anterior se sigue acreditando con s
   assert.deepEqual(sinAnterior.huecos.map((h) => h.dia), ["2026-10-05"]);
 });
 
+test("con un sello anterior, una anotación solo se cree si su día ya había terminado en el patio cuando se cambió la llave", async () => {
+  // Lo señaló la revisión de seguridad del 22 de octubre: una anotación del día del cambio pudo escribirse ya con
+  // la llave nueva, y con la vieja no se cree.
+  const NUEVO = "ab".repeat(32);
+  const huecosCon = async (hasta: string): Promise<string[]> => {
+    const m = mundo();
+    for (const d of [m.origen, m.diario]) { d.sello = NUEVO; d.anteriores = [{ clave: SELLO_DE_PRUEBA, hasta: new Date(hasta) }]; }
+    respaldoDe(m.origen, "2026-10-06T13:00:00.000Z", { manifiestoDanado: true });
+    const nota = { formato: 1, dia: "2026-10-06", motivo: "x", avisado: "2026-10-07T00:00:00.000Z" };
+    m.diario.objetos.set("elecciones/2026-10-06.hueco.json", Buffer.from(JSON.stringify({
+      ...nota, sello: selloDeNota(NOTA_DE_HUECO, [1, nota.dia, nota.motivo, nota.avisado], SELLO_DE_PRUEBA),
+    })));
+    return (await m.correr("2026-10-07T12:00:00Z", { avisa: false })).huecos.map((h) => h.dia);
+  };
+  // El 6 termina en el patio el 7 a las 06:00 (UTC). Si la llave se cambió después, la anotación del 6 con la vieja se cree.
+  assert.deepEqual(await huecosCon("2026-10-07T08:00:00Z"), []);
+  // Si se cambió a media mañana del 6, no: el hueco se vuelve a decir.
+  assert.deepEqual(await huecosCon("2026-10-06T18:00:00Z"), ["2026-10-06"]);
+});
+
 test("un día al que se le acaba el tiempo no se queda «pendiente» para siempre: a la segunda corrida seguida se dice, como falla", async () => {
   const m = mundo();
   respaldoDe(m.origen, "2026-10-05T13:00:00.000Z");
