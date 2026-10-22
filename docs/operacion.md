@@ -39,16 +39,63 @@ almacenamiento. Un paquete viejo es peor que ninguno: da confianza y no sirve.
 
 ## 2. Instalar por primera vez
 
-### 2.1 El servidor — *por probar en el servidor*
+### 2.1 El servidor — *ensayado en un Ubuntu desechable; por probar en el servidor*
 
-Lo que debe tener, según lo decidido en el plan de despliegue: Ubuntu LTS; Docker y Git; entrada de
-administración solo con llave (probada en una segunda conexión antes de quitar las contraseñas, y
-con la consola del proveedor como salida); cortafuegos con solo los puertos 22, 80 y 443;
-actualizaciones de seguridad automáticas. Quien puede usar Docker en esa máquina es administrador
-de ella.
+Un **Ubuntu 24.04 LTS recién contratado**, con entrada por SSH y la consola del proveedor a la mano
+(es la salida si algo deja fuera la conexión). El guion está dentro del repositorio, así que Git se
+instala a mano para clonarlo:
 
-**No hay todavía un guion que lo prepare** (`operacion/servidor.sh` es la parte que falta de la
-tarea 6 del plan). Hasta que exista y se pruebe, esto se hace a mano y se anota aquí lo que se hizo.
+```bash
+sudo apt-get update && sudo apt-get install -y git
+git clone <el repositorio> feruga && cd feruga/sistema
+sudo sh operacion/servidor.sh                 # como root, sin sudo
+```
+
+Lo que deja:
+
+- **Docker** con su plugin de Compose, del repositorio oficial de Docker. Antes de confiar en su
+  llave comprueba la huella completa (`9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`).
+- **Los registros de Docker no llenan el disco**: cada contenedor guarda a lo más tres archivos de
+  10 MB. Si `/etc/docker/daemon.json` ya existe con otra cosa, se detiene y no lo pisa.
+- **El cortafuegos** (ufw): no entra nada salvo 22 (SSH), 80 y 443 (el sitio, también 443 por UDP
+  para HTTP/3), por IPv4 e IPv6; salir sí se puede. Si ya había otras reglas, se detiene para que se
+  revisen; no las borra. **Docker abre puertos por fuera del cortafuegos**: por eso solo el proxy
+  publica, y eso lo comprueba ya cada publicación (`operacion/comprobar.ts`).
+- **Las actualizaciones de seguridad**, automáticas.
+- Si se corrió con `sudo`, esa persona entra al grupo `docker`: **eso la hace administradora del
+  servidor**. Hay que salir y volver a entrar para que cuente.
+
+Se puede correr las veces que sea: si ya está todo, dice «No hay nada que cambiar.». Y si algo no
+está como espera, se detiene y dice qué, sin dejar las cosas a medias.
+
+**La primera corrida no toca SSH.** Para que el servidor ya no acepte contraseñas:
+
+1. La cuenta con que se entra (root o la de `sudo`) tiene su llave en `~/.ssh/authorized_keys`
+   (la carpeta `.ssh` en `700` y el archivo en `600`).
+2. Sin cerrar la sesión abierta, desde otra terminal se prueba **una segunda conexión solo con la
+   llave**:
+
+   ```bash
+   ssh -o PreferredAuthentications=publickey -o PasswordAuthentication=no usuario@servidor
+   ```
+
+3. Solo si esa entra:
+
+   ```bash
+   sudo sh operacion/servidor.sh --quitar-contrasenas
+   ```
+
+Se niega si la cuenta no tiene una llave válida, o si otra parte de la configuración de SSH no deja
+apagar las contraseñas (en ese caso se revisa con quien sepa; no se fuerza). Antes de recargar SSH
+lo comprueba, y si no pasa, quita su cambio. Después se prueba otra vez una conexión con llave
+antes de cerrar las sesiones abiertas.
+
+El guion se ensaya en esta máquina, sin servidor, con `sh operacion/ensayo-servidor.sh` (solo pide
+Docker): lo corre dos veces en un Ubuntu desechable, comprueba que la segunda no cambie nada y que
+se niegue en los casos en que debe negarse. Ahí no puede encender servicios, activar el
+cortafuegos ni recargar SSH; eso, y entrar desde otra máquina, **está por probar en el servidor**.
+
+Sigue la sección 2.4, ya dentro de `feruga/sistema`.
 
 ### 2.2 Fuera del servidor: la llave y el sello
 
@@ -117,8 +164,9 @@ sh operacion/compose.sh run --rm respaldo probar-avisos    # manda un aviso de p
 
 ### 2.4 En el servidor
 
+En la carpeta `feruga/sistema` que se clonó en 2.1:
+
 ```bash
-git clone <el repositorio> feruga && cd feruga/sistema
 sh operacion/entorno.sh patio.ejemplo.mx     # genera .env con claves nuevas; no muestra ninguna
 ```
 
@@ -369,8 +417,10 @@ cuándo.
 
 Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni almacenamiento:
 
-- Preparar el servidor con su guion (`operacion/servidor.sh`, sin escribir) y comprobar desde otra
-  máquina, por IPv4 e IPv6, que solo contestan los puertos 22, 80 y 443.
+- Preparar el servidor con su guion (`operacion/servidor.sh`, ya escrito y ensayado en un Ubuntu
+  desechable) y comprobar ahí lo que el ensayo no puede: que los servicios arrancan y vuelven a
+  arrancar después de reiniciar, que se entra con llave y ya no con contraseña desde otra máquina,
+  y que desde fuera, por IPv4 e IPv6, solo contestan los puertos 22, 80 y 443.
 - El certificado del dominio de verdad, y el aviso antes de que venza.
 - Los permisos reales del almacenamiento contratado: que la credencial del servidor no pueda
   borrar ni acortar la retención, y que la de recuperación solo lea.
@@ -390,6 +440,7 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
 
 ```bash
 # Instalar
+sudo sh operacion/servidor.sh [--quitar-contrasenas]        # preparar el servidor (2.1)
 sh operacion/entorno.sh <dominio>
 node operacion/sello.ts < llave-privada.txt                 # fuera del servidor
 sh operacion/publicar.sh

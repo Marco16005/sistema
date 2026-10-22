@@ -523,6 +523,7 @@ lo único que se publica a la red y atiende por HTTPS con un certificado que él
 renueva; el servicio que respalda a su hora; y una comprobación del entorno que corre antes que todo.
 
 ```bash
+sudo sh operacion/servidor.sh                # una vez, en un Ubuntu 24.04 nuevo: Docker, cortafuegos, actualizaciones (docs/operacion.md, 2.1)
 sh operacion/entorno.sh patio.ejemplo.mx     # una vez: genera .env con claves nuevas; falta llenar lo del respaldo
 node operacion/sello.ts < llave-privada.txt  # FUERA del servidor: la llave pública y el sello de los respaldos, los dos renglones que van al .env
 sh operacion/publicar.sh                     # publica el commit de esta carpeta (también la primera vez)
@@ -602,6 +603,7 @@ un dominio que no existe y sin dejar nada al terminar:
 ```bash
 sh operacion/ensayo.sh                       # la operación; solo pide Docker y Git; CONSERVAR=1 para dejarlo levantado
 sh operacion/ensayo-publicacion.sh           # publicar, interrumpiendo el guion en cada paso; tarda
+sh operacion/ensayo-servidor.sh              # preparar el servidor, dos veces, en un Ubuntu desechable
 ```
 
 El de operación comprueba que con el entorno mal puesto nada se publica ni se toca, el orden de

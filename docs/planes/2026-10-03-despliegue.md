@@ -1190,8 +1190,13 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
       el ensayo periódico; rotar cada clave (distinguiendo cambiar el archivo de cambiar la clave
       de una base que ya existe); qué hacer si no se emite el certificado, si se pierde la llave
       privada, si se llena el disco, si llega un aviso.
-- [ ] El guion del servidor: `shellcheck`, y dos corridas en un contenedor de Ubuntu sin cambios
-      en la segunda.
+- [x] El guion del servidor: `shellcheck`, y dos corridas en un contenedor de Ubuntu sin cambios
+      en la segunda. Hecho el 22 de octubre: lo construyó Codex (encargo 34,
+      `docs/revisiones/2026-10-22-codex-construccion-del-servidor.md`) y lo revisó y volvió a ensayar Claude
+      (`sh operacion/ensayo-servidor.sh`). Además de las dos corridas, el ensayo comprueba que se
+      niegue sin llave, con una llave falsa de Docker, con otro `daemon.json`, con reglas de más en
+      el cortafuegos y con una configuración de SSH que no deja apagar las contraseñas. Lo que
+      necesita systemd y una conexión de verdad queda en la tarea 7.
 
 **Revisión de Codex al bloque completo**, con ejecución, antes de la tarea 7.
 
