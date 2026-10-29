@@ -95,9 +95,18 @@ export async function entrar(page: Page, persona: Persona): Promise<void> {
   await expect(page.locator(".barra")).toContainText(persona.nombre);
 }
 
-/** Entra, y espera a que la aplicación termine de llevar a esa persona a su pantalla antes de pedir otra. */
+/**
+ * Entra alguien que no es quien estaba, y espera a que la aplicación termine de llevarlo a su pantalla
+ * antes de pedir otra. Quien llega pasa por «/» y de ahí va a la suya (Sesion.tsx, `alEntrar`; y
+ * app/page.tsx): se espera ese paso —escuchado desde antes de entrar, para no perderlo— y luego que
+ * salga de «/». Esperar solo «que no sea /» no basta si se entra desde otra pantalla: ya se cumple
+ * antes de que la aplicación se mueva, y la página que se pida enseguida la interrumpe ese viaje.
+ * (Para quien vuelve, que se queda donde estaba, es `entrar`.)
+ */
 export async function adentro(page: Page, persona: Persona): Promise<void> {
+  const porElInicio = page.waitForURL((u) => u.pathname === "/");
   await entrar(page, persona);
+  await porElInicio;
   await page.waitForURL((u) => u.pathname !== "/");
 }
 
