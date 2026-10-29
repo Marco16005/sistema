@@ -1235,7 +1235,11 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
       - el primer respaldo **restaurado** desde fuera con la llave del dueño (no solo leído), y la
         mezcla de llaves en las dos direcciones;
       - la máquina de recuperación: los pasos exactos —con qué se corre `node operacion/*.ts`, sus
-        dependencias, `age`, `rclone` y `pg_restore`— probados desde una máquina limpia (A9).
+        dependencias, `age`, `rclone` y `pg_restore`— probados desde una máquina limpia (A9). (29 de
+        octubre: ya no hace falta instalar nada de eso: `sh operacion/fuera.sh` lo corre todo en la
+        imagen de herramientas, con solo Docker y Git —la llave, el sello, la versión de un respaldo
+        y el ensayo de cada mes en una base desechable—, probado en el ensayo de la operación. Falta
+        hacerlo desde una máquina limpia contra el almacenamiento contratado, y medir cuánto tarda.)
 - [ ] Anotar en la guía lo que no salió como estaba escrito.
 
 ## Fuera, para después

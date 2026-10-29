@@ -395,7 +395,7 @@ sh operacion/compose.sh run --rm --no-deps respaldo lista --diario   # los que s
   las dos cosas (cifrar solo pide la llave pública). El sello es un HMAC de todo lo que el
   manifiesto dice —el archivo, su tamaño y su huella, de cuándo es, y qué publicación corría—,
   con una clave que no está en el almacenamiento. Esa clave **se saca de la llave privada**, fuera
-  del servidor: `node operacion/sello.ts < llave-privada.txt` dice los dos renglones que van al
+  del servidor: `sh operacion/fuera.sh sello < llave-privada.txt` (con solo Docker; por dentro, `operacion/sello.ts`) dice los dos renglones que van al
   `.env`, juntos y de la misma llave —`RESPALDO_LLAVE_PUBLICA` y `RESPALDO_SELLO`— (el sello solo
   sale también con `openssl`: la receta está en ese archivo). La llave se lee como la lee `age`:
   una sola identidad, sin contar comentarios, y bien escrita. Con el sello el servidor sella, y de
@@ -445,6 +445,7 @@ node operacion/restaurar.ts --remoto < llave-privada.txt               # el últ
 node operacion/restaurar.ts --remoto=<objeto> < llave-privada.txt      # uno en particular
 node operacion/restaurar.ts --remoto --como-estaba=2026-10-04T09:00:00-06:00 < llave-privada.txt
 node operacion/restaurar.ts --remoto --ensayo < llave-privada.txt      # y avisa al vigilante de los ensayos
+sh operacion/fuera.sh ensayo < llave-privada.txt                       # lo mismo en cualquier computadora con solo Docker, en una base desechable
 node operacion/restaurar.ts --diario < llave-privada.txt               # el último de los que se guardan un año
 node operacion/restaurar.ts --diario=<objeto> < llave-privada.txt      # el de un día en particular (se ven con «lista --diario»)
 ```
@@ -525,7 +526,7 @@ renueva; el servicio que respalda a su hora; y una comprobación del entorno que
 ```bash
 sudo sh operacion/servidor.sh                # una vez, en un Ubuntu 24.04 nuevo: Docker, cortafuegos, actualizaciones (docs/operacion.md, 2.1)
 sh operacion/entorno.sh patio.ejemplo.mx     # una vez: genera .env con claves nuevas; falta llenar lo del respaldo
-node operacion/sello.ts < llave-privada.txt  # FUERA del servidor: la llave pública y el sello de los respaldos, los dos renglones que van al .env
+sh operacion/fuera.sh llave > llave-privada.txt   # FUERA del servidor, con solo Docker: la llave, y los dos renglones que van al .env
 sh operacion/publicar.sh                     # publica el commit de esta carpeta (también la primera vez)
 sh operacion/levantar.sh                     # levanta lo publicado, o lo pone al día después de cambiar el .env
 sh operacion/compose.sh ps                   # «docker compose», sobre lo publicado: registros, consola, respaldar a mano

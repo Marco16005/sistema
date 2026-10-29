@@ -28,10 +28,12 @@ técnico y para el dueño; la gente del patio no necesita nada de esto.
 Es lo que hace falta para volver a levantar el negocio si el servidor desaparece. Lo guardan **el
 dueño y quien da el soporte**, cada uno su copia, fuera del servidor:
 
-1. **La llave privada de los respaldos** (el archivo que dio `age-keygen`). Sin ella ningún
+1. **La llave privada de los respaldos** (el archivo que dio `fuera.sh llave`, 2.2). Sin ella ningún
    respaldo se puede abrir: no hay otra copia ni manera de reponerla.
 2. **Una copia del `.env`** del servidor.
 3. **La credencial de recuperación del almacenamiento**: la que solo lee. No es la del servidor.
+   Va en un archivo, `recuperacion.env` (su forma, en la sección 6): es lo que leen
+   `fuera.sh version` y `fuera.sh ensayo`.
 4. **Dónde está el repositorio** y cómo entrar a él, y esta guía.
 
 Se actualiza **cada vez que cambie algo de eso**: una clave del `.env`, la llave, el proveedor del
@@ -99,14 +101,17 @@ Sigue la sección 2.4, ya dentro de `feruga/sistema`.
 
 ### 2.2 Fuera del servidor: la llave y el sello
 
-En la computadora del dueño o de soporte, **no en el servidor**:
+En la computadora del dueño o de soporte, **no en el servidor**. Solo pide Docker y este
+repositorio (`git clone`); no se instala nada más. Lo de fuera del servidor lo hace un solo guion,
+`operacion/fuera.sh`, que corre en un contenedor con las mismas herramientas con que el servidor
+respalda (la primera vez tarda unos minutos en prepararlas):
 
 ```bash
-age-keygen -o llave-privada.txt              # la llave; el archivo se guarda, no se le cambia nada
-node operacion/sello.ts < llave-privada.txt  # dice los dos renglones que van al .env del servidor
+sh operacion/fuera.sh llave > llave-privada.txt    # la llave, a su archivo; en pantalla, lo que va al .env
+sh operacion/fuera.sh sello < llave-privada.txt    # esos dos renglones otra vez, cuando haga falta
 ```
 
-`sello.ts` contesta dos renglones, `RESPALDO_LLAVE_PUBLICA=age1…` y `RESPALDO_SELLO=…` (64
+Los dos renglones son `RESPALDO_LLAVE_PUBLICA=age1…` y `RESPALDO_SELLO=…` (64
 letras). **Van juntos y de la misma llave:** con el sello de una llave y la pública de otra, el
 servidor tomaría respaldos que después nadie podría acreditar, y avisaría «bien». El programa lee la
 llave como la lee `age` —una sola, sin contar los comentarios, y bien escrita— y se niega si no.
@@ -190,16 +195,16 @@ El arranque escribe en la terminal, **una sola vez**, la clave del primer respon
 para dar de alta el primer equipo. Correrlo otra vez no hace daño.
 
 **Antes de dar la instalación por buena, comprobar el sello desde fuera** — *por probar en el
-servidor.* Publicar ya tomó un respaldo. En la computadora donde está la llave, con la credencial
-de recuperación:
+servidor.* Publicar ya tomó un respaldo. En la computadora donde está la llave, con
+`recuperacion.env` (la credencial de recuperación, sección 6) en la carpeta del repositorio:
 
 ```bash
-node operacion/version-del-respaldo.ts < llave-privada.txt   # dice el respaldo, su publicación y su commit
+sh operacion/fuera.sh version < llave-privada.txt   # dice el respaldo, su publicación y su commit
 ```
 
 Si contesta, el respaldo lleva el sello de esa llave y está cifrado para ella: la pública y el sello
 del servidor son los suyos. Si dice que no lleva el sello de este negocio, o que se cifró para otra
-llave, el `.env` tiene un renglón de otra llave: se ponen los dos que da `operacion/sello.ts` (2.2),
+llave, el `.env` tiene un renglón de otra llave: se ponen los dos que da `fuera.sh sello` (2.2),
 `sh operacion/levantar.sh`, y se toma otro respaldo. Y lo que de verdad lo acredita es abrirlo:
 **el primer ensayo de restauración (sección 6) se hace ese mismo día**, desde fuera y con la llave
 del dueño. Hasta no ver las dos cosas, los respaldos no cuentan.
@@ -312,22 +317,41 @@ Un respaldo que nunca se restauró no es un respaldo. **Cada mes**, una persona 
 vive en ningún servidor— baja el último respaldo en otra máquina y lo restaura. Hay un vigilante
 propio que alerta si pasan más de 35 días sin un ensayo.
 
-En una máquina con Docker, este repositorio, un servidor de PostgreSQL vacío donde restaurar, la
-credencial de **recuperación** y la llave:
+En cualquier computadora con Docker y este repositorio, con la llave y `recuperacion.env` en la
+carpeta del repositorio:
 
 ```bash
-node operacion/restaurar.ts --remoto --ensayo < llave-privada.txt
+sh operacion/fuera.sh ensayo < llave-privada.txt            # el último respaldo de cada hora
+sh operacion/fuera.sh ensayo --diario < llave-privada.txt   # el último de los que se guardan un año
 ```
 
-El programa pide en su entorno a dónde restaurar (`DATABASE_URL`), el destino de los respaldos con
-la credencial de recuperación (`RESPALDO_DESTINO` y lo de `rclone`) y a quién avisar
-(`ENSAYO_VIGIA_URL`). Comprueba el sello, baja el respaldo, lo descifra, lo restaura en una base
-aparte, lo audita, y solo avisa del ensayo si terminó bien. No restaura encima de una base que
-existe. Con `--diario` hace lo mismo con el último de los que se guardan un año.
+Levanta una base de PostgreSQL desechable —de la misma imagen que la del servidor, sin abrir ningún
+puerto—, comprueba el sello, baja el respaldo, lo descifra, lo restaura, lo audita y, solo si
+terminó bien, avisa al vigilante de los ensayos. Dice cuánto tardó, y al final borra la base
+desechable, pase lo que pase. No toca el servidor. Si dice «El ensayo NO pasó», ese respaldo no se
+pudo restaurar: es urgente, aunque el negocio siga operando.
+
+`recuperacion.env` lleva lo mismo que el `.env` del servidor para el almacenamiento, pero con la
+credencial que solo lee, y a quién avisar del ensayo; nada de la base del servidor (`fuera.sh` se
+niega si lo trae):
+
+```
+RESPALDO_DESTINO=respaldo:<depósito>/feruga
+RCLONE_CONFIG_RESPALDO_TYPE=s3
+RCLONE_CONFIG_RESPALDO_PROVIDER=…
+RCLONE_CONFIG_RESPALDO_ENDPOINT=…
+RCLONE_CONFIG_RESPALDO_REGION=…
+RCLONE_CONFIG_RESPALDO_ACCESS_KEY_ID=…        # la de recuperación
+RCLONE_CONFIG_RESPALDO_SECRET_ACCESS_KEY=…    # la de recuperación
+RESPALDO_DESTINO_DIARIO=diario:<depósito>/feruga
+RCLONE_CONFIG_DIARIO_…                        # igual, para el depósito de los diarios
+ENSAYO_VIGIA_URL=https://hc-ping.com/…        # la señal de los ensayos
+```
 
 El recorrido completo desde otra máquina, siguiendo solo esta guía y midiendo cuánto tarda, es una
-de las condiciones para operar con datos de verdad, y **todavía no se ha hecho**: el programa está
-probado contra un almacenamiento de pruebas, no el camino entero en una máquina ajena.
+de las condiciones para operar con datos de verdad, y **todavía no se ha hecho contra el
+almacenamiento contratado**: `fuera.sh` está probado en el ensayo de la operación, contra un
+almacenamiento y un vigilante de pruebas.
 
 ## 7. Si se pierde el servidor
 
@@ -366,7 +390,7 @@ Por eso los respaldos son cada hora: lo que se puede perder es, cuando mucho, un
 | `BD_CLAVE` (administración de la base) | — | **Cambiar el archivo no cambia la clave de una base que ya existe.** Primero se cambia en la base, después en el `.env`. *No hay guion para esto ni se ha ensayado: por probar en el servidor.* |
 | La credencial del almacenamiento (la del servidor) | Si queda mal puesta, los respaldos fallan y llega el aviso. | Se crea la nueva con el proveedor, va al `.env`, y `sh operacion/levantar.sh`. Tomar un respaldo enseguida para ver que sube |
 | La credencial de recuperación | — | Con el proveedor. Va al paquete, no al servidor |
-| La llave de los respaldos | Los respaldos nuevos se cifran y se sellan con la nueva. **Los anteriores se abren con la anterior**, y el servidor los sigue comprobando con el sello de la anterior —solo los de antes del cambio—: sin él, los diarios de antes se avisarían como perdidos. | Se genera otra pareja fuera del servidor (2.2). Fuera del servidor, con la llave **anterior** y el momento del cambio: `node operacion/sello.ts --hasta=2026-12-01T06:00:00Z < llave-anterior.txt`. Al `.env` van la pública y el sello nuevos **y** ese renglón (`RESPALDO_SELLOS_ANTERIORES`; si ya había uno, se agrega con una coma). `sh operacion/levantar.sh`; se toma un respaldo y se comprueba desde fuera, con la llave nueva (2.4). La llave anterior se conserva en el paquete, y su sello en el `.env`, mientras existan respaldos suyos: 30 días los de cada hora, un año los diarios. **Si la llave se cambia porque alguien más pudo tenerla, su sello no se pone**: con él se podría hacer pasar algo por un respaldo de antes; los diarios de antes se avisarán como perdidos, y se comprueban a mano con la llave anterior |
+| La llave de los respaldos | Los respaldos nuevos se cifran y se sellan con la nueva. **Los anteriores se abren con la anterior**, y el servidor los sigue comprobando con el sello de la anterior —solo los de antes del cambio—: sin él, los diarios de antes se avisarían como perdidos. | Se genera otra pareja fuera del servidor (2.2). Fuera del servidor, con la llave **anterior** y el momento del cambio: `sh operacion/fuera.sh sello --hasta=2026-12-01T06:00:00Z < llave-anterior.txt`. Al `.env` van la pública y el sello nuevos **y** ese renglón (`RESPALDO_SELLOS_ANTERIORES`; si ya había uno, se agrega con una coma). `sh operacion/levantar.sh`; se toma un respaldo y se comprueba desde fuera, con la llave nueva (2.4). La llave anterior se conserva en el paquete, y su sello en el `.env`, mientras existan respaldos suyos: 30 días los de cada hora, un año los diarios. **Si la llave se cambia porque alguien más pudo tenerla, su sello no se pone**: con él se podría hacer pasar algo por un respaldo de antes; los diarios de antes se avisarán como perdidos, y se comprueban a mano con la llave anterior |
 | La clave de una persona | Se cierran sus sesiones. | En Panel → Ajustes, o `sh operacion/compose.sh run --rm consola persona clave "Luis"` |
 
 Después de cambiar cualquiera del `.env`: **actualizar la copia del paquete de recuperación.**
@@ -454,7 +478,7 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
 # Instalar
 sudo sh operacion/servidor.sh [--quitar-contrasenas]        # preparar el servidor (2.1)
 sh operacion/entorno.sh <dominio>
-node operacion/sello.ts < llave-privada.txt                 # fuera del servidor
+sh operacion/fuera.sh llave > llave-privada.txt             # fuera del servidor: la llave, y lo del .env
 sh operacion/publicar.sh
 sh operacion/compose.sh run --rm consola arranque
 
@@ -471,7 +495,8 @@ sh operacion/volver.sh < llave-privada.txt                  # al respaldo de ant
 sh operacion/volver.sh --abrir
 
 # Recuperar
-node operacion/restaurar.ts --remoto --ensayo < llave-privada.txt        # el ensayo de cada mes
+sh operacion/fuera.sh ensayo < llave-privada.txt                         # el ensayo de cada mes, fuera del servidor
+sh operacion/fuera.sh version < llave-privada.txt                        # de qué versión es el último respaldo
 sh operacion/publicar.sh --desde-respaldo[=<respaldo>] < llave-privada.txt   # en una máquina nueva
 
 # La consola
