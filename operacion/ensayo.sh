@@ -181,6 +181,33 @@ done
 [ -n "$latio" ] || { operacion logs --no-log-prefix --tail 20 respaldo >&2 || true; falla "el vigilante del sitio no recibió el latido"; }
 case "$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)" in *"POST /ping/latido/fail"*) falla "el latido dijo que el sitio no contesta";; *) ;; esac
 
+paso "Desde fuera, con solo Docker: una llave nueva y su sello, de qué versión es el último respaldo, y el ensayo de restauración de cada mes"
+# Lo que la guía hace en la computadora del dueño o de soporte (operacion/fuera.sh). Aquí llega al
+# almacenamiento y al vigilante de mentira por la red del ensayo (FUERA_RED).
+sh operacion/fuera.sh llave > "$trabajo/llave-de-fuera.txt" 2> "$trabajo/fuera.salida" \
+  || { cat "$trabajo/fuera.salida" >&2; falla "fuera.sh no dio una llave nueva"; }
+[ "$(grep -c '^AGE-SECRET-KEY-1' "$trabajo/llave-de-fuera.txt")" = 1 ] || falla "lo que fuera.sh puso en el archivo no es una llave de age"
+grep '^RESPALDO_' "$trabajo/fuera.salida" > "$trabajo/fuera.env" || falla "fuera.sh no dijo lo que va al .env"
+sh operacion/fuera.sh sello < "$trabajo/llave-de-fuera.txt" 2>/dev/null | cmp -s - "$trabajo/fuera.env" \
+  || falla "los renglones que fuera.sh dijo para el .env no son los de la llave que dio"
+[ "$(sh operacion/fuera.sh sello < "$trabajo/llave.txt" 2>/dev/null | sed -n 's/^RESPALDO_SELLO=//p')" = "$(sed -n 's/^RESPALDO_SELLO=//p' "$trabajo/.env")" ] \
+  || falla "con la llave del ensayo, fuera.sh no dio el sello que tiene el servidor"
+rm -f "$trabajo/llave-de-fuera.txt" "$trabajo/fuera.env"
+# La credencial de recuperación: aquí, la del almacenamiento de mentira, y el vigilante de los ensayos.
+{ grep -E '^(RESPALDO_DESTINO|RCLONE_CONFIG_RESPALDO_)' "$trabajo/.env"; echo "ENSAYO_VIGIA_URL=http://vigia:8080/ping/ensayo"; } > "$trabajo/recuperacion.env"
+de_fuera() { FUERA_RED="${PROYECTO}_default" FUERA_ENTORNO="$trabajo/recuperacion.env" sh operacion/fuera.sh "$@"; }
+version=$(de_fuera version < "$trabajo/llave.txt" 2>"$trabajo/fuera.salida") \
+  || { cat "$trabajo/fuera.salida" >&2; falla "fuera.sh no dijo de qué versión es el último respaldo"; }
+[ "$(printf '%s\n' "$version" | cut -d' ' -f2-)" = "$pub $(git rev-parse HEAD | cut -c1-12)" ] \
+  || falla "fuera.sh dijo que el último respaldo es de «$version», y lo tomó la publicación $pub"
+de_fuera ensayo < "$trabajo/llave.txt" > "$trabajo/fuera.salida" 2>&1 \
+  || { cat "$trabajo/fuera.salida" >&2; falla "el ensayo de restauración desde fuera no pasó"; }
+grep -q '^El ensayo pasó' "$trabajo/fuera.salida" || { cat "$trabajo/fuera.salida" >&2; falla "el ensayo desde fuera no dijo que pasó"; }
+case "$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)" in *"POST /ping/ensayo"*) ;; *) falla "el vigilante de los ensayos no recibió el aviso";; esac
+[ -z "$(docker ps -aq --filter name=feruga-fuera-base-)" ] || falla "fuera.sh dejó su base desechable"
+docker image rm "feruga-fuera:$(git rev-parse --short=12 HEAD)" >/dev/null 2>&1 || true
+rm -f "$trabajo/recuperacion.env"
+
 paso "Publicar otra vez lo mismo no hace nada, y lo dice"
 antes=$(corriendo)
 sh operacion/publicar.sh >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "publicar lo mismo otra vez falló"; }

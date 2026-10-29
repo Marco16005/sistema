@@ -1,0 +1,141 @@
+// Lo que se hace fuera del servidor con solo Docker (operacion/fuera.sh): la llave, el sello, de qué
+// versión es un respaldo y el ensayo de restauración de cada mes. Aquí, con un «docker» de mentira
+// que anota cada llamada: lo que se le pide, con qué, y que lo desechable siempre se borra. El camino
+// de verdad —restaurar del almacenamiento y avisar al vigilante— lo recorre el ensayo de la operación.
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+const LLAVE = "# created: 2026-10-29T12:00:00Z\n# public key: age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\nAGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ\n";
+
+/** Un «docker» de mentira: anota cada llamada (una por renglón) y contesta según DOCKER_RESTAURAR. */
+const DOCKER = `#!/bin/sh
+printf '%s\\n' "$*" >> "$LLAMADAS"
+case "$*" in
+  info*|build*|"network create"*|"network rm"*|"network inspect"*|"rm -f"*|"exec "*) exit 0 ;;
+  *"--entrypoint age-keygen"*) printf '%s' "$LLAVE_DE_MENTIRA"; echo "Public key: age1qqq" >&2 ;;
+  *"operacion/sello.ts"*) cat > "$LLAMADAS.entrada"; echo RESPALDO_LLAVE_PUBLICA=age1qqq; echo RESPALDO_SELLO=abcd ;;
+  *"operacion/version-del-respaldo.ts"*) cat > "$LLAMADAS.entrada"; echo "respaldo-1 pub-1 commit-1" ;;
+  "run -d "*) echo idbase ;;
+  *"operacion/restaurar.ts"*) cat > "$LLAMADAS.entrada"; echo "restaurando"; exit "\${DOCKER_RESTAURAR:-0}" ;;
+  *) echo "docker de mentira: no sé qué hacer con: $*" >&2; exit 9 ;;
+esac
+`;
+
+interface Corrida { codigo: number; salida: string; queja: string; llamadas: string[]; entrada: string }
+
+/** Corre fuera.sh con el docker de mentira delante en el PATH. */
+function fuera(args: string[], o: { entrada?: string; entorno?: string | null; mas?: Record<string, string> } = {}): Promise<Corrida> {
+  const carpeta = mkdtempSync(join(tmpdir(), "fuera-"));
+  writeFileSync(join(carpeta, "docker"), DOCKER);
+  chmodSync(join(carpeta, "docker"), 0o755);
+  const llamadas = join(carpeta, "llamadas");
+  writeFileSync(llamadas, "");
+  const entorno = join(carpeta, "recuperacion.env");
+  if (o.entorno !== null) writeFileSync(entorno, o.entorno ?? "RESPALDO_DESTINO=respaldo:cubo/feruga\nRCLONE_CONFIG_RESPALDO_TYPE=s3\nENSAYO_VIGIA_URL=https://hc-ping.com/abc\n");
+  return new Promise((bien) => {
+    const p = spawn("sh", ["operacion/fuera.sh", ...args], {
+      env: { ...process.env, PATH: `${carpeta}:${process.env.PATH}`, LLAMADAS: llamadas, LLAVE_DE_MENTIRA: LLAVE, FUERA_ENTORNO: entorno, ...o.mas },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let salida = "";
+    let queja = "";
+    p.stdout.on("data", (t) => { salida += t; });
+    p.stderr.on("data", (t) => { queja += t; });
+    p.stdin.on("error", () => {});
+    p.stdin.end(o.entrada ?? "");
+    p.on("close", (codigo) => {
+      const leer = (f: string): string => { try { return readFileSync(f, "utf8"); } catch { return ""; } };
+      bien({ codigo: codigo ?? -1, salida, queja, llamadas: leer(llamadas).split("\n").filter(Boolean), entrada: leer(`${llamadas}.entrada`) });
+      rmSync(carpeta, { recursive: true, force: true });
+    });
+  });
+}
+
+const sinLlave = (r: Corrida): void => {
+  // La llave nunca va en una orden: ni como argumento ni en una variable de entorno.
+  for (const l of r.llamadas) assert.ok(!l.includes("AGE-SECRET-KEY"), `la llave salió en una orden: ${l}`);
+};
+
+test("una llave nueva: el archivo recibe solo la llave, y se dice lo que va al .env; nada toca la red", async () => {
+  const r = await fuera(["llave"]);
+  assert.equal(r.codigo, 0, r.queja);
+  assert.equal(r.salida, LLAVE, "a la salida va la llave tal cual, y nada más");
+  assert.match(r.queja, /RESPALDO_LLAVE_PUBLICA=age1qqq\nRESPALDO_SELLO=abcd/);
+  assert.match(r.queja, /paquete de recuperación/);
+  assert.equal(r.entrada, LLAVE, "el sello se sacó de esa misma llave, por la entrada estándar");
+  for (const l of r.llamadas.filter((x) => x.startsWith("run "))) assert.match(l, /--network none/, `con red: ${l}`);
+  sinLlave(r);
+  assert.equal((await fuera(["llave", "otra-cosa"])).codigo, 2);
+});
+
+test("el sello: la llave por la entrada estándar, sin red; solo admite --hasta", async () => {
+  const r = await fuera(["sello", "--hasta=2026-12-01T06:00:00Z"], { entrada: LLAVE });
+  assert.equal(r.codigo, 0, r.queja);
+  assert.equal(r.salida, "RESPALDO_LLAVE_PUBLICA=age1qqq\nRESPALDO_SELLO=abcd\n");
+  assert.equal(r.entrada, LLAVE);
+  const corrida = r.llamadas.find((l) => l.includes("sello.ts"))!;
+  assert.match(corrida, /--network none .*operacion\/sello\.ts --hasta=2026-12-01T06:00:00Z$/);
+  sinLlave(r);
+  assert.equal((await fuera(["sello", "--cualquiera"], { entrada: LLAVE })).codigo, 2);
+  assert.equal((await fuera(["nada"])).codigo, 2);
+});
+
+test("de qué versión es un respaldo: con la credencial de recuperación, que no trae nada de la base del servidor", async () => {
+  const r = await fuera(["version"], { entrada: LLAVE });
+  assert.equal(r.codigo, 0, r.queja);
+  assert.equal(r.salida, "respaldo-1 pub-1 commit-1\n");
+  assert.match(r.llamadas.find((l) => l.includes("version-del-respaldo"))!, /--env-file \S+recuperacion\.env .*version-del-respaldo\.ts$/);
+  sinLlave(r);
+  const sin = await fuera(["version"], { entrada: LLAVE, entorno: null });
+  assert.equal(sin.codigo, 1);
+  assert.match(sin.queja, /Falta \S+recuperacion\.env: la credencial de recuperación/);
+  const conBase = await fuera(["version"], { entrada: LLAVE, entorno: "RESPALDO_DESTINO=respaldo:cubo/feruga\nDATABASE_URL=postgres://feruga:x@db/feruga\n" });
+  assert.equal(conBase.codigo, 1);
+  assert.match(conBase.queja, /trae datos de la base del servidor/);
+  assert.ok(!conBase.llamadas.some((l) => l.includes("version-del-respaldo")), "corrió con datos de la base del servidor");
+});
+
+test("el ensayo de cada mes: una base desechable de la imagen del servidor, restaurar del almacenamiento, avisar al vigilante, y borrar lo desechable", async () => {
+  const huella = /^FROM (\S+@sha256:[0-9a-f]{64})/m.exec(readFileSync("docker/db.Dockerfile", "utf8"))![1]!;
+  const r = await fuera(["ensayo"], { entrada: LLAVE });
+  assert.equal(r.codigo, 0, r.queja);
+  assert.match(r.salida, /El ensayo pasó: .* en \d+ min/);
+  const base = r.llamadas.find((l) => l.startsWith("run -d "))!;
+  assert.ok(base.endsWith(huella), `la base no es la imagen del servidor por su huella: ${base}`);
+  assert.ok(!/ -p |--publish/.test(base), "la base desechable publicó un puerto");
+  const nombre = /--name (\S+)/.exec(base)![1]!;
+  const red = /--network (\S+)/.exec(base)![1]!;
+  const restaurar = r.llamadas.find((l) => l.includes("restaurar.ts"))!;
+  assert.match(restaurar, new RegExp(`--network ${red} .*-e DATABASE_URL=postgres://feruga:[A-Za-z0-9]{32}@${nombre}:5432/feruga `));
+  assert.match(restaurar, /-e WEB_BD_CLAVE=[A-Za-z0-9]{32} /);
+  assert.match(restaurar, /operacion\/restaurar\.ts --remoto --ensayo$/);
+  assert.equal(r.entrada, LLAVE);
+  sinLlave(r);
+  // Lo desechable se borra al final: la base y su red.
+  const despues = r.llamadas.slice(r.llamadas.indexOf(restaurar));
+  assert.ok(despues.includes(`rm -f ${nombre}`), "no borró la base desechable");
+  assert.ok(despues.includes(`network rm ${red}`), "no borró la red del ensayo");
+  // Del diario, sin --remoto.
+  const diario = await fuera(["ensayo", "--diario"], { entrada: LLAVE });
+  assert.equal(diario.codigo, 0, diario.queja);
+  assert.match(diario.llamadas.find((l) => l.includes("restaurar.ts"))!, /operacion\/restaurar\.ts --ensayo --diario$/);
+});
+
+test("si el ensayo no pasa, se dice, y lo desechable se borra igual; si no se pudo avisar al vigilante, se dice que va a alertar", async () => {
+  const mal = await fuera(["ensayo"], { entrada: LLAVE, mas: { DOCKER_RESTAURAR: "1" } });
+  assert.equal(mal.codigo, 1);
+  assert.match(mal.queja, /El ensayo NO pasó/);
+  const nombre = /--name (\S+)/.exec(mal.llamadas.find((l) => l.startsWith("run -d "))!)![1]!;
+  assert.ok(mal.llamadas.includes(`rm -f ${nombre}`), "con el ensayo fallido, la base desechable se quedó");
+  const sinAviso = await fuera(["ensayo"], { entrada: LLAVE, mas: { DOCKER_RESTAURAR: "3" } });
+  assert.equal(sinAviso.codigo, 3);
+  assert.match(sinAviso.queja, /el vigilante de los ensayos no recibió el aviso: va a alertar/);
+  assert.equal((await fuera(["ensayo", "--sin-sentido"], { entrada: LLAVE })).codigo, 2);
+  const conBase = await fuera(["ensayo"], { entrada: LLAVE, entorno: "RESPALDO_DESTINO=respaldo:x/y\nWEB_BD_CLAVE=abc\n" });
+  assert.equal(conBase.codigo, 1);
+  assert.ok(!conBase.llamadas.some((l) => l.startsWith("run -d ")), "arrancó una base con un entorno que no debía");
+});
