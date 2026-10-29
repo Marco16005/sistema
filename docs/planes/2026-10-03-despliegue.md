@@ -1226,7 +1226,8 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
       - el certificado real: su renovación y el aviso antes de que venza, además de emitirlo (el
         aviso ya está, 22 de octubre: el latido falla si le queda menos de un sexto de su vida, y
         también si queda menos del 10 % del disco; falta verlo con el certificado de verdad);
-      - cambiar `BD_CLAVE` en una base que ya existe, y el disco lleno (espacio para la base
+      - cambiar `BD_CLAVE` en una base que ya existe (29 de octubre: hecho y ensayado,
+        `operacion/cambiar-clave-de-la-base.sh`; falta en el servidor), y el disco lleno (espacio para la base
         apartada, la restaurada, los temporales y las imágenes anteriores);
       - B2 en los dos depósitos: versiones anteriores después de pisar un objeto, retención de
         manifiestos y anotaciones además de lo cifrado, el ciclo de 30 y 365 días, leer versiones con

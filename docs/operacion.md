@@ -387,7 +387,7 @@ Por eso los respaldos son cada hora: lo que se puede perder es, cuando mucho, un
 |---|---|---|
 | `SESION_CLAVE` | Deja fuera a todos los equipos: hay que darlos de alta otra vez, con código nuevo. | `.env`, y `sh operacion/levantar.sh` |
 | `WEB_BD_CLAVE` (el usuario con que la aplicación entra a la base) | Nada que se note. | `.env`, y `sh operacion/levantar.sh`: la clave se le pone al usuario cada vez |
-| `BD_CLAVE` (administración de la base) | — | **Cambiar el archivo no cambia la clave de una base que ya existe.** Primero se cambia en la base, después en el `.env`. *No hay guion para esto ni se ha ensayado: por probar en el servidor.* |
+| `BD_CLAVE` (administración de la base) | La base se reinicia unos segundos: hacerlo fuera de horario. Nada más se nota. | **Cambiar solo el archivo no cambia la clave de una base que ya existe.** `sh operacion/cambiar-clave-de-la-base.sh`: inventa una nueva, la pone en la base, comprueba que con ella se entra y con la de antes ya no, la escribe en el `.env` y levanta lo publicado. No la enseña. Si alguien ya cambió el `.env` a mano, se niega y lo dice: entonces `… --la-del-env` pone en la base la que dice el `.env` |
 | La credencial del almacenamiento (la del servidor) | Si queda mal puesta, los respaldos fallan y llega el aviso. | Se crea la nueva con el proveedor, va al `.env`, y `sh operacion/levantar.sh`. Tomar un respaldo enseguida para ver que sube |
 | La credencial de recuperación | — | Con el proveedor. Va al paquete, no al servidor |
 | La llave de los respaldos | Los respaldos nuevos se cifran y se sellan con la nueva. **Los anteriores se abren con la anterior**, y el servidor los sigue comprobando con el sello de la anterior —solo los de antes del cambio—: sin él, los diarios de antes se avisarían como perdidos. | Se genera otra pareja fuera del servidor (2.2). Fuera del servidor, con la llave **anterior** y el momento del cambio: `sh operacion/fuera.sh sello --hasta=2026-12-01T06:00:00Z < llave-anterior.txt`. Al `.env` van la pública y el sello nuevos **y** ese renglón (`RESPALDO_SELLOS_ANTERIORES`; si ya había uno, se agrega con una coma). `sh operacion/levantar.sh`; se toma un respaldo y se comprueba desde fuera, con la llave nueva (2.4). La llave anterior se conserva en el paquete, y su sello en el `.env`, mientras existan respaldos suyos: 30 días los de cada hora, un año los diarios. **Si la llave se cambia porque alguien más pudo tenerla, su sello no se pone**: con él se podría hacer pasar algo por un respaldo de antes; los diarios de antes se avisarán como perdidos, y se comprueban a mano con la llave anterior |
@@ -480,7 +480,6 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
 - Apagar la aplicación y ver que el latido deja de llegar y su vigilante alerta; impedir un
   respaldo y ver que llega su aviso; mandar los avisos de prueba por Telegram y correo
   (`probar-avisos`) y ver que lleguen.
-- Cambiar la clave de administración de una base que ya existe.
 - Ver en el servidor cuánto ocupa de verdad cada versión publicada, y que la limpieza al publicar
   y el aviso del latido por poco disco funcionan ahí.
 - Lo que agregó la revisión de Codex del 21 de octubre (ver la tarea 7 del plan de despliegue):
@@ -505,6 +504,7 @@ sh operacion/compose.sh run --rm --no-deps respaldo lista [--diario]
 
 # Cambiar
 sh operacion/levantar.sh                                    # después de editar el .env
+sh operacion/cambiar-clave-de-la-base.sh                    # la clave de administración de la base (8)
 sh operacion/publicar.sh                                    # una versión nueva
 sh operacion/publicar.sh --recuperar                        # una publicación que se interrumpió
 sh operacion/volver.sh < llave-privada.txt                  # al respaldo de antes de migrar; queda cerrado
