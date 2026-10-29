@@ -444,9 +444,24 @@ uno falso si además puede escribir en el almacenamiento. Cambiar la llave como 
 respaldos anteriores no se pueden borrar antes de que venza su candado.
 
 **Se llenó el disco.** — *por probar en el servidor.* El latido avisa antes, cuando queda menos
-del 10 % o menos de 5 GB. Ningún guion borra todavía imágenes de publicaciones anteriores. Los respaldos no se acumulan
-en el servidor: se suben, y lo que quedó en la máquina se borra. Queda por definir qué se limpia y
-cuándo.
+del 10 % o menos de 5 GB. Lo que más crece son las imágenes de cada versión publicada, y esas ya se
+limpian solas: **al terminar bien una publicación** se retiran las de versiones que nadie va a
+necesitar. Se conservan la que corre y la anterior, las dos últimas publicadas, y cualquier
+publicación que haya quedado a medias con su anterior; nunca se quita la última etiqueta de una
+imagen que algún contenedor usa, aunque esté detenido. Los manifiestos, los volúmenes (la base, los
+certificados) y los respaldos no se tocan. Si esa limpieza falla, la publicación sigue bien y lo
+dice; se repite a mano, y también se puede correr antes de publicar si falta espacio:
+
+```bash
+sh operacion/limpiar.sh        # retira lo que ya no se necesita y dice cuánto espacio queda
+```
+
+Correrla otra vez no borra nada más. Si aun así falta espacio, `docker system df` dice qué lo ocupa.
+La caché de construcción la recorta Docker solo; si hiciera falta recortarla a mano, **en el
+servidor** (en una máquina con otros proyectos también es de ellos): `docker builder prune
+--filter 'until=168h'`. Los respaldos no se acumulan en el servidor: se suben, y lo que quedó en la
+máquina se borra. Si lo que crece es la base o sus registros, limpiar imágenes no lo resuelve: se
+revisa con soporte, y se amplía el disco.
 
 ## 10. Lo que falta, dicho
 
@@ -466,7 +481,8 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
   respaldo y ver que llega su aviso; mandar los avisos de prueba por Telegram y correo
   (`probar-avisos`) y ver que lleguen.
 - Cambiar la clave de administración de una base que ya existe.
-- Qué hacer cuando se llena el disco.
+- Ver en el servidor cuánto ocupa de verdad cada versión publicada, y que la limpieza al publicar
+  y el aviso del latido por poco disco funcionan ahí.
 - Lo que agregó la revisión de Codex del 21 de octubre (ver la tarea 7 del plan de despliegue):
   alertas por separado, renovación del certificado, B2 en los dos depósitos, apagón real a media
   publicación, el primer respaldo restaurado desde fuera, y los pasos exactos de la máquina de
@@ -493,6 +509,7 @@ sh operacion/publicar.sh                                    # una versión nueva
 sh operacion/publicar.sh --recuperar                        # una publicación que se interrumpió
 sh operacion/volver.sh < llave-privada.txt                  # al respaldo de antes de migrar; queda cerrado
 sh operacion/volver.sh --abrir
+sh operacion/limpiar.sh                                     # retirar imágenes de versiones viejas; dice el espacio libre
 
 # Recuperar
 sh operacion/fuera.sh ensayo < llave-privada.txt                         # el ensayo de cada mes, fuera del servidor

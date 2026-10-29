@@ -531,6 +531,7 @@ sh operacion/publicar.sh                     # publica el commit de esta carpeta
 sh operacion/levantar.sh                     # levanta lo publicado, o lo pone al día después de cambiar el .env
 sh operacion/compose.sh ps                   # «docker compose», sobre lo publicado: registros, consola, respaldar a mano
 sh operacion/publicar.sh --recuperar         # retoma una publicación que se interrumpió
+sh operacion/limpiar.sh                      # retira imágenes de versiones viejas (publicar ya lo hace al terminar bien)
 sh operacion/volver.sh < llave-privada.txt   # de una migración que falló: vuelve al respaldo que se tomó antes
 sh operacion/publicar.sh --desde-respaldo < llave-privada.txt   # en otra máquina, sin nada: instala desde un respaldo
 ```
