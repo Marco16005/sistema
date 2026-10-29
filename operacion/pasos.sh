@@ -123,7 +123,8 @@ asegurar_publicaciones() {
 preparar_herramientas() {
   pasos_commit=$(commit_actual)
   [ -n "$pasos_commit" ] || falla "Esta carpeta no es un repositorio de Git con commits: lo que corre en operación tiene que poder nombrarse por su commit."
-  HERRAMIENTAS="feruga-herramientas:$(printf '%s' "$pasos_commit" | cut -c1-12)"
+  pasos_proyecto=$(nombre_del_proyecto) || falla "No se pudo identificar el proyecto de las herramientas."
+  HERRAMIENTAS="$pasos_proyecto-herramientas:$(printf '%s' "$pasos_commit" | cut -c1-12)"
   if ! docker image inspect "$HERRAMIENTAS" >/dev/null 2>&1; then
     echo "Construyendo las herramientas de la operación…" >&2
     construir_del_commit "$pasos_commit" "$HERRAMIENTAS" respaldo.Dockerfile || falla "No se pudieron construir las herramientas de la operación."

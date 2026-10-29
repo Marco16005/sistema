@@ -72,6 +72,7 @@ if [ "${nombre}" = docker ]; then
   if (: >&9) 2>/dev/null; then manos="con el candado en las manos"; else manos="sin el candado en las manos"; fi
   printf '%s: %s\\n' "$manos" "$*" >> "$INSTALACION/docker.manos"
 fi
+if [ "${nombre}" = docker ] && [ "$*" = "compose config" ]; then echo "name: prueba"; exit 0; fi
 . "$INSTALACION/${nombre}.caso"
 `;
 
@@ -579,3 +580,166 @@ test("todo guion que cambia algo toma el candado antes de leer el manifiesto, y 
     assert.doesNotMatch(texto, /mktemp -d/, `${guion}: usa una carpeta temporal de la máquina para lo que lleva claves`);
   }
 });
+
+// ── limpieza con el candado y sin invadir recursos ajenos ─────────────────
+const P1 = "20261001T000000Z-aaaaaaaaaaaa-000001";
+const P2 = "20261002T000000Z-bbbbbbbbbbbb-000002";
+const P3 = "20261003T000000Z-cccccccccccc-000003";
+const IMAGEN = `sha256:${"d".repeat(64)}`;
+const LIMPIEZA = (mas = "") => `case "$*" in
+  ${mas}
+  *"operacion/limpieza.ts "*) printf 'publicacion ${P2}\npublicacion ${P3}\nimagen ${IMAGEN}\nherramienta prueba-herramientas:cccccccccccc\n' ;;
+  "image ls --format {{.Repository}}:{{.Tag}} --filter"*) echo prueba-herramientas:cccccccccccc ;;
+  "image ls --format {{.Repository}}:{{.Tag}}")
+    if [ ! -f "$INSTALACION/borrada" ]; then echo prueba-web:${P1}; fi
+    printf 'prueba-web:${P2}\nprueba-web:${P3}\najeno-web:${P1}\nferuga-herramientas:aaaaaaaaaaaa\nprueba-web:manual\n' ;;
+  "image inspect -f {{.Id}} "*) echo ${IMAGEN} ;;
+  "image inspect -f {{len .RepoTags}} "*) echo 2 ;;
+  "image rm prueba-web:${P1}") touch "$INSTALACION/borrada" ;;
+esac`;
+
+test("limpiar conserva vigente y anterior, retira solo el alias propio antiguo, toma el candado, no toca la caché y se puede repetir", () =>
+  conInstalacion(async (i) => {
+    await i.git('echo cccccccccccc');
+    await i.docker(LIMPIEZA('"ps -aq "*) echo contenedor-detenido ;;'));
+    const primera = await i.guion("limpiar.sh");
+    assert.equal(primera.codigo, 0, primera.queja);
+    assert.match(primera.salida, /Etiquetas retiradas: 1/);
+    const llamadas = await i.llamadas();
+    assert.ok(llamadas.every((l) => l.startsWith("con candado ")));
+    assert.deepEqual(llamadas.filter((l) => l.includes(" image rm ")), [`con candado image rm prueba-web:${P1}`]);
+    assert.ok(!llamadas.some((l) => /buildx|prune|DockerRootDir/.test(l)), "tocó el constructor o consultó el directorio de Docker");
+    const disco = llamadas.find((l) => l.includes("--entrypoint df "))!;
+    assert.ok(disco.endsWith(" -h /"));
+    assert.ok(disco.includes("--pull never --network none"));
+    assert.doesNotMatch(disco, /--mount| -v |--volume/, "montó un directorio para medir el disco");
+    const segunda = await i.guion("limpiar.sh");
+    assert.equal(segunda.codigo, 0, segunda.queja);
+    assert.match(segunda.salida, /No se borró ninguna imagen ni etiqueta/);
+    assert.equal((await i.llamadas()).filter((l) => l.includes(" image rm ")).length, 1);
+    assert.equal(await readFile(join(i.carpeta, ".operacion.candado"), "utf8"), "");
+  }));
+
+test("limpiar nunca elimina la última etiqueta de una huella reservada o usada por un contenedor detenido", () =>
+  conInstalacion(async (i) => {
+    await i.git('echo cccccccccccc');
+    // Se prueba cada protección por separado: no basta con que una oculte que falta la otra.
+    for (const caso of [
+      '"image inspect -f {{len .RepoTags}} "*) echo 1 ;;',
+      '"image inspect -f {{len .RepoTags}} "*) echo 1 ;; "ps -aq "*) echo detenido ;; "image inspect -f {{.Id}} "*) echo sha256:otra ;;',
+    ]) {
+      await i.docker(LIMPIEZA(caso));
+      const fin = await i.guion("limpiar.sh");
+      assert.equal(fin.codigo, 0, fin.queja);
+      assert.match(fin.salida, /su imagen sigue en uso o reservada/);
+      assert.ok(!(await i.llamadas()).some((l) => l.includes(" image rm ")));
+    }
+  }));
+
+test("limpiar se detiene si no puede leer la historia, listar imágenes o consultar contenedores; nunca toma una falta de datos por permiso para borrar", () =>
+  conInstalacion(async (i) => {
+    await i.git('echo cccccccccccc');
+    for (const falla of ['*"operacion/limpieza.ts "*) exit 1 ;;', '"image ls --format {{.Repository}}:{{.Tag}}") exit 1 ;;', '"ps -aq "*) exit 1 ;;']) {
+      await i.docker(LIMPIEZA(falla));
+      assert.equal((await i.guion("limpiar.sh")).codigo, 1);
+      assert.ok(!(await i.llamadas()).some((l) => l.includes(" image rm ") || l.includes(" prune ")));
+    }
+  }));
+
+test("limpiar retira herramientas de otro commit y comunica los fallos al retirar etiquetas o medir el disco", () =>
+  conInstalacion(async (i) => {
+    await i.git('echo cccccccccccc');
+    const vieja = "prueba-herramientas:aaaaaaaaaaaa";
+    await i.docker(LIMPIEZA(`"image ls --format {{.Repository}}:{{.Tag}}") echo ${vieja} ;;`));
+    assert.equal((await i.guion("limpiar.sh")).codigo, 0);
+    assert.deepEqual((await i.llamadas()).filter((l) => l.includes(" image rm ")), [`con candado image rm ${vieja}`]);
+    await i.docker(LIMPIEZA('"image rm "*) exit 1 ;;'));
+    assert.equal((await i.guion("limpiar.sh")).codigo, 1);
+    await i.docker(LIMPIEZA('*"--entrypoint df "*) exit 1 ;;'));
+    assert.equal((await i.guion("limpiar.sh")).codigo, 1);
+    assert.equal(await readFile(join(i.carpeta, ".operacion.candado"), "utf8"), "");
+  }));
+
+test("publicar limpia solo después de comprobar y cerrar; un fallo de limpieza solo avisa y conserva el éxito", () =>
+  conInstalacion(async (i) => {
+    const texto = await readFile(join(OPERACION, "publicar.sh"), "utf8");
+    const terminar = texto.slice(texto.indexOf("terminar() {"), texto.indexOf("# ── publicar"));
+    for (const fallo of ["ninguno", "respaldo", "https", "manifiesto", "limpieza"]) {
+      const fin = await i.sh(`
+        ${terminar}
+        paso() { :; }; punto() { :; }; marca_de_la_base() { echo marca; }
+        arrancar() { [ "$FALLO" != respaldo ]; }
+        corre() { :; }; corre_al_menos() { :; }
+        por_https() { [ "$FALLO" != https ]; }
+        manifiesto() { echo cerrar; [ "$FALLO" != manifiesto ]; }
+        sin_cerrar() { exit 1; }
+        limpiar_publicaciones() { echo limpieza; [ "$FALLO" != limpieza ]; }
+        pub=pub
+        terminar candidato conf pub publicada
+        echo terminada`, { FALLO: fallo });
+      if (["respaldo", "https", "manifiesto"].includes(fallo)) {
+        assert.equal(fin.codigo, 1, fallo);
+        assert.ok(!fin.salida.includes("limpieza"), fallo);
+      } else {
+        assert.equal(fin.codigo, 0, fin.queja);
+        assert.match(fin.salida, /cerrar\nlimpieza\nterminada/);
+        if (fallo === "limpieza") assert.match(fin.queja, /La publicación sigue bien/);
+      }
+    }
+  }));
+
+// El plan se prueba con manifiestos reales, incluida una vuelta al respaldo.
+import { crear, marcar, fijarBase, cerrar, todas, vigente, anotarRespaldo } from "../operacion/publicacion.ts";
+import { plan, conservar } from "../operacion/limpieza.ts";
+
+async function historiaParaLimpiar(carpeta: string): Promise<void> {
+  let anterior: string | null = null;
+  for (const [n, pub] of [P1, P2, P3].entries()) {
+    await crear(carpeta, {
+      publicacion: pub, commit: pub.split("-")[1]!.repeat(2),
+      base: { marca: anterior ? MARCA : null, publicacion: anterior },
+      candidato: { imagenes: { web: `sha256:${String(n + 1).repeat(64)}` }, configuracion: `${pub}/conjunto.json`, esquema: "ensayo" },
+      configuracion: JSON.stringify({ name: "prueba" }),
+    });
+    if (anterior) await anotarRespaldo(carpeta, pub, "2026/10/06/20261006T211100Z-0a0a0a0a-0b0b-4c0c-8d0d-0e0e0e0e0e0e.dump.age");
+    await marcar(carpeta, pub, "empezoLaMigracion");
+    await fijarBase(carpeta, pub, MARCA);
+    await marcar(carpeta, pub, "seDecidioAbrir");
+    await marcar(carpeta, pub, "abierta");
+    await cerrar(carpeta, pub, "publicada");
+    anterior = pub;
+  }
+}
+
+test("el plan real conserva dos publicadas, una pendiente y su anterior; tras restaurar sigue conservando lo que levantar y abrir necesitan", () =>
+  conInstalacion(async (i) => {
+    const carpeta = join(i.carpeta, "publicaciones");
+    await historiaParaLimpiar(carpeta);
+    const antes = await plan(carpeta, "prueba", "cccccccccccc");
+    assert.ok(!antes.includes(P1));
+    assert.match(antes, new RegExp(`publicacion ${P2}\\n`));
+    assert.ok(antes.includes(`publicacion ${P3}`));
+    const p4 = "20261004T000000Z-dddddddddddd-000004";
+    await crear(carpeta, {
+      publicacion: p4, commit: "dddddddddddd", base: { marca: MARCA, publicacion: P3 },
+      candidato: { imagenes: { web: IMAGEN }, configuracion: `${p4}/conjunto.json`, esquema: "ensayo" },
+      configuracion: JSON.stringify({ name: "prueba" }),
+    });
+    await anotarRespaldo(carpeta, p4, "2026/10/06/20261006T211100Z-0a0a0a0a-0b0b-4c0c-8d0d-0e0e0e0e0e0e.dump.age");
+    await marcar(carpeta, p4, "empezoLaMigracion");
+    const pendiente = await plan(carpeta, "prueba", "eeeeeeeeeeee");
+    for (const pub of [P2, P3, p4]) assert.ok(pendiente.includes(`publicacion ${pub}`));
+    assert.ok(pendiente.includes(`imagen ${IMAGEN}`));
+    assert.ok(pendiente.includes("herramienta prueba-herramientas:eeeeeeeeeeee"));
+    await cerrar(carpeta, p4, "restaurada", { marca: "22222222-2222-4222-8222-222222222222" });
+    const restaurada = await plan(carpeta, "prueba", "dddddddddddd");
+    assert.ok(!restaurada.includes(`publicacion ${p4}`));
+    assert.deepEqual([...conservar(await todas(carpeta), (await vigente(carpeta))!.publicacion)].sort(), [P2, P3].sort());
+    // El manifiesto de la restauración sigue: volver --abrir lo consulta aunque no necesita su imagen candidata.
+    assert.ok((await readFile(join(carpeta, p4, "manifiesto.json"), "utf8")).includes('"restaurada"'));
+    await writeFile(join(carpeta, P1, "conjunto.json"), '{"name":"otra-instalacion"}');
+    await assert.rejects(plan(carpeta, "prueba", "dddddddddddd"), /proyecto cambió/);
+    await writeFile(join(carpeta, P1, "conjunto.json"), '{"name":"prueba"}');
+    await writeFile(join(carpeta, P2, "manifiesto.json"), "roto");
+    await assert.rejects(plan(carpeta, "prueba", "dddddddddddd"), /no se entiende/);
+  }));

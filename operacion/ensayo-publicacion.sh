@@ -305,6 +305,9 @@ atiende_con "$v2" "una recuperación que murió dos veces"
 
 # ── morir ya decidido abrir: recuperar termina hacia adelante ──────────────
 
+# La tercera publicación completada será la primera vuelta de este ciclo.
+volumenes_antes=$(docker volume ls -q --filter "label=com.docker.compose.project=$PROYECTO" | sort)
+[ -n "$volumenes_antes" ] || falla "no hay volúmenes con los que comprobar la conservación"
 for donde in decidir:manifiesto decidir:base abrir:despues abierta:manifiesto respaldo:despues cerrar-manifiesto:antes; do
   paso "Muere en «${donde}», ya decidido abrir: recuperar termina hacia adelante, y nunca ofrece el respaldo"
   version_nueva
@@ -326,6 +329,45 @@ for donde in decidir:manifiesto decidir:base abrir:despues abierta:manifiesto re
   [ "$(asentado)" = "$habia" ] || falla "muerta en «${donde}»: terminar hacia adelante cambió lo asentado"
   [ "$(enlabase "SELECT string_agg(detalle->>'paso', ',' ORDER BY id) FROM bitacora WHERE accion = 'mantenimiento' AND entidad_id = '$pub'")" = "cerrar,decidir,abrir" ] \
     || falla "muerta en «${donde}»: la bitácora no dice cerrar, decidir y abrir una vez cada una"
+  if [ "$donde" = decidir:manifiesto ]; then
+    paso "Tres publicaciones: se retiran las etiquetas de la primera y se conservan la vigente, la anterior, los volúmenes y la historia"
+    if dijo "AVISO: no se completó la limpieza"; then dicho; falla "la limpieza automática de la tercera publicación falló"; fi
+    for imagen in web admin respaldo proxy db; do
+      if docker image inspect "$PROYECTO-$imagen:$v1" >/dev/null 2>&1; then
+        falla "quedó la etiqueta $imagen de la primera publicación"
+      fi
+      for reservada in "$v2" "$pub"; do
+        docker image inspect "$PROYECTO-$imagen:$reservada" >/dev/null 2>&1 || falla "se perdió $imagen de $reservada"
+      done
+    done
+    # La base y el proxy comparten huella entre versiones; sus alias viejos se van, su imagen sigue.
+    # La aplicación de la primera sí es distinta: la segunda agregó una migración.
+    web_primera=$(manifiesto dato "$v1" candidato.imagenes.web)
+    if docker image inspect "$web_primera" >/dev/null 2>&1; then falla "la imagen web exclusiva de la primera publicación sigue en Docker"; fi
+    commit_primero=$(manifiesto dato "$v1" commit | cut -c1-12)
+    if docker image inspect "$PROYECTO-herramientas:$commit_primero" >/dev/null 2>&1; then falla "quedaron las herramientas del primer commit"; fi
+    for reservada in "$v2" "$pub"; do
+      commit_reservado=$(manifiesto dato "$reservada" commit | cut -c1-12)
+      docker image inspect "$PROYECTO-herramientas:$commit_reservado" >/dev/null 2>&1 || falla "se perdieron herramientas reservadas"
+    done
+    for historica in "$v1" "$v2" "$pub"; do
+      if [ ! -s "publicaciones/$historica/manifiesto.json" ] || [ ! -s "publicaciones/$historica/conjunto.json" ]; then
+        falla "se perdió la historia de $historica"
+      fi
+    done
+    [ "$volumenes_antes" = "$(docker volume ls -q --filter "label=com.docker.compose.project=$PROYECTO" | sort)" ] || falla "la limpieza automática cambió los volúmenes"
+    historia_antes=$(find publicaciones -type f -exec cksum {} \; | sort)
+    imagenes_antes=$(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' --filter "reference=$PROYECTO-*" | sort)
+    sh operacion/limpiar.sh >"$trabajo/limpieza.salida" 2>&1 || { cat "$trabajo/limpieza.salida" >&2; falla "no se pudo repetir la limpieza"; }
+    cat "$trabajo/limpieza.salida"
+    grep -q "No se borró ninguna imagen ni etiqueta" "$trabajo/limpieza.salida" || falla "repetir la limpieza todavía borró algo"
+    [ "$imagenes_antes" = "$(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' --filter "reference=$PROYECTO-*" | sort)" ] || falla "repetir la limpieza cambió las imágenes"
+    [ "$historia_antes" = "$(find publicaciones -type f -exec cksum {} \; | sort)" ] || falla "la limpieza cambió los manifiestos o las configuraciones"
+    [ "$volumenes_antes" = "$(docker volume ls -q --filter "label=com.docker.compose.project=$PROYECTO" | sort)" ] || falla "repetir la limpieza cambió los volúmenes"
+    candado_libre || falla "la limpieza dejó tomado el candado"
+    atiende_con "$pub" "después de repetir la limpieza"
+    echo "Conservación tras tres publicaciones e idempotencia: comprobadas."
+  fi
   vigente=$pub
 done
 
@@ -446,6 +488,9 @@ volver() { env "$@" sh operacion/volver.sh >"$trabajo/salida" 2>&1; }
 # Las bases que hay en el servidor, como las ve la vuelta: «nombre marca» por renglón.
 bases() { por_fuera run --rm --no-deps -T --entrypoint node comprobacion operacion/volver.ts bases; }
 fallida="feruga_fallida_$(manifiesto dato "$pub" numero)"
+# Con una publicación pendiente también se puede limpiar: su candidato y su anterior quedan reservados.
+sh operacion/limpiar.sh >"$trabajo/limpieza.salida" 2>&1 || { cat "$trabajo/limpieza.salida" >&2; falla "no se pudo limpiar antes de volver al respaldo"; }
+echo "Limpieza con publicación pendiente: comprobada; se ensaya volver después de limpiar."
 # Sin la llave no se toca nada.
 if volver </dev/null; then dicho; falla "volvió al respaldo sin la llave"; fi
 dijo "No llegó la llave privada" || { dicho; falla "sin la llave, no dijo qué faltaba"; }
@@ -494,6 +539,7 @@ dijo "EL NEGOCIO SIGUE CERRADO" || { dicho; falla "volver al respaldo no dijo qu
 [ "$(manifiesto vigente)" = "$vigente" ] || falla "después de volver, lo vigente no es la versión anterior"
 bases > "$trabajo/bases"
 nueva=$(sed -n 's/^feruga //p' "$trabajo/bases")
+# shellcheck disable=SC2015  # se falla si la marca está vacía o si sigue siendo la anterior
 [ -n "$nueva" ] && [ "$nueva" != "$marca" ] || { cat "$trabajo/bases" >&2; falla "la base restaurada no tiene una marca nueva"; }
 [ "$(manifiesto vigente marca)" = "$nueva" ] || falla "lo vigente no habla de la base restaurada"
 grep -q "^$fallida $marca\$" "$trabajo/bases" || falla "la base que falló ya no está apartada"

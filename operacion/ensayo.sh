@@ -54,7 +54,7 @@ sh operacion/publicar.sh >"$trabajo/publicar.salida" 2>&1 || { cat "$trabajo/pub
 pub=$(sed -n 's/^Publicada: //p' "$trabajo/publicar.salida")
 [ -n "$pub" ] || { cat "$trabajo/publicar.salida" >&2; falla "publicar no dijo qué publicó"; }
 # Las imágenes salen del commit, no de la carpeta: ese archivo no está en ninguna de las que copian esa parte.
-for imagen in "$PROYECTO-admin:$pub" "$PROYECTO-respaldo:$pub" "feruga-herramientas:$(git rev-parse HEAD | cut -c1-12)"; do
+for imagen in "$PROYECTO-admin:$pub" "$PROYECTO-respaldo:$pub" "$PROYECTO-herramientas:$(git rev-parse HEAD | cut -c1-12)"; do
   docker run --rm --network none --entrypoint sh "$imagen" -c 'test -e src/servidor/esquema.ts' \
     || falla "no se pudo mirar dentro de la imagen $imagen"
   docker run --rm --network none --entrypoint sh "$imagen" -c 'test ! -e src/servidor/solo-de-esta-maquina.ts' \

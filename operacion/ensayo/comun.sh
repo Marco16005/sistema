@@ -10,15 +10,13 @@
 # Quien lo incluye define antes PROYECTO (el nombre del proyecto de Compose) y los puertos.
 
 DOMINIO=patio.test
-HERRAMIENTAS_DEL_ENSAYO=feruga-ensayo-herramientas
+HERRAMIENTAS_DEL_ENSAYO="$PROYECTO-herramientas-arnes:ensayo"
 OPERACION=docker-compose.yml:docker-compose.operacion.yml
 trabajo=$(mktemp -d)
 # La instalación del ensayo: la copia, con su repositorio.
 copia="$trabajo/instalacion"
 # Un proceso de mentira que, en algún paso, tiene el candado de la instalación mientras se le prueba.
 otra=""
-# Las imágenes de herramientas que ya había antes del ensayo: al terminar se quitan las demás, que son suyas.
-herramientas_de_antes=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | command grep '^feruga-herramientas:' || true)
 
 paso() { printf '\n== %s\n' "$1"; }
 falla() { printf '\nFALLÓ: %s\n' "$1" >&2; exit 1; }
@@ -71,13 +69,6 @@ limpiar() {
     for imagen in $(docker image ls --format '{{.Repository}}:{{.Tag}}' --filter "reference=$PROYECTO-*"); do
       docker image rm "$imagen" >/dev/null 2>&1 || true
     done
-    # Las herramientas, una imagen por commit: también las de los commits que el ensayo hizo y deshizo.
-    for imagen in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | command grep '^feruga-herramientas:' || true); do
-      case " $(printf '%s' "$herramientas_de_antes" | tr '\n' ' ') " in
-        *" $imagen "*) ;;
-        *) docker image rm "$imagen" >/dev/null 2>&1 || true ;;
-      esac
-    done
     rm -rf "$trabajo"
   fi
   exit "$codigo"
@@ -123,6 +114,7 @@ preparar_la_instalacion() {
   docker run --rm -i --log-driver none --entrypoint node "$HERRAMIENTAS_DEL_ENSAYO" operacion/sello.ts < "$trabajo/llave.txt" > "$trabajo/del-sello" \
     || falla "no se pudieron sacar la llave pública y el sello de la llave del ensayo"
   publica=$(sed -n 's/^RESPALDO_LLAVE_PUBLICA=//p' "$trabajo/del-sello")
+  # shellcheck disable=SC2015  # si falta cualquiera de los datos, se falla
   [ -n "$publica" ] && [ "$publica" = "$(grep -o 'age1[0-9a-z]*' "$trabajo/llave.txt" | head -1)" ] \
     || falla "la llave pública que saca sello.ts no es la que dijo age-keygen"
   poner RESPALDO_LLAVE_PUBLICA "$publica"

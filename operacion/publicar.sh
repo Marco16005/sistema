@@ -72,6 +72,7 @@ esac
 
 . operacion/candado.sh
 . operacion/pasos.sh
+. operacion/limpieza.sh
 
 # La limpieza queda puesta desde antes: lo que se resuelve lleva claves, y no debe quedarse. Si a
 # este guion se le mata sin dejarlo limpiar, lo que quede lo quita la operación que siga, al entrar.
@@ -260,6 +261,10 @@ terminar() {
     printf '\nEL SERVICIO DE RESPALDO NO ARRANCÓ. El negocio ya abrió y así se queda, pero no se está respaldando a su hora.\n' >&2
     printf 'Mira por qué (sh operacion/compose.sh logs respaldo) y vuelve a levantarlo: sh operacion/levantar.sh\n' >&2
     exit 1
+  fi
+  # Ya abrió, se comprobó y se cerró su manifiesto. Conserva el mismo candado, sin reentrar.
+  if ! limpiar_publicaciones; then
+    echo "AVISO: no se completó la limpieza. La publicación sigue bien; repetir: sh operacion/limpiar.sh" >&2
   fi
 }
 
@@ -510,6 +515,7 @@ instalar() {
     resto=${de#* }
     de_pub=${resto%% *}
     de_commit=${resto##* }
+    # shellcheck disable=SC2015  # si falta cualquiera de los datos, se falla
     [ -n "$respaldo" ] && [ -n "$de_pub" ] && [ -n "$de_commit" ] && [ "$de_pub" != "$de_commit" ] || falla "No se entendió qué versión tomó el respaldo. No se tocó nada."
     echo "El respaldo: $respaldo. Lo tomó la publicación $de_pub, del commit $de_commit."
     # La versión se vuelve a armar de su commit, que es lo que se confía: lo que haya en el
