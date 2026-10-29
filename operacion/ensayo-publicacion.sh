@@ -519,9 +519,11 @@ fi
 # Quedó corriendo algo de aquel intento —una restauración que no había terminado, digamos; aquí, su
 # contenedor—: el que retoma no arranca otra encima. Lo espera, y sigue. Y lo mismo con un migrador.
 conf_pendiente="publicaciones/$pub/conjunto.json"
-# (Dura bastante más que el migrador de mentira: a ese se le espera primero, y esta tiene que seguir ahí cuando le toque.)
-docker compose -f "$conf_pendiente" run -d --no-deps --entrypoint sleep comprobacion 25 >/dev/null 2>&1 || falla "no se pudo dejar corriendo el contenedor de una restauración de mentira"
-docker compose -f "$conf_pendiente" run -d --no-deps --entrypoint sleep migracion 6 >/dev/null 2>&1 || falla "no se pudo dejar corriendo un migrador de mentira"
+# (Dura bastante más que el migrador de mentira: a ese se le espera primero, y esta tiene que seguir ahí cuando le toque.
+# El migrador dura lo bastante para que volver lo encuentre vivo aunque la máquina esté cargada: con 6
+# segundos, una vez llegó tarde y lo encontró ya terminado.)
+docker compose -f "$conf_pendiente" run -d --no-deps --entrypoint sleep comprobacion 60 >/dev/null 2>&1 || falla "no se pudo dejar corriendo el contenedor de una restauración de mentira"
+docker compose -f "$conf_pendiente" run -d --no-deps --entrypoint sleep migracion 20 >/dev/null 2>&1 || falla "no se pudo dejar corriendo un migrador de mentira"
 # Y uno más, creado y sin arrancar: el de un cliente que murió entre crearlo y arrancarlo. Ese no se
 # espera —no corre—: se quita, para que ya no pueda arrancar (lo encontró Codex al verificar su décima revisión).
 sin_arrancar=$(docker create --label "com.docker.compose.project=$PROYECTO" --label com.docker.compose.service=migracion --label com.docker.compose.oneoff=True \
