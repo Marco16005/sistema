@@ -382,4 +382,47 @@ por_fuera up -d --force-recreate --no-deps proxy >/dev/null 2>&1
 esperar_que_atienda "el proxy no volvió"
 [ "$anterior" = "$(huella)" ] || falla "al recrear el proxy se emitió otro certificado: el volumen no lo conservó"
 
+paso "Cambiar la clave de administración de la base con la operación abierta: la base y el .env quedan con la nueva, todo sigue, y la publicación siguiente no se niega"
+# Si con una clave entra el dueño de la base, por la red de la instalación, como entran los servicios.
+entra() {
+  PGPASSWORD="$1" docker run --rm --log-driver none --network "${PROYECTO}_default" -e PGPASSWORD --entrypoint psql "$HERRAMIENTAS_DEL_ENSAYO" \
+    -X -q -t -A -h db -U feruga -d postgres -c 'SELECT 1' </dev/null 2>/dev/null || true
+}
+vieja=$(sed -n 's/^BD_CLAVE=//p' "$trabajo/.env")
+[ "$(entra "$vieja")" = 1 ] || falla "antes de cambiarla, con la clave del .env no se entraba a la base"
+# Si alguien cambió primero el .env, no sigue: dice cómo arreglarlo, y la base se queda como estaba.
+cp "$trabajo/.env" "$trabajo/bueno.env"
+poner BD_CLAVE OtraClaveDelEnsayoQueNoEsLaDeLaBase
+if sh operacion/cambiar-clave-de-la-base.sh >"$trabajo/salida" 2>&1; then cat "$trabajo/salida" >&2; falla "cambió la clave con un .env que no tenía la de la base"; fi
+grep -q -- "--la-del-env" "$trabajo/salida" || { cat "$trabajo/salida" >&2; falla "no dijo cómo poner en la base la clave del .env"; }
+[ "$(entra "$vieja")" = 1 ] || falla "al negarse, cambió la clave de la base"
+cp "$trabajo/bueno.env" "$trabajo/.env"
+candado_libre || falla "al negarse, no soltó el candado"
+# Ahora sí, con la operación abierta.
+web_antes=$(operacion ps -q web)
+sh operacion/cambiar-clave-de-la-base.sh >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; diagnostico; falla "no cambió la clave de la base"; }
+nueva=$(sed -n 's/^BD_CLAVE=//p' "$trabajo/.env")
+if [ "${#nueva}" -ne 32 ] || [ "$nueva" = "$vieja" ]; then falla "el .env no quedó con una clave nueva de 32 letras y números"; fi
+if grep -F -q -- "$nueva" "$trabajo/salida"; then falla "el guion enseñó la clave nueva"; fi
+grep -v '^BD_CLAVE=' "$trabajo/.env" > "$trabajo/sin-clave.nuevo"
+grep -v '^BD_CLAVE=' "$trabajo/bueno.env" > "$trabajo/sin-clave.antes"
+cmp -s "$trabajo/sin-clave.nuevo" "$trabajo/sin-clave.antes" || falla "al cambiar la clave se tocó otro renglón del .env"
+[ "$(entra "$nueva")" = 1 ] || falla "con la clave nueva no se entra a la base"
+[ "$(entra "$vieja")" != 1 ] || falla "con la clave de antes todavía se entra a la base"
+[ "$web_antes" = "$(operacion ps -q web)" ] || falla "cambiar la clave de la base reemplazó la aplicación, que no la usa"
+candado_libre || falla "cambiar la clave no soltó el candado"
+dice --abierta "--version=$pub" "--base=$marca" || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave, el sitio no contesta como debe"; }
+# Lo que entra como el dueño de la base ya lo hace con la nueva: un respaldo a mano, la consola.
+operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS respaldo ahora >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave no se pudo respaldar"; }
+operacion run --rm --no-deps -T consola persona lista >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave la consola no entra"; }
+# Una versión nueva se publica: la base no cuenta como «otro servidor de la base» por la clave.
+echo "Después de cambiar la clave de la base." > operacion/ensayo/despues-de-la-clave.txt
+confirmar "Una versión después de cambiar la clave de la base"
+sh operacion/publicar.sh >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; diagnostico; falla "después de cambiar la clave de la base, publicar una versión nueva falló"; }
+pub_nueva=$(sed -n 's/^Publicada: //p' "$trabajo/salida")
+if [ -z "$pub_nueva" ] || [ "$pub_nueva" = "$pub" ]; then cat "$trabajo/salida" >&2; falla "después de cambiar la clave, publicar no dijo qué versión nueva publicó"; fi
+dice --abierta "--version=$pub_nueva" || falla "la versión publicada después de cambiar la clave no atiende"
+[ "$(entra "$nueva")" = 1 ] || falla "después de publicar, la clave nueva ya no entra"
+rm -f "$trabajo/bueno.env" "$trabajo/sin-clave.nuevo" "$trabajo/sin-clave.antes"
+
 printf '\nEl ensayo pasó.\n'
