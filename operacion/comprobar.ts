@@ -139,6 +139,10 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
         host: o.maquina ?? o.dominio, port: o.puerto ?? 443, servername: o.dominio, path: "/api/salud", method: "GET",
         headers: { Host: o.dominio, ...(o.clave ? encabezadoDelComprobador(o.clave) : {}) }, timeout: plazo, rejectUnauthorized: true,
         ...(o.ca ? { ca: o.ca } : {}),
+        // Sin el agente compartido: cada vez se negocia la conexión entera. En una sesión TLS reanudada
+        // el certificado no llega, y el latido avisaría en falso que no se pudo leer su vigencia (lo
+        // encontró el ensayo de la operación el 3 de noviembre).
+        agent: false,
       },
       (respuesta) => {
         const certificado = vigenciaDe(respuesta.socket as TLSSocket);

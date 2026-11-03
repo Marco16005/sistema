@@ -281,6 +281,8 @@ test("el latido lee el certificado que de verdad presenta el sitio, y avisa si e
     const cert = readFileSync(join(carpeta, "cert.pem"), "utf8");
     const sitio = createHttpsServer({ key: readFileSync(join(carpeta, "llave.pem")), cert }, (_q, r) => {
       r.setHeader("content-type", "application/json");
+      // Cada respuesta cierra su conexión: la siguiente es otra, y reanudaría la sesión TLS de antes.
+      r.setHeader("connection", "close");
       r.end(JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b" }));
     });
     sitio.listen(0, "127.0.0.1");
@@ -289,6 +291,10 @@ test("el latido lee el certificado que de verdad presenta el sitio, y avisa si e
       const o = { dominio: "patio.prueba", maquina: "127.0.0.1", puerto: (sitio.address() as AddressInfo).port, ca: cert };
       const e = await estadoPorHttps(o);
       assert.ok(e.certificado, "no leyó el certificado");
+      // En una sesión reanudada el certificado no llega, y el latido avisaría en falso cada vez que la
+      // conexión anterior ya se cerró (en el servidor, todas: va cada 5 minutos). Lo encontró el ensayo
+      // de la operación el 3 de noviembre. Por eso cada latido negocia la conexión entera.
+      for (let k = 0; k < 2; k += 1) assert.ok((await estadoPorHttps(o)).certificado, `la conexión ${k + 2} no trajo el certificado`);
       assert.ok(Math.abs(e.certificado.hasta.getTime() - (hoy + 10 * DIA)) < 5_000, `vence ${e.certificado.hasta.toISOString()}`);
       assert.ok(Math.abs(e.certificado.desde.getTime() - (hoy - 80 * DIA)) < 5_000, `desde ${e.certificado.desde.toISOString()}`);
       await assert.rejects(revisarSitio({ estado: () => estadoPorHttps(o), disco: async () => ({ libre: 40 * GB, total: 100 * GB }) }),
