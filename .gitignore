@@ -3,6 +3,8 @@ node_modules/
 next-env.d.ts
 *.tsbuildinfo
 .env
+# Un cambio de la clave de la base a medias (operacion/cambiar-clave-de-la-base.sh): lleva la clave.
+.env.nueva
 *.log
 test-results/
 playwright-report/

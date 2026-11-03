@@ -2,6 +2,8 @@ node_modules
 .next
 .git
 .env
+# Un cambio de la clave de la base a medias (operacion/cambiar-clave-de-la-base.sh): lleva la clave.
+.env.nueva
 docs
 *.log
 publicaciones

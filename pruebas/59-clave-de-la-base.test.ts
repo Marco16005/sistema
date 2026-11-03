@@ -222,3 +222,12 @@ test("un cambio a medias que no llegó a la base se descarta y va uno nuevo; si 
     rmSync(i.carpeta, { recursive: true, force: true });
   }
 });
+
+test("la marca del cambio a medias lleva la clave: ni Git ni las imágenes la toman, como al .env", () => {
+  // Lo señaló la revisión automática de seguridad del 3 de noviembre: el patrón «.env» solo cubre ese nombre.
+  for (const archivo of [".gitignore", ".dockerignore"]) {
+    const renglones = readFileSync(archivo, "utf8").split("\n").map((l) => l.trim());
+    assert.ok(renglones.includes(".env"), `${archivo} no ignora .env`);
+    assert.ok(renglones.includes(".env.nueva"), `${archivo} no ignora .env.nueva`);
+  }
+});
