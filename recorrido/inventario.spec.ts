@@ -753,7 +753,9 @@ function sinCoordinacionEntrePestanas(): void {
 
 /** La copia llegó a lo que hay en el patio, con su aviso, y sin nada que registrar ni reintentar. */
 async function sinCaptura(copia: Page): Promise<void> {
-  await expect(copia.getByRole("heading", { name: "Lo que hay en el patio" })).toBeVisible();
+  // Con dos copias que cargan a la vez y la máquina ocupada, WebKit llegó a tardar más de los 5
+  // segundos de siempre (3 de noviembre; sola y desocupada, 10 de 10). Lo que se espera no cambia.
+  await expect(copia.getByRole("heading", { name: "Lo que hay en el patio" })).toBeVisible({ timeout: 15_000 });
   await expect(aviso(copia)).toContainText("sigue en la otra pestaña");
   await expect(copia.getByRole("button", { name: "Registrar la merma" })).toHaveCount(0);
   await expect(copia.getByRole("button", { name: "Volver a intentar" })).toHaveCount(0);
