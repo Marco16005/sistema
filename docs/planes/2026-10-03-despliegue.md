@@ -7,6 +7,15 @@
 > **Versión 2**, reescrita tras la revisión de Codex a la versión 1 (5 bloqueantes, 8 importantes,
 > 2 menores; todos atendidos: `docs/revisiones/2026-10-03-respuesta-a-la-revision-del-plan-de-despliegue.md`).
 
+> **Estado al 3 de noviembre de 2026: todo lo que no necesita el servidor de verdad está hecho, revisado
+> por Codex y ensayado.** Tareas 1 a 6 completas; de la 7 solo queda lo que se prueba en el servidor
+> contratado. Desde el 21 de octubre se agregaron: los avisos del cajón por Telegram y correo y el
+> latido (que también avisa de poco disco y de un certificado sin renovar), el guion que prepara el
+> servidor (`operacion/servidor.sh`), lo de fuera del servidor con solo Docker (`operacion/fuera.sh`:
+> la llave, el sello, la versión de un respaldo y el ensayo de cada mes), la limpieza de imágenes de
+> versiones viejas (`operacion/limpiar.sh`) y cambiar la clave de la base (`operacion/cambiar-clave-de-la-base.sh`).
+> Los dos ensayos pasan con todo eso.
+
 > **21 de octubre de 2026: `--corregida` no se hace.** En el único caso en que serviría —la migración
 > empezó y no se decidió abrir— el negocio estuvo cerrado desde antes de tomar el respaldo previo:
 > volver a él no pierde nada, y la versión corregida se publica después como cualquier otra. Una
@@ -986,9 +995,10 @@ efecto de cada paso** (no solo al ver escrita la marca):
         macOS, una variable pegada a una comilla «» se llevaba un byte de la comilla como parte
         del nombre, y el aviso del relevo no salía. Corregido (va entre llaves), con una prueba
         que revisa eso en todos los guiones.
-- [ ] `publicar.sh` con su manifiesto, `--recuperar` y `--corregida`; `levantar.sh` sin construir.
+- [x] `publicar.sh` con su manifiesto, `--recuperar` y `--corregida`; `levantar.sh` sin construir.
       **Hecho el 6 y 7 de octubre de 2026, salvo `--corregida`**, que el 21 de octubre se decidió no
-      hacer (ver el estado al principio). Falta que Codex revise todo esto.
+      hacer (ver el estado al principio). Codex lo revisó en su décima pasada (partes B y C, 7–9 de
+      octubre, con su verificación) y la revisión 32 (21 de octubre) cerró lo que había quedado.
       - **El manifiesto** (`operacion/publicacion.ts`, `pruebas/32-publicacion.test.ts`): se
         escribe de modo que sobreviva a un apagón (archivo aparte, sincronizado, renombrado, y
         sincronizada su carpeta); la carpeta de una publicación aparece entera —con su manifiesto
@@ -1111,17 +1121,20 @@ efecto de cada paso** (no solo al ver escrita la marca):
       verdad nacerá con `publicar.sh`—, y la de desarrollo es desechable. Publicar se niega ante
       una base con historia y sin publicaciones, y dice por qué. (Queda para que Codex lo sepa al
       revisar: la parte H del diseño no se construyó, a propósito.)
-- [ ] Imágenes por instalación y publicación, proxy con su configuración dentro, bases por huella.
-      **Hecho el 7 de octubre, salvo conservarlas fuera del servidor.** Cada publicación
+- [x] Imágenes por instalación y publicación, proxy con su configuración dentro, bases por huella.
+      **Hecho el 7 de octubre, salvo conservarlas fuera del servidor** (no hace falta: una versión se
+      reconstruye de su commit). Desde el 29 de octubre, además, las de versiones viejas se retiran
+      al publicar (`operacion/limpiar.sh`). Cada publicación
       construye sus imágenes y las etiqueta `<proyecto>-<pieza>:<publicación>` (la etiqueta solo
       las conserva: lo que corre se nombra por el identificador). `docker-compose.operacion.yml`
       exige cada imagen por variable, sin construir y sin traer nada de fuera
       (`pull_policy: never`); el proxy lleva su configuración en su imagen
       (`docker/proxy.Dockerfile`); las imágenes de las que se parte van por su huella. Una
       prueba fija esas reglas (`pruebas/20-entorno.test.ts`; 10 roturas a propósito, detectadas).
-- [ ] El ensayo de publicación, con los casos de arriba.
+- [x] El ensayo de publicación, con los casos de arriba.
       **Hecho en su mayor parte el 7 de octubre** (`sh operacion/ensayo-publicacion.sh`; pasa
-      entero, 17 minutos; falta que Codex lo revise). Arma una instalación aparte —una copia del
+      entero; revisado por Codex en la décima pasada, parte C). Pasó otra vez el 29 de octubre, con
+      la limpieza de imágenes. Arma una instalación aparte —una copia del
       proyecto con su propio repositorio, proyecto de Compose, imágenes, puertos y volúmenes—, y
       **mata el guion de verdad**, sin que limpie. Lo que ensaya:
       - el camino entero de una versión con una migración, y cómo se ve a la mitad (cerrada, con
@@ -1165,7 +1178,9 @@ efecto de cada paso** (no solo al ver escrita la marca):
       una variable pegada a una comilla «»; `\|` en un patrón, que solo entienden las
       herramientas de GNU; que reconstruir un commit da imágenes con otro identificador; y que
       en una máquina nueva la base ya existe, vacía, y restaurar no restaura encima de una base.
-- [ ] Revisión de Codex a la tarea, con ejecución.
+- [x] Revisión de Codex a la tarea, con ejecución. Hecha: décima pasada, partes B y C (7–9 de
+      octubre) y su verificación (`docs/revisiones/2026-10-09-codex-decima-verificacion-c.md`); lo
+      que dejó abierto lo cerró la revisión 32 (`docs/revisiones/2026-10-21-codex-revision-del-respaldo-y-la-operacion.md`).
       *Pendiente: Codex no tiene cuota hasta el 9 de octubre de 2026, 10:09 PM.* Lo que tiene que
       revisar de esta tarea, en este orden: las precisiones al diseño (listadas arriba, en
       `publicar.sh` y en «volver al respaldo previo»), la tabla de recuperar y sus marcas, el
@@ -1217,9 +1232,10 @@ Archivos: `docs/operacion.md`, `operacion/servidor.sh`.
       (HMAC) del manifiesto con una clave derivada de la llave privada de age —el servidor guarda
       solo el sello; quien restaura lo deriva de la llave que ya tiene—, comprobado antes de
       descifrar. Toca respaldar, restaurar, el diario, la instalación y la guía.
-- [ ] **Una pasada de Codex sobre lo pendiente**, una sola: del respaldo diario, restaurar del
+- [x] **Una pasada de Codex sobre lo pendiente**, una sola: del respaldo diario, restaurar del
       diario, las precisiones del diseño y el veredicto (nunca los revisó); y la verificación de
-      lo corregido el 9 de octubre (guiones, diario y rediseño).
+      lo corregido el 9 de octubre (guiones, diario y rediseño). Hecha: la revisión 32, del 21 de
+      octubre; sus tres hallazgos se corrigieron (`85ca019`, `4c173b1`).
 - [ ] **Lo que agregó la revisión de Codex del 21 de octubre** (informe 32), que solo se prueba ahí:
       - las alertas del diario y del ensayo por separado, también que no llegue el aviso y que se
         pierda el latido; que las reciba de verdad quien da soporte, no solo un «200»;
