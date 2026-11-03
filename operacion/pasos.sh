@@ -60,6 +60,14 @@ preparar_trabajo() {
   chmod 700 "$TRABAJO" || return 1
 }
 
+# Un cambio de la clave de la base que quedó a medias (operacion/cambiar-clave-de-la-base.sh) deja el
+# archivo de entorno nuevo junto al de siempre, con «.nueva». Mientras esté, no se sabe con cuál de las
+# dos claves entra la base: no se levanta, no se publica y no se vuelve hasta terminarlo.
+exigir_sin_clave_a_medias() {
+  [ ! -e "${COMPOSE_ENV_FILES:-.env}.nueva" ] \
+    || falla "Un cambio de la clave de la base quedó a medias (${COMPOSE_ENV_FILES:-.env}.nueva). Termínalo primero: sh operacion/cambiar-clave-de-la-base.sh. No se tocó nada."
+}
+
 # El commit de esta carpeta, completo. Vacío: no es un repositorio con commits.
 commit_actual() {
   git rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null || true

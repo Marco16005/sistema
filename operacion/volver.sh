@@ -54,6 +54,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 tomar_candado "volver al respaldo" || exit 1
+exigir_sin_clave_a_medias
 preparar_trabajo || falla "No se pudo preparar la carpeta de trabajo ($TRABAJO). No se tocó nada."
 privado=$TRABAJO
 preparar_herramientas
@@ -103,6 +104,7 @@ volver() {
   [ -n "$respaldo" ] || falla "La publicación $pub no tiene anotado su respaldo previo. No se tocó nada."
   marca_de_antes=$(manifiesto dato "$pub" base.marca) || falla "$no_se_leyo"
   numero=$(manifiesto dato "$pub" numero) || falla "$no_se_leyo"
+  # shellcheck disable=SC2015  # si falta cualquiera de los datos, se falla
   [ -n "$version" ] && [ -n "$marca_de_antes" ] && [ -n "$numero" ] || falla "$no_se_leyo"
   apartada="${BASE}_fallida_$numero"
   echo "Se vuelve al respaldo previo de la publicación $pub: $respaldo"
@@ -195,6 +197,7 @@ abrir() {
     como=$(manifiesto dato "$por" cierre.como 2>/dev/null || true)
     de_cual=$(manifiesto dato "$por" cierre.marca 2>/dev/null || true)
     la_que_contesta=$(en_la_base "$conf" estado marca) || falla "No se pudo preguntar a la base cuál es. No se abrió."
+    # shellcheck disable=SC2015  # si no se cumple cualquiera de las tres, se falla
     [ "$como" = restaurada ] && [ "$de_cual" = "$marca" ] && [ "$la_que_contesta" = "$marca" ] \
       || falla "La operación está cerrada, pero no la dejó así una vuelta al respaldo (la cerró «${por}»). Esto no la abre: hace falta saber por qué está cerrada."
     # El servicio de respaldo puede estar ya en pie —si se levantó lo publicado, que lo levanta cerrado— o

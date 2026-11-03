@@ -35,6 +35,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 tomar_candado "levantar" || exit 1
+exigir_sin_clave_a_medias
 preparar_trabajo || falla "No se pudo preparar la carpeta de trabajo ($TRABAJO). No se tocó nada."
 privado=$TRABAJO
 preparar_herramientas
