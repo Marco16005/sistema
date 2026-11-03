@@ -112,7 +112,7 @@ test("el ensayo de cada mes: una base desechable de la imagen del servidor, rest
   const huella = /^FROM (\S+@sha256:[0-9a-f]{64})/m.exec(readFileSync("docker/db.Dockerfile", "utf8"))![1]!;
   const r = await fuera(["ensayo"], { entrada: LLAVE });
   assert.equal(r.codigo, 0, r.queja);
-  assert.match(r.salida, /El ensayo pasó: .* en \d+ min/);
+  assert.match(r.salida, /El ensayo pasó: .* en \d+ min\. La base desechable ya se borró\./);
   const base = r.llamadas.find((l) => l.startsWith("run -d "))!;
   assert.ok(base.endsWith(huella), `la base no es la imagen del servidor por su huella: ${base}`);
   assert.ok(!/ -p |--publish/.test(base), "la base desechable publicó un puerto");
@@ -149,6 +149,8 @@ test("si el ensayo no pasa, se dice, y lo desechable se borra igual; si no se pu
   const sinBorrar = await fuera(["ensayo"], { entrada: LLAVE, mas: { DOCKER_RM: "1" } });
   assert.notEqual(sinBorrar.codigo, 0, "dijo que todo bien con la base desechable todavía ahí");
   assert.match(sinBorrar.queja, /No se pudo borrar la base desechable del ensayo \(feruga-fuera-base-\d+\).*docker rm -f feruga-fuera-base-\d+/s);
+  // Y «pasó» no se dice con la base todavía ahí (observación de Codex al verificar, 3 de noviembre).
+  assert.doesNotMatch(sinBorrar.salida, /El ensayo pasó/);
   const conBase = await fuera(["ensayo"], { entrada: LLAVE, entorno: "RESPALDO_DESTINO=respaldo:x/y\nWEB_BD_CLAVE=abc\n" });
   assert.equal(conBase.codigo, 1);
   assert.ok(!conBase.llamadas.some((l) => l.startsWith("run -d ")), "arrancó una base con un entorno que no debía");

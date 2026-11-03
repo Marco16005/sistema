@@ -33,21 +33,34 @@ docker info >/dev/null 2>&1 || falla "Docker no contesta: ¿está encendido?"
 # Al salir, pase lo que pase, se borra lo desechable del ensayo: su base y, si es suya, su red.
 base=""
 propia=""
-limpiar() {
-  resultado=$?
-  trap - 0
+# borrar_lo_desechable: la base del ensayo y, si es suya, su red. Se intenta dos veces, y se comprueba
+# que ya no está: si queda, se dice —tiene una copia de los datos del negocio— y falla. (Revisión de
+# Codex del 3 de noviembre, H5.) Se llama antes de decir cómo salió el ensayo, y otra vez al salir por
+# si se interrumpió; la segunda ya no tiene nada que hacer.
+borrar_lo_desechable() {
+  borrado=0
   if [ -n "$base" ]; then
-    # Se intenta dos veces, y se comprueba que ya no está: si queda, se dice —tiene una copia de los
-    # datos del negocio— y no se da por bueno. (Revisión de Codex del 3 de noviembre, H5.)
     docker rm -f "$base" >/dev/null 2>&1 || docker rm -f "$base" >/dev/null 2>&1 || true
     if ! quedo=$(docker ps -aq --filter "name=^${base}\$" 2>/dev/null) || [ -n "$quedo" ]; then
       echo "No se pudo borrar la base desechable del ensayo (${base}): tiene una copia de los datos del negocio. Bórrala: docker rm -f ${base}" >&2
-      [ "$resultado" != 0 ] || resultado=1
+      borrado=1
+    else
+      base=""
     fi
   fi
   if [ -n "$propia" ] && [ -z "$red" ]; then
-    docker network rm "$propia" >/dev/null 2>&1 || echo "No se pudo borrar la red del ensayo (${propia}); no lleva datos: docker network rm ${propia}" >&2
+    if docker network rm "$propia" >/dev/null 2>&1; then
+      propia=""
+    else
+      echo "No se pudo borrar la red del ensayo (${propia}); no lleva datos: docker network rm ${propia}" >&2
+    fi
   fi
+  return "$borrado"
+}
+limpiar() {
+  resultado=$?
+  trap - 0
+  borrar_lo_desechable || { [ "$resultado" != 0 ] || resultado=1; }
   exit "$resultado"
 }
 
@@ -166,8 +179,13 @@ case "$orden" in
       --entrypoint node "$imagen" operacion/restaurar.ts ${cual:+"$cual"} --ensayo "$@" || codigo=$?
     fin=$(date +%s)
     minutos=$(( (fin - inicio + 59) / 60 ))
+    # Primero se borra lo desechable, y solo después se dice cómo salió: «pasó» no se dice con la base todavía ahí.
+    if ! borrar_lo_desechable; then
+      [ "$codigo" != 0 ] || echo "El respaldo se restauró y se auditó en $minutos min, pero la base desechable no se pudo borrar (arriba dice cuál): bórrala antes de dar el ensayo por hecho." >&2
+      [ "$codigo" != 0 ] || codigo=1
+    fi
     case "$codigo" in
-      0) echo "El ensayo pasó: el respaldo se abrió, se restauró y se auditó en $minutos min. La base desechable se borra." ;;
+      0) echo "El ensayo pasó: el respaldo se abrió, se restauró y se auditó en $minutos min. La base desechable ya se borró." ;;
       3) echo "Se restauró bien en $minutos min, pero el vigilante de los ensayos no recibió el aviso: va a alertar como si no se hubiera hecho. Revisa ENSAYO_VIGIA_URL." >&2 ;;
       *) echo "El ensayo NO pasó (lo de arriba dice por qué). Ese respaldo no se pudo restaurar: avisa a soporte." >&2 ;;
     esac

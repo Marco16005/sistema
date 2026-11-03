@@ -29,3 +29,16 @@ limpieza integrada se comporta como se pidió.
 
 Se volvió a correr el ensayo de la operación con todo esto (cambio de clave con PostgreSQL de verdad
 y el paso «Desde fuera»).
+
+## Después
+
+- **El ensayo de la operación encontró una consecuencia de H3:** el agente compartido de Node cierra
+  la conexión ociosa a los 5 segundos y la siguiente reanuda la sesión TLS, donde el certificado no
+  llega; con H3, eso ya no era «bien», y todos los latidos menos el primero habrían avisado en falso.
+  `estadoPorHttps` va ahora sin el agente compartido (`agent: false`), con prueba — `ad428de`.
+- **La revisión automática de seguridad** señaló que `.env.nueva` no estaba en `.gitignore` ni en
+  `.dockerignore` (el patrón `.env` solo cubre ese nombre) — `e416062`.
+- **Codex verificó las correcciones** (encargo 37, `2026-11-03-codex-verificacion-de-la-fase-del-servidor.md`):
+  H1 a H7 cerrados, con su matriz de 16 interrupciones contra PostgreSQL de verdad y los registros
+  de la base encendidos. Su observación —`fuera.sh` decía «El ensayo pasó» antes de borrar la base
+  desechable— se atendió: primero se borra y se comprueba, y solo después se dice cómo salió.
