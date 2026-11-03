@@ -122,11 +122,22 @@ function vigenciaDe(enlace: TLSSocket): { desde: Date; hasta: Date } | null {
  * comprobador y recibe el detalle.
  */
 export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: number; plazo?: number; clave?: string; ca?: string }): Promise<EstadoDelSitio> {
+  // El plazo es para todo —conectar, encabezados y cuerpo—, no solo de inactividad: un sitio que
+  // contesta a goteo, o que corta la respuesta a la mitad, no deja al latido esperando para siempre.
+  // (Revisión de Codex del 3 de noviembre, H2.)
+  const plazo = o.plazo ?? 10_000;
   return new Promise((bien, mal) => {
+    let decidido = false;
+    const decidir = (hacer: () => void): void => {
+      if (decidido) return;
+      decidido = true;
+      clearTimeout(reloj);
+      hacer();
+    };
     const peticion = request(
       {
         host: o.maquina ?? o.dominio, port: o.puerto ?? 443, servername: o.dominio, path: "/api/salud", method: "GET",
-        headers: { Host: o.dominio, ...(o.clave ? encabezadoDelComprobador(o.clave) : {}) }, timeout: o.plazo ?? 10_000, rejectUnauthorized: true,
+        headers: { Host: o.dominio, ...(o.clave ? encabezadoDelComprobador(o.clave) : {}) }, timeout: plazo, rejectUnauthorized: true,
         ...(o.ca ? { ca: o.ca } : {}),
       },
       (respuesta) => {
@@ -134,7 +145,11 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
         let cuerpo = "";
         respuesta.setEncoding("utf8");
         respuesta.on("data", (trozo: string) => { if (cuerpo.length < 10_000) cuerpo += trozo; });
-        respuesta.on("end", () => {
+        respuesta.on("error", () => decidir(() => mal(new Error("el sitio cortó la respuesta antes de terminarla"))));
+        respuesta.on("close", () => {
+          if (!respuesta.complete) decidir(() => mal(new Error("el sitio cortó la respuesta antes de terminarla")));
+        });
+        respuesta.on("end", () => decidir(() => {
           if (respuesta.statusCode !== 200) return mal(new Error(`el sitio contestó ${respuesta.statusCode}`));
           try {
             const d = JSON.parse(cuerpo) as Record<string, unknown>;
@@ -144,11 +159,15 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
           } catch {
             mal(new Error("el sitio contestó 200, pero no con lo que dice la salud de esta aplicación"));
           }
-        });
+        }));
       },
     );
+    const reloj = setTimeout(() => {
+      decidir(() => mal(new Error("el sitio no contestó a tiempo")));
+      peticion.destroy();
+    }, plazo);
     peticion.on("timeout", () => peticion.destroy(new Error("el sitio no contestó a tiempo")));
-    peticion.on("error", (e) => mal(new Error(`no se pudo pedir por HTTPS con certificado válido: ${e.message}`)));
+    peticion.on("error", (e) => decidir(() => mal(new Error(`no se pudo pedir por HTTPS con certificado válido: ${e.message}`))));
     peticion.end();
   });
 }

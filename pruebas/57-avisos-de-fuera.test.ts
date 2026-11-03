@@ -106,7 +106,7 @@ test("por Telegram: el mensaje va al chat dicho, y si Telegram lo rechaza se dic
 });
 
 /** Un servidor de correo de mentira: contesta lo justo, y anota lo que le dicen. Con `inyectar`, ofrece cifrar y mete datos de más antes de hacerlo. */
-async function servidorDeCorreo(o: { rechazarRcpt?: boolean; inyectar?: boolean } = {}) {
+async function servidorDeCorreo(o: { rechazarRcpt?: boolean; inyectar?: boolean; eco?: "auth" | "rcpt" } = {}) {
   const dicho: string[] = [];
   const mensajes: string[] = [];
   const servidor = servidorTcp((s) => {
@@ -128,7 +128,12 @@ async function servidorDeCorreo(o: { rechazarRcpt?: boolean; inyectar?: boolean 
         dicho.push(linea);
         if (/^EHLO /.test(linea)) s.write(`250-correo.prueba\r\n${o.inyectar ? "250-STARTTLS\r\n" : ""}250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n`);
         else if (linea === "STARTTLS") s.write("220 2.0.0 adelante\r\n250 2.0.0 esto no venía cifrado\r\n");
-        else if (/^AUTH PLAIN /.test(linea)) s.write("235 2.7.0 adentro\r\n");
+        // Con `eco`, el servidor rechaza repitiendo lo que recibió: el bloque de AUTH, o la contraseña ya descifrada.
+        else if (/^AUTH PLAIN /.test(linea)) s.write(o.eco === "auth" ? `535 5.7.8 no entra: ${linea}\r\n` : "235 2.7.0 adentro\r\n");
+        else if (/^RCPT TO:/.test(linea) && o.eco === "rcpt") {
+          const clave = Buffer.from(dicho.find((l) => l.startsWith("AUTH PLAIN "))!.slice(11), "base64").toString("utf8").split("\0")[2];
+          s.write(`550-5.1.1 no existe\r\n550 5.1.1 y tu clave es ${clave}\r\n`);
+        }
         else if (/^MAIL FROM:/.test(linea)) s.write("250 2.1.0 bien\r\n");
         else if (/^RCPT TO:/.test(linea)) s.write(o.rechazarRcpt ? "550 5.1.1 no existe\r\n" : "250 2.1.5 bien\r\n");
         else if (linea === "DATA") { enDatos = true; s.write("354 adelante\r\n"); }
@@ -167,6 +172,23 @@ test("por correo: entra con su usuario, manda a cada destinatario, con el asunto
       (e: Error) => /550/.test(e.message) && !e.message.includes("secreta"));
   } finally {
     r.cerrar();
+  }
+  // Un servidor que, al rechazar, repite el bloque de AUTH (que la lleva en base64) o la contraseña:
+  // el error dice en qué paso y con qué código, y nada de lo que el servidor escribió (revisión de
+  // Codex del 3 de noviembre, H1).
+  const AUTH = Buffer.from("\0avisos@patio.mx\0secreta").toString("base64");
+  for (const eco of ["auth", "rcpt"] as const) {
+    const e = await servidorDeCorreo({ eco });
+    try {
+      await assert.rejects(enviarCorreo({ url: `smtp://avisos%40patio.mx:secreta@127.0.0.1:${e.puerto}`, de: "a@b.mx", para: ["c@d.mx"], asunto: "x", texto: "y", sinCifrar: true }),
+        (err: Error) => {
+          assert.ok(!err.message.includes("secreta") && !err.message.includes(AUTH), `con eco «${eco}», el error trae la contraseña: ${err.message}`);
+          assert.match(err.message, eco === "auth" ? /el usuario y la contraseña \(535 5\.7\.8\)/ : /el destinatario c@d\.mx \(550 5\.1\.1\)/);
+          return true;
+        });
+    } finally {
+      e.cerrar();
+    }
   }
   // Sin cifrar no se manda: si el servidor no ofrece cifrar la conexión, no se entra; la contraseña viajaría a la vista.
   const sin = await servidorDeCorreo();
@@ -222,9 +244,18 @@ test("el latido avisa antes de que el sitio se caiga: si queda poco disco o si e
   await assert.rejects(revisa(sinRenovar, async () => ({ libre: 1 * GB, total: 100 * GB })),
     (e: Error) => /poco disco/.test(e.message) && /certificado/.test(e.message));
   // Si no se puede ver el disco, también se avisa: callar sería no vigilar.
-  await assert.rejects(revisa(sano, async () => { throw new Error("EACCES"); }), /No se pudo ver cuánto disco queda/);
-  // Sin datos del certificado no se inventa un problema (que sea válido ya lo exige la conexión).
-  await revisa(null, async () => ({ libre: 40 * GB, total: 100 * GB }));
+  await assert.rejects(revisa(sano, async () => { throw new Error("EACCES"); }), /No se pudo ver bien cuánto disco queda/);
+  // Lo que no se pudo leer bien no es «bien» (revisión de Codex del 3 de noviembre, H3): un disco con
+  // números imposibles, o un certificado del que no se supo la vigencia —que sea válido hoy lo exige la
+  // conexión; que le quede vida para renovarse, no—, se avisan como «no se pudo comprobar».
+  for (const raro of [{ libre: NaN, total: 100 * GB }, { libre: Infinity, total: Infinity }, { libre: 50 * GB, total: 40 * GB },
+    { libre: 10 * GB, total: 0 }, { libre: -1, total: 100 * GB }]) {
+    await assert.rejects(revisa(sano, async () => raro), /No se pudo ver bien cuánto disco queda/, JSON.stringify(raro));
+  }
+  await assert.rejects(revisa(null, async () => ({ libre: 40 * GB, total: 100 * GB })), /No se pudo leer la vigencia del certificado/);
+  for (const malo of [{ desde: new Date(NaN), hasta: sano.hasta }, { desde: sano.hasta, hasta: sano.desde }]) {
+    await assert.rejects(revisa(malo, async () => ({ libre: 40 * GB, total: 100 * GB })), /No se pudo leer la vigencia del certificado/);
+  }
   // Y si el sitio no contesta, eso es lo que se dice.
   await assert.rejects(
     revisarSitio({ estado: async () => { throw new Error("el sitio no contestó a tiempo"); }, disco: async () => ({ libre: 40 * GB, total: 100 * GB }) }),
@@ -264,6 +295,54 @@ test("el latido lee el certificado que de verdad presenta el sitio, y avisa si e
         /El certificado del sitio vence en (9|10) días/);
     } finally {
       sitio.close();
+    }
+  } finally {
+    rmSync(carpeta, { recursive: true, force: true });
+  }
+});
+
+test("el latido no se queda esperando: un sitio que contesta a goteo, o que corta la respuesta, falla dentro de su plazo", async () => {
+  // Revisión de Codex del 3 de noviembre, H2: el plazo era de inactividad, y un corte después de los
+  // encabezados no se atendía; la vuelta del latido no terminaba nunca.
+  const carpeta = mkdtempSync(join(tmpdir(), "goteo-"));
+  try {
+    const hoy = Date.now();
+    const fecha = (ms: number) => new Date(ms).toISOString().replace(/[-:T]/g, "").replace(/\.\d+/, "");
+    execFileSync("openssl", [
+      "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+      "-keyout", join(carpeta, "llave.pem"), "-out", join(carpeta, "cert.pem"),
+      "-subj", "/CN=patio.prueba", "-addext", "subjectAltName=DNS:patio.prueba",
+      "-not_before", fecha(hoy - DIA), "-not_after", fecha(hoy + 80 * DIA),
+    ], { stdio: "ignore" });
+    const cert = readFileSync(join(carpeta, "cert.pem"), "utf8");
+    const key = readFileSync(join(carpeta, "llave.pem"));
+    const casos = {
+      goteo: (r: import("node:http").ServerResponse) => {
+        r.writeHead(200, { "content-type": "application/json" });
+        const t = setInterval(() => r.write(" "), 20);
+        r.on("close", () => clearInterval(t));
+      },
+      corte: (r: import("node:http").ServerResponse) => {
+        r.writeHead(200, { "content-type": "application/json" });
+        r.write('{"bien":');
+        setTimeout(() => r.socket?.destroy(), 30);
+      },
+    };
+    for (const [nombre, contestar] of Object.entries(casos)) {
+      const sitio = createHttpsServer({ key, cert }, (_q, r) => contestar(r));
+      sitio.listen(0, "127.0.0.1");
+      await once(sitio, "listening");
+      try {
+        const inicio = Date.now();
+        const tope = new Promise<never>((_, mal) => setTimeout(() => mal(new Error("SE QUEDÓ ESPERANDO")), 3000));
+        await assert.rejects(
+          Promise.race([estadoPorHttps({ dominio: "patio.prueba", maquina: "127.0.0.1", puerto: (sitio.address() as AddressInfo).port, ca: cert, plazo: 300 }), tope]),
+          (e: Error) => { assert.doesNotMatch(e.message, /SE QUEDÓ/, `${nombre}: ${e.message}`); return true; });
+        assert.ok(Date.now() - inicio < 2000, `${nombre}: tardó ${Date.now() - inicio} ms`);
+      } finally {
+        sitio.closeAllConnections();
+        sitio.close();
+      }
     }
   } finally {
     rmSync(carpeta, { recursive: true, force: true });

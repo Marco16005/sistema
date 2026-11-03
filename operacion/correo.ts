@@ -31,7 +31,7 @@ const DIRECCION = /^[^\s@<>,"]+@[^\s@<>,"]+\.[^\s@<>,"]+$/;
 /** Lo que se lee del servidor: renglones, y respuestas completas (las de varios renglones, juntas). */
 class Conversacion {
   private pendiente = "";
-  private esperando: ((r: { codigo: number; texto: string }) => void) | null = null;
+  private esperando: ((r: { codigo: number; texto: string; ultimo: string }) => void) | null = null;
   private renglones: string[] = [];
   private error: Error | null = null;
   private enlace!: Socket | TLSSocket;
@@ -94,10 +94,10 @@ class Conversacion {
     if (fin >= 0) {
       const suyos = this.renglones.splice(0, fin + 1);
       this.esperando = null;
-      listo({ codigo: Number(suyos.at(-1)!.slice(0, 3)), texto: suyos.map((x) => x.slice(4)).join(" ") });
+      listo({ codigo: Number(suyos.at(-1)!.slice(0, 3)), texto: suyos.map((x) => x.slice(4)).join(" "), ultimo: suyos.at(-1)!.slice(4) });
     } else if (this.error) {
       this.esperando = null;
-      listo({ codigo: 0, texto: this.error.message });
+      listo({ codigo: 0, texto: this.error.message, ultimo: "" });
     }
   }
 
@@ -108,7 +108,11 @@ class Conversacion {
       this.esperando = (r) => {
         clearTimeout(reloj);
         if (r.codigo === 0) return mal(new Error(r.texto));
-        if (!esperado.includes(r.codigo)) return mal(new Error(`el servidor de correo no aceptó ${que}: ${r.codigo} ${r.texto}`.slice(0, 300)));
+        // Del rechazo se dice el paso y su código, nunca el texto que escribió el servidor: un servidor
+        // puede repetir ahí lo que recibió —el bloque de AUTH, la contraseña— y acabaría en el registro.
+        // (Revisión de Codex del 3 de noviembre, H1.)
+        const mejorado = /^[245]\.\d{1,3}\.\d{1,3}(?= |$)/.exec(r.ultimo)?.[0];
+        if (!esperado.includes(r.codigo)) return mal(new Error(`el servidor de correo no aceptó ${que} (${r.codigo}${mejorado ? ` ${mejorado}` : ""})`));
         bien(r);
       };
       this.entregar();

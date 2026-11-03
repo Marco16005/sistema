@@ -166,14 +166,22 @@ export async function revisarSitio(o: {
   const problemas: string[] = [];
   try {
     const d = await o.disco();
+    // Lo que no tiene sentido no se toma por bueno (revisión de Codex del 3 de noviembre, H3).
+    if (!Number.isFinite(d.libre) || !Number.isFinite(d.total) || d.total <= 0 || d.libre < 0 || d.libre > d.total) {
+      throw new Error(`dijo ${d.libre} libres de ${d.total}`);
+    }
     if (d.libre < 5 * GB || d.libre < 0.1 * d.total) {
       const parte = d.total > 0 ? ` (${Math.floor((100 * d.libre) / d.total)} %)` : "";
       problemas.push(`Queda poco disco: ${numero(d.libre / GB, 1)} GB libres de ${numero(d.total / GB, 0)} GB${parte}. Ver «Se llenó el disco» en la guía.`);
     }
   } catch (e) {
-    problemas.push(`No se pudo ver cuánto disco queda (${(e as Error).message}).`);
+    problemas.push(`No se pudo ver bien cuánto disco queda (${(e as Error).message}).`);
   }
-  if (certificado) {
+  const fechas = certificado ? [certificado.desde.getTime(), certificado.hasta.getTime()] : [];
+  if (!certificado || !fechas.every(Number.isFinite) || fechas[0]! >= fechas[1]!) {
+    // Que el certificado es válido hoy lo exige la conexión; que le quede vida para renovarse, no.
+    problemas.push("No se pudo leer la vigencia del certificado del sitio: no se sabe si se está renovando.");
+  } else {
     const quedan = certificado.hasta.getTime() - ahora;
     const vida = certificado.hasta.getTime() - certificado.desde.getTime();
     if (quedan < vida / 6) {
