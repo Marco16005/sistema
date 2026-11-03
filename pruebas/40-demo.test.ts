@@ -19,6 +19,12 @@ async function columnas(db: pg.Client) {
       AND c.data_type = 'timestamp with time zone' AND NOT (c.table_name = ANY($1))
     ORDER BY 1, 2`, [excluidas])).rows;
 }
+/** Las columnas de algo que ya pasó: ninguna puede estar en el futuro. Los plazos sí: una captura de
+ * hace un minuto vence en cuatro, y según la hora a la que se siembre, las últimas de hoy no han vencido. */
+const PLAZOS = new Set(["captura_peso.vence_en"]);
+async function sucesos(db: pg.Client) {
+  return (await columnas(db)).filter(({ tabla, columna }) => !PLAZOS.has(`${tabla}.${columna}`));
+}
 async function marcas(db: pg.Client) {
   const salida: Record<string, string[]> = {};
   for (const { tabla, columna } of await columnas(db)) {
@@ -102,7 +108,7 @@ test('C.2–C.5 jornadas, horas, panel, precios e inventario verosímiles', () =
     assert.equal((await una(db, "SELECT count(*)::int AS n FROM operacion WHERE estado <> 'confirmada'")).n, 0);
     const domingo = (await una(db, 'SELECT extract(dow FROM hoy_en(1::smallint)) = 0 AS si')).si;
     if (domingo) assert.equal(historia[0]!.cuentas, 0);
-    for (const { tabla, columna } of await columnas(db)) {
+    for (const { tabla, columna } of await sucesos(db)) {
       assert.equal((await una(db, `SELECT count(*)::int AS n FROM ${identificador(tabla)} WHERE ${identificador(columna)} > clock_timestamp()`)).n, 0, `${tabla}.${columna}: futuro`);
     }
     assert.equal((await una(db, `SELECT count(*)::int AS n FROM operacion o JOIN jornada j ON j.id = o.confirmada_en_jornada
@@ -234,7 +240,7 @@ test('C.8 mermas, conteos semanales y precios especiales aparecen en el panel', 
     assert.equal(p.personas.reduce((n, x) => n + x.descartadas, 0), (await una(db, "SELECT count(*)::int AS n FROM bitacora WHERE accion = 'descartar'")).n);
     assert.equal((await una(db, "SELECT count(*)::int AS n FROM operacion WHERE estado <> 'confirmada'")).n, 0);
     assert.ok((await una(db, 'SELECT count(*)::int AS n FROM equipo')).n > 0);
-    for (const { tabla, columna } of await columnas(db)) {
+    for (const { tabla, columna } of await sucesos(db)) {
       assert.equal((await una(db, `SELECT count(*)::int AS n FROM ${identificador(tabla)} WHERE ${identificador(columna)} > clock_timestamp()`)).n, 0, `${tabla}.${columna}`);
     }
   } finally { await bd.cerrar(); }
@@ -264,7 +270,7 @@ test('C.9 cada día cerrado con su cajón contado y su corte; lo fiado, sus abon
     const g = await ganancia(bd, { desde, hasta, agrupar: 'semana' });
     assert.ok(Number(g.totales.gastos) > 0);
     assert.equal(Number(g.totales.utilidad), Math.round((Number(g.totales.resultado) - Number(g.totales.gastos)) * 100) / 100);
-    for (const { tabla, columna } of await columnas(db)) {
+    for (const { tabla, columna } of await sucesos(db)) {
       assert.equal((await una(db, `SELECT count(*)::int AS n FROM ${identificador(tabla)} WHERE ${identificador(columna)} > clock_timestamp()`)).n, 0, `${tabla}.${columna}`);
     }
   } finally { await bd.cerrar(); }

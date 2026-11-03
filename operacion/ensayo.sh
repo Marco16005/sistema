@@ -199,7 +199,7 @@ de_fuera() { FUERA_RED="${PROYECTO}_default" FUERA_ENTORNO="$trabajo/recuperacio
 version=$(de_fuera version < "$trabajo/llave.txt" 2>"$trabajo/fuera.salida") \
   || { cat "$trabajo/fuera.salida" >&2; falla "fuera.sh no dijo de qué versión es el último respaldo"; }
 [ "$(printf '%s\n' "$version" | cut -d' ' -f2-)" = "$pub $(git rev-parse HEAD | cut -c1-12)" ] \
-  || falla "fuera.sh dijo que el último respaldo es de «$version», y lo tomó la publicación $pub"
+  || falla "fuera.sh dijo que el último respaldo es de «${version}», y lo tomó la publicación ${pub}"
 de_fuera ensayo < "$trabajo/llave.txt" > "$trabajo/fuera.salida" 2>&1 \
   || { cat "$trabajo/fuera.salida" >&2; falla "el ensayo de restauración desde fuera no pasó"; }
 grep -q '^El ensayo pasó' "$trabajo/fuera.salida" || { cat "$trabajo/fuera.salida" >&2; falla "el ensayo desde fuera no dijo que pasó"; }
