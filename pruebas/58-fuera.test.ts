@@ -15,7 +15,9 @@ const LLAVE = "# created: 2026-10-29T12:00:00Z\n# public key: age1qqqqqqqqqqqqqq
 const DOCKER = `#!/bin/sh
 printf '%s\\n' "$*" >> "$LLAMADAS"
 case "$*" in
-  info*|build*|"network create"*|"network rm"*|"network inspect"*|"rm -f"*|"exec "*) exit 0 ;;
+  info*|build*|"network create"*|"network rm"*|"network inspect"*|"exec "*) exit 0 ;;
+  "rm -f"*) exit "\${DOCKER_RM:-0}" ;;
+  "ps -aq"*) if [ "\${DOCKER_RM:-0}" != 0 ]; then echo idbase; fi ;;
   *"--entrypoint age-keygen"*) printf '%s' "$LLAVE_DE_MENTIRA"; echo "Public key: age1qqq" >&2 ;;
   *"operacion/sello.ts"*) cat > "$LLAMADAS.entrada"; echo RESPALDO_LLAVE_PUBLICA=age1qqq; echo RESPALDO_SELLO=abcd ;;
   *"operacion/version-del-respaldo.ts"*) cat > "$LLAMADAS.entrada"; echo "respaldo-1 pub-1 commit-1" ;;
@@ -93,10 +95,17 @@ test("de qué versión es un respaldo: con la credencial de recuperación, que n
   const sin = await fuera(["version"], { entrada: LLAVE, entorno: null });
   assert.equal(sin.codigo, 1);
   assert.match(sin.queja, /Falta \S+recuperacion\.env: la credencial de recuperación/);
-  const conBase = await fuera(["version"], { entrada: LLAVE, entorno: "RESPALDO_DESTINO=respaldo:cubo/feruga\nDATABASE_URL=postgres://feruga:x@db/feruga\n" });
-  assert.equal(conBase.codigo, 1);
-  assert.match(conBase.queja, /trae datos de la base del servidor/);
-  assert.ok(!conBase.llamadas.some((l) => l.includes("version-del-respaldo")), "corrió con datos de la base del servidor");
+  // Solo lo del almacenamiento y el vigilante, y como Docker lo lee: ni con espacios delante, ni un
+  // nombre suelto que hereda su valor del entorno, ni otra variable (revisión de Codex del 3 de noviembre, H4).
+  for (const otro of ["DATABASE_URL=postgres://feruga:x@db/feruga", "  BD_CLAVE=abc", "BD_CLAVE", "  DATABASE_URL=postgres://x",
+    "NODE_OPTIONS=--require /tmp/x.js", "export RESPALDO_DESTINO=x"]) {
+    const conBase = await fuera(["version"], { entrada: LLAVE, entorno: `RESPALDO_DESTINO=respaldo:cubo/feruga\n${otro}\n` });
+    assert.equal(conBase.codigo, 1, otro);
+    assert.match(conBase.queja, /renglón 2: ahí solo va lo del almacenamiento/, otro);
+    assert.ok(!conBase.llamadas.some((l) => l.includes("version-del-respaldo")), `corrió con «${otro}»`);
+  }
+  const bien = await fuera(["version"], { entrada: LLAVE, entorno: "# la de recuperación\n\nRESPALDO_DESTINO=respaldo:cubo/feruga\nRCLONE_CONFIG_RESPALDO_TYPE=s3\nRCLONE_CONFIG_DIARIO_KEY=x\nRESPALDO_DESTINO_DIARIO=diario:cubo/feruga\nENSAYO_VIGIA_URL=https://hc-ping.com/abc\n" });
+  assert.equal(bien.codigo, 0, bien.queja);
 });
 
 test("el ensayo de cada mes: una base desechable de la imagen del servidor, restaurar del almacenamiento, avisar al vigilante, y borrar lo desechable", async () => {
@@ -135,6 +144,11 @@ test("si el ensayo no pasa, se dice, y lo desechable se borra igual; si no se pu
   assert.equal(sinAviso.codigo, 3);
   assert.match(sinAviso.queja, /el vigilante de los ensayos no recibió el aviso: va a alertar/);
   assert.equal((await fuera(["ensayo", "--sin-sentido"], { entrada: LLAVE })).codigo, 2);
+  // Si la base desechable no se pudo borrar, no se calla: tiene una copia de los datos del negocio
+  // (revisión de Codex del 3 de noviembre, H5).
+  const sinBorrar = await fuera(["ensayo"], { entrada: LLAVE, mas: { DOCKER_RM: "1" } });
+  assert.notEqual(sinBorrar.codigo, 0, "dijo que todo bien con la base desechable todavía ahí");
+  assert.match(sinBorrar.queja, /No se pudo borrar la base desechable del ensayo \(feruga-fuera-base-\d+\).*docker rm -f feruga-fuera-base-\d+/s);
   const conBase = await fuera(["ensayo"], { entrada: LLAVE, entorno: "RESPALDO_DESTINO=respaldo:x/y\nWEB_BD_CLAVE=abc\n" });
   assert.equal(conBase.codigo, 1);
   assert.ok(!conBase.llamadas.some((l) => l.startsWith("run -d ")), "arrancó una base con un entorno que no debía");

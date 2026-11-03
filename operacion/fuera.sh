@@ -36,8 +36,18 @@ propia=""
 limpiar() {
   resultado=$?
   trap - 0
-  if [ -n "$base" ]; then docker rm -f "$base" >/dev/null 2>&1 || true; fi
-  if [ -n "$propia" ] && [ -z "$red" ]; then docker network rm "$propia" >/dev/null 2>&1 || true; fi
+  if [ -n "$base" ]; then
+    # Se intenta dos veces, y se comprueba que ya no está: si queda, se dice —tiene una copia de los
+    # datos del negocio— y no se da por bueno. (Revisión de Codex del 3 de noviembre, H5.)
+    docker rm -f "$base" >/dev/null 2>&1 || docker rm -f "$base" >/dev/null 2>&1 || true
+    if ! quedo=$(docker ps -aq --filter "name=^${base}\$" 2>/dev/null) || [ -n "$quedo" ]; then
+      echo "No se pudo borrar la base desechable del ensayo (${base}): tiene una copia de los datos del negocio. Bórrala: docker rm -f ${base}" >&2
+      [ "$resultado" != 0 ] || resultado=1
+    fi
+  fi
+  if [ -n "$propia" ] && [ -z "$red" ]; then
+    docker network rm "$propia" >/dev/null 2>&1 || echo "No se pudo borrar la red del ensayo (${propia}); no lleva datos: docker network rm ${propia}" >&2
+  fi
   exit "$resultado"
 }
 
@@ -65,8 +75,16 @@ herramienta() {
 entorno_de_recuperacion() {
   entorno=${FUERA_ENTORNO:-recuperacion.env}
   [ -f "$entorno" ] || falla "Falta $entorno: la credencial de recuperación del almacenamiento (ver docs/operacion.md, sección 1). Con otro nombre: FUERA_ENTORNO=<archivo>."
-  if grep -Eq '^(DATABASE_URL|BD_CLAVE|WEB_BD_CLAVE|WEB_BD_USUARIO)=' "$entorno"; then
-    falla "$entorno trae datos de la base del servidor (DATABASE_URL, BD_CLAVE…): ahí solo va lo del almacenamiento y el vigilante de los ensayos."
+  # Solo lo que se conoce, y como lo lee Docker: un renglón con espacios delante, o un nombre suelto
+  # —que hereda su valor de esta terminal—, también le llega al contenedor. (Revisión de Codex del 3 de
+  # noviembre, H4.) Se aceptan renglones vacíos y comentarios que empiezan con #.
+  mal=$(awk '
+    /^[[:space:]]*$/ || /^#/ { next }
+    /^(RESPALDO_DESTINO|RESPALDO_DESTINO_DIARIO|ENSAYO_VIGIA_URL)=/ { next }
+    /^RCLONE_CONFIG_[A-Z0-9]+_[A-Z0-9_]+=/ { next }
+    { print NR; exit }' "$entorno") || falla "No se pudo leer $entorno."
+  if [ -n "$mal" ]; then
+    falla "$entorno, renglón $mal: ahí solo va lo del almacenamiento (RESPALDO_DESTINO, RESPALDO_DESTINO_DIARIO, RCLONE_CONFIG_…) y ENSAYO_VIGIA_URL, cada uno al principio del renglón. Nada de la base del servidor ni otras variables."
   fi
 }
 
