@@ -332,8 +332,9 @@ desechable, pase lo que pase. No toca el servidor. Si dice «El ensayo NO pasó�
 pudo restaurar: es urgente, aunque el negocio siga operando.
 
 `recuperacion.env` lleva lo mismo que el `.env` del servidor para el almacenamiento, pero con la
-credencial que solo lee, y a quién avisar del ensayo; nada de la base del servidor (`fuera.sh` se
-niega si lo trae):
+credencial que solo lee, y a quién avisar del ensayo. Solo esas variables, cada una al principio
+del renglón (se admiten renglones vacíos y comentarios con `#`); `fuera.sh` se niega con cualquier
+otra cosa, y dice en qué renglón:
 
 ```
 RESPALDO_DESTINO=respaldo:<depósito>/feruga
@@ -387,7 +388,7 @@ Por eso los respaldos son cada hora: lo que se puede perder es, cuando mucho, un
 |---|---|---|
 | `SESION_CLAVE` | Deja fuera a todos los equipos: hay que darlos de alta otra vez, con código nuevo. | `.env`, y `sh operacion/levantar.sh` |
 | `WEB_BD_CLAVE` (el usuario con que la aplicación entra a la base) | Nada que se note. | `.env`, y `sh operacion/levantar.sh`: la clave se le pone al usuario cada vez |
-| `BD_CLAVE` (administración de la base) | La base se reinicia unos segundos: hacerlo fuera de horario. Nada más se nota. | **Cambiar solo el archivo no cambia la clave de una base que ya existe.** `sh operacion/cambiar-clave-de-la-base.sh`: inventa una nueva, la pone en la base, comprueba que con ella se entra y con la de antes ya no, la escribe en el `.env` y levanta lo publicado. No la enseña. Si alguien ya cambió el `.env` a mano, se niega y lo dice: entonces `… --la-del-env` pone en la base la que dice el `.env` |
+| `BD_CLAVE` (administración de la base) | La base se reinicia unos segundos: hacerlo fuera de horario. Nada más se nota. | **Cambiar solo el archivo no cambia la clave de una base que ya existe.** `sh operacion/cambiar-clave-de-la-base.sh`: inventa una nueva, la pone en la base, comprueba que con ella se entra y con la de antes ya no, la escribe en el `.env` y levanta lo publicado. No la enseña, ni la base la puede anotar en su registro (le llega ya cifrada). Si se interrumpe, deja junto al `.env` un `.env.nueva`: mientras esté, levantar, publicar y volver no entran; correr el guion otra vez lo termina. Si alguien ya cambió el `.env` a mano, se niega y lo dice: entonces `… --la-del-env` pone en la base la que dice el `.env` |
 | La credencial del almacenamiento (la del servidor) | Si queda mal puesta, los respaldos fallan y llega el aviso. | Se crea la nueva con el proveedor, va al `.env`, y `sh operacion/levantar.sh`. Tomar un respaldo enseguida para ver que sube |
 | La credencial de recuperación | — | Con el proveedor. Va al paquete, no al servidor |
 | La llave de los respaldos | Los respaldos nuevos se cifran y se sellan con la nueva. **Los anteriores se abren con la anterior**, y el servidor los sigue comprobando con el sello de la anterior —solo los de antes del cambio—: sin él, los diarios de antes se avisarían como perdidos. | Se genera otra pareja fuera del servidor (2.2). Fuera del servidor, con la llave **anterior** y el momento del cambio: `sh operacion/fuera.sh sello --hasta=2026-12-01T06:00:00Z < llave-anterior.txt`. Al `.env` van la pública y el sello nuevos **y** ese renglón (`RESPALDO_SELLOS_ANTERIORES`; si ya había uno, se agrega con una coma). `sh operacion/levantar.sh`; se toma un respaldo y se comprueba desde fuera, con la llave nueva (2.4). La llave anterior se conserva en el paquete, y su sello en el `.env`, mientras existan respaldos suyos: 30 días los de cada hora, un año los diarios. **Si la llave se cambia porque alguien más pudo tenerla, su sello no se pone**: con él se podría hacer pasar algo por un respaldo de antes; los diarios de antes se avisarán como perdidos, y se comprueban a mano con la llave anterior |
@@ -430,6 +431,10 @@ aplicación; o la base volvió de un respaldo sin pasar por el programa que rest
 arregla reiniciando.
 
 **Una publicación quedó a medias.** `sh operacion/publicar.sh --recuperar` (sección 5).
+
+**«Un cambio de la clave de la base quedó a medias».** Se interrumpió `cambiar-clave-de-la-base.sh`
+(sección 8). Se corre otra vez: mira qué clave tiene la base y lo termina, o lo descarta si no
+llegó. No se borra el `.env.nueva` a mano: puede ser lo único que tiene la clave que ya está en la base.
 
 **Alguien quedó bloqueado por teclear mal su clave.** Se desbloquea solo: cinco minutos la primera
 vez, quince la segunda, una hora de ahí en adelante. Si urge, cambiarle la clave lo desbloquea.
