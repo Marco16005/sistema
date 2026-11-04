@@ -212,12 +212,20 @@ test("por correo: entra con su usuario, manda a cada destinatario, con el asunto
   }
 });
 
-test("el latido le dice al vigilante que el sitio contesta, y que no, con por qué", async () => {
+test("el latido le dice al vigilante que el sitio contesta, y que no, con por qué; un tropiezo suelto no es falla", async () => {
   const dicho: string[] = [];
   const vigia = { inicio: async () => {}, bien: async () => { dicho.push("bien"); }, fallo: async (_c: string, que: string) => { dicho.push(`falló: ${que}`); } };
-  await latir(async () => ({ abierta: true }), vigia);
-  await latir(async () => { throw new Error("el sitio no contestó a tiempo"); }, vigia);
-  assert.deepEqual(dicho, ["bien", "falló: el sitio no contestó a tiempo"]);
+  const sinEsperar = { reintentarEn: 0 };
+  await latir(async () => ({ abierta: true }), vigia, undefined, sinEsperar);
+  // Falla las dos veces: eso sí se avisa, con el porqué de la última.
+  let veces = 0;
+  await latir(async () => { veces += 1; throw new Error(`el sitio no contestó a tiempo (${veces})`); }, vigia, undefined, sinEsperar);
+  assert.equal(veces, 2, "no lo volvió a intentar antes de avisar");
+  // Falla una vez y a la segunda contesta: un momento de carga (un respaldo, una publicación), no una
+  // caída. Avisarlo haría sonar al vigilante en falso. (Lo mostró el ensayo, con la máquina cargada.)
+  let una = 0;
+  await latir(async () => { una += 1; if (una === 1) throw new Error("tardó"); return { abierta: true }; }, vigia, undefined, sinEsperar);
+  assert.deepEqual(dicho, ["bien", "falló: el sitio no contestó a tiempo (2)", "bien"]);
 });
 
 const DIA = 86_400_000;

@@ -195,12 +195,21 @@ export async function revisarSitio(o: {
 }
 
 /** Un latido: si el sitio contesta, se le dice al vigilante; si no, también, con por qué. */
-export async function latir(estado: () => Promise<unknown>, vigia: Vigilante, corrida: string = randomUUID()): Promise<void> {
+export async function latir(
+  estado: () => Promise<unknown>, vigia: Vigilante, corrida: string = randomUUID(), o: { reintentarEn?: number } = {},
+): Promise<void> {
   try {
     await estado();
-  } catch (e) {
-    await vigia.fallo(corrida, (e as Error).message);
-    return;
+  } catch {
+    // Un tropiezo suelto —un momento de carga, un respaldo o una publicación a la vez— no es una caída:
+    // se vuelve a preguntar una vez, y solo si falla otra vez se avisa (con el porqué de la segunda).
+    await new Promise((sigue) => setTimeout(sigue, o.reintentarEn ?? 15_000));
+    try {
+      await estado();
+    } catch (e) {
+      await vigia.fallo(corrida, (e as Error).message);
+      return;
+    }
   }
   await vigia.bien(corrida);
 }
