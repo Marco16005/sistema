@@ -591,7 +591,7 @@ atiende_con "$ultima" "publicada sobre la base restaurada"
 
 # ── se perdió la máquina ───────────────────────────────────────────────────
 
-paso "Se perdió la máquina: en otra, sin nada local, se instala desde un respaldo, con la versión construida de su commit"
+paso "Se perdió la máquina: en otra, sin nada local, se instala desde el diario como estaba antes de que pisaran sus objetos"
 # Cada respaldo dice qué publicación corría cuando se tomó, y con ella de qué commit era.
 # Lo dice su manifiesto, y solo se le cree con el sello de la llave del dueño: la llave entra por la entrada estándar.
 version_con() { de_quien=$1; shift; por_fuera run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts "$@" <"$de_quien"; }
@@ -608,6 +608,42 @@ dijo "no lleva el sello de este negocio" || { dicho; falla "con otra llave, no d
 if version_con "$trabajo/otra-llave.txt" >"$trabajo/salida" 2>&1; then dicho; falla "con otra llave, dio por bueno el último respaldo"; fi
 if version_con /dev/null "$el_respaldo" >"$trabajo/salida" 2>&1; then dicho; falla "sin la llave dijo de qué versión es el respaldo"; fi
 
+# El respaldo recién tomado se conserva también en el depósito anual. El diario automático del
+# día puede ser anterior: aquí elegimos esta instantánea para comparar todo lo asentado al final.
+almacen_del_ensayo() {
+  arnes run --rm --no-deps -T -e MC_HOST_c=http://raiz:raiz-solo-para-el-ensayo@almacen-ensayo:9000 \
+    --entrypoint mcli almacen_listo --quiet "$@"
+}
+el_manifiesto=${el_respaldo%.dump.age}.manifiesto.json
+for objeto in "$el_respaldo" "$el_manifiesto"; do
+  almacen_del_ensayo cp "c/ensayo/feruga/$objeto" "c/ensayo-diario/feruga/$objeto" >/dev/null \
+    || falla "no se pudo conservar el respaldo en el diario"
+done
+# Solo para este ensayo: credencial con lectura de versiones del diario y escritura para el
+# servicio de respaldo que esta instalación debe reponer al terminar.
+# La del servidor no tiene ese permiso. Se usa otra identidad; no se amplía la del servidor.
+# shellcheck disable=SC2016  # $1 lo expande el sh del contenedor, con el JSON como argumento
+arnes run --rm --no-deps -T -e MC_HOST_c=http://raiz:raiz-solo-para-el-ensayo@almacen-ensayo:9000 \
+  --entrypoint sh almacen_listo -eu -c '
+    printf "%s\n" "$1" >/tmp/lectura.json
+    mcli --quiet admin user add c recuperacion recuperacion-solo-para-el-ensayo
+    mcli --quiet admin policy create c recuperacion /tmp/lectura.json
+    mcli --quiet admin policy attach c recuperacion --user recuperacion
+  ' sh '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:ListBucketVersions"],"Resource":["arn:aws:s3:::ensayo-diario"]},{"Effect":"Allow","Action":["s3:GetObject","s3:GetObjectVersion","s3:PutObject"],"Resource":["arn:aws:s3:::ensayo-diario/feruga/*"]}]}' >/dev/null || falla "no se pudo preparar la credencial de recuperación del ensayo"
+sleep 1
+como_estaba=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+sleep 2
+for objeto in "$el_respaldo" "$el_manifiesto"; do
+  printf 'objeto pisado después del respaldo\n' | almacen_del_ensayo pipe "c/ensayo-diario/feruga/$objeto" >/dev/null \
+    || falla "no se pudo pisar el objeto del diario"
+  # La vista actual ya no sirve: tampoco se puede acertar leyendo por error del depósito horario.
+  printf 'objeto pisado después del respaldo\n' | almacen_del_ensayo pipe "c/ensayo/feruga/$objeto" >/dev/null \
+    || falla "no se pudo pisar el objeto horario"
+done
+if version_de --diario "$el_respaldo" >"$trabajo/salida" 2>&1; then dicho; falla "el diario pisado pasó sin pedir su versión anterior"; fi
+# Las credenciales de recuperación se usan solo en la instalación nueva; el .env original conserva
+# la de escritura para los respaldos que se tomarán una vez recuperado el servicio.
+
 # La máquina se pierde: lo que corría, la base, las imágenes y la carpeta de publicaciones. Queda
 # lo de fuera —el almacenamiento, con los respaldos—, el repositorio y el entorno. (El volumen de
 # los certificados se conserva: en el ensayo, quienes confían en la autoridad del proxy ya leyeron
@@ -623,7 +659,10 @@ for imagen in $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E "^
 done
 if docker image inspect "$web_de_entonces" >/dev/null 2>&1; then falla "la imagen de la aplicación sigue en la máquina: no se probaría que se vuelve a construir"; fi
 
-instalar() { env "$@" sh operacion/publicar.sh --desde-respaldo >"$trabajo/salida" 2>&1; }
+instalar() {
+  env RCLONE_CONFIG_DIARIO_ACCESS_KEY_ID=recuperacion RCLONE_CONFIG_DIARIO_SECRET_ACCESS_KEY=recuperacion-solo-para-el-ensayo \
+    "$@" sh operacion/publicar.sh "--desde-respaldo=$el_respaldo" --diario "--como-estaba=$como_estaba" >"$trabajo/salida" 2>&1
+}
 # Sin la llave no se toca nada; y con otra que no es la del respaldo, no queda ninguna base a medias.
 if instalar </dev/null; then dicho; falla "instaló desde un respaldo sin la llave"; fi
 dijo "No llegó la llave privada" || { dicho; falla "sin la llave, no dijo qué faltaba"; }
