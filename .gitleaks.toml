@@ -1,0 +1,13 @@
+# gitleaks: las reglas de siempre, y como excepción SOLO los valores de mentira de las pruebas (no los
+# archivos enteros: un secreto de verdad en esas pruebas se tiene que detectar igual).
+#   docker run --rm --network none -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.30.1 git /repo --redact
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Valores de mentira de las pruebas"
+regexes = [
+  '''secretoDel(Servidor|Diario)0123456789''',
+  '''llaveDel(Servidor|Diario)''',
+  '''AGE-SECRET-KEY-1Q{58}''',
+]
