@@ -14,6 +14,12 @@
 x-respaldo: &respaldo
   image: "${IMAGEN_RESPALDO:?Falta IMAGEN_RESPALDO. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
   pull_policy: never
+  # Con lo mínimo: sin ganar privilegios y sin capacidades del núcleo (no las usa). Si alguien
+  # encontrara un hueco, dentro tendría menos con qué moverse.
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
   environment: &entorno-del-respaldo
     DATABASE_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db:5432/feruga"
     MODO: ${MODO:-}
@@ -74,6 +80,9 @@ services:
   db:
     image: "${IMAGEN_DB:?Falta IMAGEN_DB. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Sin ganar privilegios. Sus capacidades se quedan: la imagen oficial cambia de usuario al arrancar.
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       comprobacion:
         condition: service_completed_successfully
@@ -83,16 +92,31 @@ services:
     build: !reset null
     image: "${IMAGEN_ADMIN:?Falta IMAGEN_ADMIN. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   consola:
     build: !reset null
     image: "${IMAGEN_ADMIN:?Falta IMAGEN_ADMIN. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   web:
     build: !reset null
     image: "${IMAGEN_WEB:?Falta IMAGEN_WEB. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       # La publicación que contesta. La salud se lo dice solo al comprobador de la instalación.
       VERSION: "${VERSION:?Falta VERSION. En operación la pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
@@ -114,6 +138,13 @@ services:
   proxy:
     image: "${IMAGEN_PROXY:?Falta IMAGEN_PROXY. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Sin ganar privilegios, y de las capacidades del núcleo solo la de abrir los puertos 80 y 443.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     environment:
       DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
     ports:

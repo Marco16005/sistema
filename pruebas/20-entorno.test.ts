@@ -230,6 +230,39 @@ test("el migrador y el paso del usuario de conexión se niegan a correr con clav
     assert.match(stdout, /aplicadas: 0001/);
   }));
 
+test("en operación cada contenedor corre con lo mínimo: sin ganar privilegios, y sin capacidades del núcleo que no usa", async () => {
+  // Defensa en fondo: si alguien encontrara un hueco en la aplicación, dentro del contenedor tendría
+  // menos con qué moverse. (Lo señaló Checkov, en la revisión de seguridad del 4 de noviembre.)
+  const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
+  const bloque = (nombre: string): string => {
+    const desde = operacion.search(new RegExp(`^(  ${nombre}:|x-${nombre}: &${nombre})$`, "m"));
+    assert.notEqual(desde, -1, `no está ${nombre}`);
+    const resto = operacion.slice(desde + 1);
+    const hasta = resto.search(/^(  [a-z_-]+:|[a-z]+:)$/m);
+    return hasta === -1 ? resto : resto.slice(0, hasta);
+  };
+  const sinPrivilegios = /security_opt:\n\s+- no-new-privileges:true/;
+  const sinCapacidades = /cap_drop:\n\s+- ALL/;
+  // El bloque que comparten la comprobación y el respaldo: sus claves van a dos espacios, hasta «services:».
+  const compartido = operacion.slice(operacion.indexOf("x-respaldo: &respaldo"), operacion.indexOf("\nservices:"));
+  assert.match(compartido, sinPrivilegios, "el respaldo y la comprobación pueden ganar privilegios");
+  assert.match(compartido, sinCapacidades, "el respaldo y la comprobación conservan capacidades");
+  assert.doesNotMatch(compartido, /cap_add:/, "el respaldo y la comprobación agregan capacidades");
+  for (const servicio of ["comprobacion", "respaldo"]) assert.doesNotMatch(bloque(servicio).replace(/^[^\n]*\n/, ""), /security_opt:|cap_drop:|cap_add:/, `${servicio} cambia lo del bloque compartido`);
+  // Los demás de Node (la migración, la consola y la aplicación): nada.
+  for (const servicio of ["migracion", "consola", "web"]) {
+    assert.match(bloque(servicio), sinPrivilegios, `${servicio} puede ganar privilegios`);
+    assert.match(bloque(servicio), sinCapacidades, `${servicio} conserva capacidades`);
+    assert.doesNotMatch(bloque(servicio), /cap_add:/, `${servicio} agrega capacidades`);
+  }
+  // El proxy: solo abrir los puertos 80 y 443.
+  assert.match(bloque("proxy"), sinPrivilegios, "el proxy puede ganar privilegios");
+  assert.match(bloque("proxy"), sinCapacidades, "el proxy conserva capacidades");
+  assert.match(bloque("proxy"), /cap_add:\n\s+- NET_BIND_SERVICE\n(?!\s+- )/, "el proxy agrega más que abrir puertos");
+  // La base cambia de usuario al arrancar (su imagen oficial): sin ganar privilegios, con sus capacidades.
+  assert.match(bloque("db"), sinPrivilegios, "la base puede ganar privilegios");
+});
+
 test("en operación cada servicio corre con una imagen que no se mueve: por su identificador, sin construir al levantar, y de bases fijadas por su huella", async () => {
   const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
   /** El trozo del archivo que define ese servicio (o ese bloque compartido). */
