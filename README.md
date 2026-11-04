@@ -523,18 +523,29 @@ En el servidor corre el mismo Compose, más `docker-compose.operacion.yml`: un p
 lo único que se publica a la red y atiende por HTTPS con un certificado que él mismo pide y
 renueva; el servicio que respalda a su hora; y una comprobación del entorno que corre antes que todo.
 
+En el servidor:
+
 ```bash
 sudo sh operacion/servidor.sh                # una vez, en un Ubuntu 24.04 nuevo: Docker, cortafuegos, actualizaciones (docs/operacion.md, 2.1)
 sh operacion/entorno.sh patio.ejemplo.mx     # una vez: genera .env con claves nuevas; falta llenar lo del respaldo
-sh operacion/fuera.sh llave > llave-privada.txt   # FUERA del servidor, con solo Docker: la llave, y los dos renglones que van al .env
 sh operacion/publicar.sh                     # publica el commit de esta carpeta (también la primera vez)
 sh operacion/levantar.sh                     # levanta lo publicado, o lo pone al día después de cambiar el .env
 sh operacion/compose.sh ps                   # «docker compose», sobre lo publicado: registros, consola, respaldar a mano
 sh operacion/publicar.sh --recuperar         # retoma una publicación que se interrumpió
 sh operacion/limpiar.sh                      # retira imágenes de versiones viejas (publicar ya lo hace al terminar bien)
-sh operacion/volver.sh < llave-privada.txt   # de una migración que falló: vuelve al respaldo que se tomó antes
-sh operacion/publicar.sh --desde-respaldo < llave-privada.txt   # en otra máquina, sin nada: instala desde un respaldo
 ```
+
+Fuera del servidor, en la computadora que guarda la llave (solo pide Docker y este repositorio; la
+llave y la credencial de recuperación, en una carpeta privada fuera del repositorio):
+
+```bash
+sh operacion/fuera.sh llave /carpeta/privada/llave-privada.txt       # la llave (no escribe encima de otra), y los dos renglones del .env
+ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/volver.sh' < /carpeta/privada/llave-privada.txt                      # de una migración que falló: vuelve al respaldo de antes
+ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/publicar.sh --desde-respaldo' < /carpeta/privada/llave-privada.txt  # en otra máquina, sin nada: instala desde un respaldo
+```
+
+La llave no se guarda en el servidor: le llega por SSH a la orden que la pide. Lo completo, con
+cada caso, en `docs/operacion.md`.
 
 **En operación no se usa `docker compose` a secas, y no arranca aunque se intente:** le faltan las
 imágenes, que las pone cada publicación. Nada se construye al levantar, y ninguna imagen va por
@@ -616,8 +627,9 @@ base en otra versión no se atiende ni a través del proxy, el mantenimiento, el
 vigilante, el candado, y que el certificado sobrevive a recrear el proxy.
 El de publicación mata el guion —de verdad, sin que limpie— antes y después del efecto de cada
 paso, y comprueba en cada caso en qué quedó el negocio y qué hace recuperar; vuelve al respaldo
-previo de una migración que se quedó a medias; y simula que se perdió la máquina, para instalar
-desde un respaldo con las imágenes guardadas fuera.
+previo de una migración que se quedó a medias; y simula que se perdió la máquina —quita la base, la
+carpeta de publicaciones y las imágenes de la aplicación— e instala desde un respaldo,
+reconstruyendo las imágenes del commit que acredita su manifiesto.
 Lo que no pueden ensayar: el certificado público del dominio real y el acceso desde otra máquina.
 
 ## Pendiente de datos de campo
