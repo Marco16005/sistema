@@ -528,8 +528,8 @@ ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/publicar.sh --desde-resp
 
 Si se interrumpe, se retoma con la misma orden (o sin las opciones: las recuerda); con otro respaldo,
 otro depósito u otro momento, se niega. No se cambian los destinos del `.env` para simular nada de
-esto. *Instalar desde el diario «como estaba» está probado en las pruebas de los guiones; su paso en
-el simulacro de publicación está por terminarse (encargo 39 de Codex).*
+esto. El simulacro de publicación lo recorre: pierde la máquina, pisa el respaldo en los dos
+depósitos, e instala desde el diario como estaba antes, con lo asentado idéntico.
 
 **Lo que se asentó después de ese respaldo no está, y no vuelve solo.** Se concilia a mano:
 
