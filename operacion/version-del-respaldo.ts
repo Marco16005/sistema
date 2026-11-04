@@ -18,7 +18,7 @@
 // pudiera escribir en el almacenamiento decidía qué corría en el servidor nuevo, con la llave del
 // dueño enfrente.)
 //
-//   node operacion/version-del-respaldo.ts [<respaldo>] < llave-privada.txt    «respaldo publicación commit», del que se nombre o del último
+//   node operacion/version-del-respaldo.ts [<respaldo>] [--diario] [--como-estaba=<momento>] < llave-privada.txt    «respaldo publicación commit», del que se nombre o del último
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,19 +73,45 @@ export async function versionDe(destino: Destino, publica: string, objeto?: stri
   }
 }
 
+/** Opciones de lectura: el mismo destino y momento se usan para listar y leer el manifiesto. */
+export function opcionesDeVersion(args: string[]): { objeto?: string; diario: boolean; comoEstaba?: Date } {
+  let objeto: string | undefined;
+  let diario = false;
+  let comoEstaba: Date | undefined;
+  for (const arg of args) {
+    if (arg === "--diario" && !diario) diario = true;
+    else if (arg.startsWith("--como-estaba=") && comoEstaba === undefined) {
+      const texto = arg.slice("--como-estaba=".length);
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(texto) || Number.isNaN(Date.parse(texto))) {
+        throw new Error(`No entiendo esa fecha: ${texto}. Usa fecha y hora con zona, por ejemplo 2026-11-01T12:00:00Z.`);
+      }
+      comoEstaba = new Date(texto);
+    } else if (arg && !arg.startsWith("-") && objeto === undefined) objeto = arg;
+    else throw new Error(`Opción desconocida, repetida o argumento de más: ${arg}`);
+  }
+  return { diario, ...(objeto !== undefined ? { objeto } : {}), ...(comoEstaba ? { comoEstaba } : {}) };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const args = process.argv.slice(2);
-  if (args.length > 1 || process.stdin.isTTY) {
-    console.error("Uso: node operacion/version-del-respaldo.ts [<respaldo>] < llave-privada.txt");
-    console.error("La llave privada entra por la entrada estándar, desde un archivo: con ella se comprueba el sello del respaldo.");
+  let opciones: ReturnType<typeof opcionesDeVersion>;
+  try {
+    opciones = opcionesDeVersion(process.argv.slice(2));
+    if (process.stdin.isTTY) throw new Error("La llave privada entra por la entrada estándar, desde un archivo: con ella se comprueba el sello del respaldo.");
+  } catch (e) {
+    console.error((e as Error).message);
+    console.error("Uso: node operacion/version-del-respaldo.ts [<respaldo>] [--diario] [--como-estaba=<momento>] < llave-privada.txt");
     process.exit(2);
   }
   try {
     // Sirve también en otra máquina, con la credencial de recuperación: necesita llegar al destino, y la llave.
-    if (!process.env.RESPALDO_DESTINO) throw new Error("Falta RESPALDO_DESTINO");
+    const variable = opciones.diario ? "RESPALDO_DESTINO_DIARIO" : "RESPALDO_DESTINO";
+    const destino = process.env[variable];
+    if (!destino) throw new Error(`Falta ${variable}`);
     let llave = "";
     for await (const trozo of process.stdin) llave += trozo;
-    const de = await versionDe(destinoRclone(process.env.RESPALDO_DESTINO, {}, { sello: claveDeSello(llave) }), identidadDe(llave).publica, args[0]);
+    const de = await versionDe(destinoRclone(destino, {}, {
+      sello: claveDeSello(llave), ...(opciones.comoEstaba ? { comoEstaba: opciones.comoEstaba } : {}),
+    }), identidadDe(llave).publica, opciones.objeto);
     console.log(`${de.objeto} ${de.publicacion} ${de.commit}`);
   } catch (e) {
     console.error((e as Error).message);

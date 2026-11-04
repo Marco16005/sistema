@@ -11,7 +11,7 @@ import { conCubo } from "./almacen.ts";
 import { llaves } from "./patio.ts";
 import { claveDeSello, destinoRclone, nombreDeManifiesto, nombreDeObjeto, selloDe } from "../operacion/destino.ts";
 import type { Manifiesto } from "../operacion/destino.ts";
-import { versionDe } from "../operacion/version-del-respaldo.ts";
+import { opcionesDeVersion, versionDe } from "../operacion/version-del-respaldo.ts";
 
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
 const PUB = "20261006T211000Z-fedcba987654-000002";
@@ -139,3 +139,77 @@ test("un respaldo que dice una publicación que no lo es no sirve para saber en 
     // Lo que diga el manifiesto va a dar a un guion: tiene que ser el identificador de una publicación, y nada más.
     await assert.rejects(versionDe(destino, llave.publica, objeto), /dice algo que no puede ser/);
   }));
+
+
+test("version-del-respaldo entiende diario y momento en cualquier orden y rechaza opciones ambiguas", async () => {
+  const momento = "2026-11-01T06:00:00-06:00";
+  assert.deepEqual(opcionesDeVersion(["--diario", `--como-estaba=${momento}`, "respaldo"]), {
+    diario: true, objeto: "respaldo", comoEstaba: new Date("2026-11-01T12:00:00Z"),
+  });
+  assert.deepEqual(opcionesDeVersion([]), { diario: false });
+  for (const args of [
+    ["--diario", "--diario"], ["--diario=x"], ["--remoto"], ["--desconocida"], ["uno", "dos"],
+    ["--como-estaba="], ["--como-estaba=ayer"], ["--como-estaba=2026-11-01"],
+    ["--como-estaba=2026-11-01T12:00:00"], ["--como-estaba=2026-13-01T12:00:00Z"],
+    [`--como-estaba=${momento}`, `--como-estaba=${momento}`],
+  ]) {
+    const fin = await orden(args, {});
+    assert.equal(fin.codigo, 2, args.join(" "));
+    assert.match(fin.queja, /Uso:.*\[--diario\].*\[--como-estaba=<momento>\]/);
+    assert.match(fin.queja, /No entiendo esa fecha|Opción desconocida, repetida o argumento de más/);
+    assert.equal(fin.salida, "");
+  }
+  const falta = await orden(["--diario"], { RESPALDO_DESTINO: "prueba:horario/feruga" });
+  assert.equal(falta.codigo, 1);
+  assert.match(falta.queja, /Falta RESPALDO_DESTINO_DIARIO/);
+});
+
+test("el diario con la llave anterior se identifica por nombre o como último; el momento lee la versión anterior del manifiesto pisado", () =>
+  conCubo(async (cubo) => {
+    const anterior = await llaves();
+    const nueva = await llaves();
+    const credencial = await cubo.credencial({ "*": ["s3:GetObject", "s3:GetObjectVersion"] }, ["s3:ListBucket", "s3:ListBucketVersions"]);
+    const entorno = {
+      ...cubo.entorno(credencial), RESPALDO_DESTINO_DIARIO: cubo.destino,
+      RESPALDO_DESTINO: `${cubo.destino}/horario-vacio`, RESPALDO_LLAVE_PUBLICA: nueva.publica,
+      RESPALDO_SELLO: claveDeSello(nueva.privada),
+      RESPALDO_SELLOS_ANTERIORES: `${claveDeSello(anterior.privada)}@2026-11-01T12:00:00Z`,
+    };
+    const corrida = "88888888-8888-4888-8888-888888888888";
+    const instante = "2026-10-06T18:00:00.000Z";
+    const objeto = nombreDeObjeto(new Date(instante), corrida);
+    const dicho: Omit<Manifiesto, "sello"> = {
+      formato: 1, corrida, instantanea: instante, objeto, bytes: 2000, sha256: "a".repeat(64),
+      pgDump: "pg_dump (PostgreSQL) 17.6", llavePublica: anterior.publica, esquema: "0026_mantenimiento.sql", publicacion: PUB,
+    };
+    await cubo.poner(objeto, randomBytes(2000));
+    await cubo.poner(nombreDeManifiesto(objeto), sellado(dicho, anterior.privada));
+    const esperado = `${objeto} ${PUB} fedcba987654`;
+    for (const args of [["--diario"], [objeto, "--diario"]]) {
+      const fin = await orden(args, entorno, anterior.privada);
+      assert.equal(fin.codigo, 0, fin.queja);
+      assert.equal(fin.salida, esperado);
+    }
+    assert.match((await orden([], entorno, anterior.privada)).queja, /No hay ningún respaldo/);
+    assert.equal((await orden(["--diario", objeto], entorno, nueva.privada)).codigo, 1);
+    const momento = new Date().toISOString();
+    // S3 distingue las versiones por su hora de escritura, no por la fecha del respaldo.
+    await new Promise((r) => setTimeout(r, 1100));
+    const otraPublicacion = "20261006T221000Z-aaaaaaaaaaaa-000003";
+    await cubo.poner(nombreDeManifiesto(objeto), sellado({ ...dicho, publicacion: otraPublicacion }, anterior.privada));
+    assert.equal((await orden([objeto, "--diario"], entorno, anterior.privada)).salida, `${objeto} ${otraPublicacion} aaaaaaaaaaaa`);
+    for (const args of [["--diario", `--como-estaba=${momento}`], [objeto, `--como-estaba=${momento}`, "--diario"]]) {
+      const fin = await orden(args, entorno, anterior.privada);
+      assert.equal(fin.codigo, 0, fin.queja);
+      assert.equal(fin.salida, esperado);
+    }
+    // La misma lectura histórica también funciona en el depósito horario.
+    const horario = await orden([`--como-estaba=${momento}`, objeto], { ...entorno, RESPALDO_DESTINO: cubo.destino }, anterior.privada);
+    assert.equal(horario.codigo, 0, horario.queja);
+    assert.equal(horario.salida, esperado);
+    await cubo.poner(nombreDeManifiesto(objeto), Buffer.from("manifiesto pisado"));
+    const roto = await orden([objeto, "--diario"], entorno, anterior.privada);
+    assert.equal(roto.codigo, 1);
+    assert.equal(roto.salida, "");
+    assert.equal((await orden([objeto, "--diario", `--como-estaba=${momento}`], entorno, anterior.privada)).salida, esperado);
+  }, { remoto: "diario", retencion: "365d" }));

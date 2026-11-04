@@ -10,7 +10,7 @@ con los guiones. Dictamen: «todavía no está lista para seguirse literalmente�
 |---|---|
 | H06 (alta): `fuera.sh llave > archivo` podía borrar la única llave (la terminal vacía el archivo antes de que arranque el guion) | `fuera.sh llave <archivo>`: lo crea el guion, solo para su dueño, y se niega si ya existe; la llave no sale en pantalla — `4f43a8d` |
 | H18: la llave y `recuperacion.env` se pedían dentro de la carpeta del sistema, sin estar ignorados | La guía los manda a una carpeta privada fuera del repositorio, y `llave*.txt` y `recuperacion*.env` van en `.gitignore` y `.dockerignore` por si acaso — `4f43a8d` |
-| H22 y H14 (altas): instalar desde un respaldo solo sabía del depósito de cada hora, y no podía leer el almacenamiento como estaba antes de una intrusión | Encargado a Codex (encargo 39): `publicar.sh --desde-respaldo` con `--diario` y `--como-estaba`. Mientras llega, la guía lo dice tal cual |
+| H22 y H14 (altas): instalar desde un respaldo solo sabía del depósito de cada hora, y no podía leer el almacenamiento como estaba antes de una intrusión | Lo construyó Codex (encargo 39): `publicar.sh --desde-respaldo` y `version-del-respaldo.ts` aceptan `--diario` y `--como-estaba=MOMENTO`, se recuerdan al retomar y se niegan si se cambian; con pruebas (35: 5/5, 36: 26/26). `fuera.sh version` las pasa igual. Su paso en el simulacro de publicación quedó a medias (se le acabó la cuota a Codex) y se termina aparte |
 | — | Los comentarios del `.env` que genera `entorno.sh` todavía decían `node operacion/sello.ts`: ahora `fuera.sh sello` |
 
 **En la guía** (`docs/operacion.md`) y el README, todos los demás:

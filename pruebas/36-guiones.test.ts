@@ -743,3 +743,95 @@ test("el plan real conserva dos publicadas, una pendiente y su anterior; tras re
     await writeFile(join(carpeta, P2, "manifiesto.json"), "roto");
     await assert.rejects(plan(carpeta, "prueba", "dddddddddddd"), /no se entiende/);
   }));
+
+// La selección debe acompañar la lectura del manifiesto, la restauración y una reanudación.
+test("publicar rechaza diario y momento fuera de instalar, duplicados y argumentos que antes se ignoraban", () =>
+  conInstalacion(async (i) => {
+    for (const args of [
+      ["--diario"], ["--como-estaba=2026-11-01T12:00:00Z"], ["--recuperar", "--diario"],
+      ["--recuperar", "--como-estaba=2026-11-01T12:00:00Z"], ["--recuperar", "--desde-respaldo"],
+      ["--desde-respaldo", "--recuperar"], ["--desde-respaldo="], ["--desde-respaldo", "--diario=x"],
+      ["--desde-respaldo", "--diario", "--diario"], ["--desde-respaldo", "--como-estaba="],
+      ["--desde-respaldo", "--como-estaba=x", "--como-estaba=y"], ["--desde-respaldo", "--desde-respaldo=x"],
+      ["--desde-respaldo", "sobrante"], ["--recuperar", "sobrante"], ["--desde-respaldo", "--desconocida"],
+    ]) {
+      const fin = await i.guion("publicar.sh", args);
+      assert.equal(fin.codigo, 1, args.join(" "));
+      assert.match(fin.queja, /--diario y --como-estaba solo se usan con --desde-respaldo/);
+    }
+    assert.deepEqual(await i.llamadas(), []);
+  }));
+
+test("instalar transmite depósito y momento a ambas lecturas, los conserva al retomar y rechaza cambiarlos", () =>
+  conInstalacion(async (i) => {
+    const texto = await readFile(join(OPERACION, "publicar.sh"), "utf8");
+    const opciones = texto.slice(texto.indexOf("uso() {"), texto.indexOf("\n. operacion/candado.sh"));
+    const instalar = texto.slice(texto.indexOf("instalar() {"), texto.lastIndexOf("\npreparar_herramientas"));
+    const objeto = "2026/10/06/20261006T211100Z-0a0a0a0a-0b0b-4c0c-8d0d-0e0e0e0e0e0e.dump.age";
+    const publicacion = "20261006T211000Z-aaaaaaaaaaaa-000002";
+    const momento = "2026-11-01T12:00:00Z";
+    await i.docker(`case "$*" in *"version-del-respaldo.ts"*) echo '${objeto} ${publicacion} aaaaaaaaaaaa' ;; esac`);
+    const ejecutar = (args: string[]) => i.sh(`
+      set -- ${args.map((a) => `'${a}'`).join(" ")}
+      ${opciones}
+      ${instalar}
+      PUBLICACIONES=publicaciones; privado=privado; HERRAMIENTAS=herramientas
+      mkdir -p "$PUBLICACIONES" "$privado"
+      paso() { :; }; punto() { :; }; exigir_carpeta_limpia() { :; }
+      commit_actual() { echo aaaaaaaaaaaa1234; }; nombre_del_proyecto() { echo prueba; }
+      manifiesto() {
+        case "$1 \${2:-}" in
+          'pendiente ') [ ! -f publicaciones/pub/desde-respaldo ] || echo pub ;;
+          'identificador '*) echo pub ;;
+          'dato pub') [ "$3" != commit ] || echo aaaaaaaaaaaa1234 ;;
+        esac
+        return 0
+      }
+      resolver() { echo '{}'; }; construir() { variables=IMAGEN_DB=db; }
+      arrancar() { :; }; estado_de_la_base() { echo '{"base":"no hay"}'; }
+      opcion_del_ensayo() { :; }
+      manifiesto_con_entrada() { mkdir -p publicaciones/pub; cat >publicaciones/pub/conjunto.json; }
+      esperar_lo_que_quedo() { :; }; en_el_servidor() { :; }
+      en_la_base() { case "$2" in estado) echo true ;; esac; }
+      levantar_cerrada() { exit 0; }; sin_cerrar() { echo "$1" >&2; exit 1; }
+      # La llave sigue entrando por stdin, incluso en este arnés.
+      printf 'llave de prueba\\n' | instalar
+    `);
+    for (const [args, deposito, fecha] of [
+      [["--desde-respaldo"], "remoto", "-"],
+      [["--desde-respaldo", `--como-estaba=${momento}`], "remoto", momento],
+      [["--diario", "--desde-respaldo"], "diario", "-"],
+      [[`--desde-respaldo=${objeto}`, "--diario", `--como-estaba=${momento}`], "diario", momento],
+    ] as const) {
+      await rm(join(i.carpeta, "publicaciones"), { recursive: true, force: true });
+      await rm(join(i.carpeta, "docker.llamadas"), { force: true });
+      const fin = await ejecutar([...args]);
+      assert.equal(fin.codigo, 0, fin.queja);
+      const llamadas = await i.llamadas();
+      const version = llamadas.find((l) => l.includes("version-del-respaldo.ts"))!;
+      const restaurar = llamadas.find((l) => l.includes("restaurar.ts"))!;
+      assert.ok(version, "no se acreditó el manifiesto");
+      assert.ok(restaurar.includes(`--${deposito}=${objeto}`), restaurar);
+      assert.equal(version.includes("--diario"), deposito === "diario");
+      for (const llamada of [version, restaurar]) assert.equal(llamada.includes(`--como-estaba=${momento}`), fecha !== "-");
+      assert.equal(await readFile(join(i.carpeta, "publicaciones/pub/desde-respaldo"), "utf8"), `${objeto} ${publicacion} ${deposito} ${fecha}\n`);
+      await rm(join(i.carpeta, "docker.llamadas"));
+      const retomada = await ejecutar(["--desde-respaldo"]);
+      assert.equal(retomada.codigo, 0, retomada.queja);
+      assert.equal((await i.llamadas()).find((l) => l.includes("restaurar.ts")), restaurar);
+      for (const [cambio, mensaje] of [
+        ["--desde-respaldo=otro", /otro respaldo/],
+        [`--como-estaba=2026-10-01T12:00:00Z`, /otro momento/],
+        ...(deposito === "remoto" ? [["--diario", /otro depósito/] as const] : []),
+      ] as const) {
+        const rechazada = await ejecutar(cambio.startsWith("--desde-respaldo") ? [cambio] : ["--desde-respaldo", cambio]);
+        assert.equal(rechazada.codigo, 1);
+        assert.match(rechazada.queja, mensaje);
+      }
+    }
+    // Una instalación pendiente creada por el guion anterior sigue siendo retomable.
+    await writeFile(join(i.carpeta, "publicaciones/pub/desde-respaldo"), `${objeto} ${publicacion}\n`);
+    const antigua = await ejecutar(["--desde-respaldo"]);
+    assert.equal(antigua.codigo, 0, antigua.queja);
+    assert.ok((await i.llamadas()).at(-1)!.includes(`--remoto=${objeto}`));
+  }));

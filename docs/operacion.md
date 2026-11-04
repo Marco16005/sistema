@@ -173,7 +173,8 @@ al paquete de recuperación y a ningún otro lado**. De ninguno de los dos se vu
 - **Dos depósitos**, los dos con versiones y retención con candado: el de cada hora, 30 días; el
   diario, 365. Está decidido que sea Backblaze B2; las pruebas se hicieron contra MinIO, y hay que
   repetirlas contra el depósito contratado.
-- **Para cada depósito, una credencial del servidor** que sube y lee lo cifrado de su carpeta y no
+- **Para cada depósito, una credencial del servidor** que sube y lee lo cifrado de su carpeta —también
+  las versiones anteriores de un objeto, que hacen falta para `--como-estaba` (sección 7)— y no
   puede borrar ni cambiar la retención. **Y una credencial de recuperación**, que solo lee: esa va
   al paquete (`recuperacion.env`, sección 6), no al servidor. Con ella se prepara ya
   `recuperacion.env` en la carpeta privada: se usa al terminar 2.4.
@@ -509,11 +510,26 @@ no toca nada. Las imágenes se construyen ahí mismo, de ese commit: del almacen
 nada que se vaya a ejecutar. Después sigue como cualquier publicación: levanta cerrado, comprueba y
 abre.
 
-Estas órdenes buscan en el depósito **de cada hora** (`RESPALDO_DESTINO`), y `--desde-respaldo=NOMBRE`
-elige dentro de él. *Instalar desde el depósito diario, o leyendo el almacenamiento como estaba en
-un momento anterior, se está agregando (encargo 39 de Codex); mientras, se prueba fuera con
-`fuera.sh ensayo --diario` o `--como-estaba` y se hace con soporte.* No se cambian los destinos del
-`.env` para simularlo.
+Así busca en el depósito **de cada hora** (`RESPALDO_DESTINO`), y `--desde-respaldo=NOMBRE` elige
+dentro de él. Dos opciones más, que se pueden juntar:
+
+- `--diario`: del depósito que guarda uno por día un año (`RESPALDO_DESTINO_DIARIO`), cuando lo de
+  cada hora ya venció o no sirve.
+- `--como-estaba=MOMENTO`: lee el almacenamiento **como estaba en ese momento** (fecha, hora y zona,
+  por ejemplo `2026-12-01T06:00:00-06:00`). Es para cuando alguien pudo tener el servidor y subir
+  algo con el nombre de un respaldo de antes (sección 4): se elige un momento anterior a la intrusión.
+
+```bash
+# En la computadora que guarda la llave: primero, de qué versión es (y el commit, para el paso 5):
+FUERA_ENTORNO=/carpeta/privada/recuperacion.env sh operacion/fuera.sh version NOMBRE_DEL_RESPALDO --diario --como-estaba=MOMENTO < /carpeta/privada/llave-privada.txt
+# y después, instalar ese mismo:
+ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/publicar.sh --desde-respaldo=NOMBRE_DEL_RESPALDO --diario --como-estaba=MOMENTO' < /carpeta/privada/llave-privada.txt
+```
+
+Si se interrumpe, se retoma con la misma orden (o sin las opciones: las recuerda); con otro respaldo,
+otro depósito u otro momento, se niega. No se cambian los destinos del `.env` para simular nada de
+esto. *Instalar desde el diario «como estaba» está probado en las pruebas de los guiones; su paso en
+el simulacro de publicación está por terminarse (encargo 39 de Codex).*
 
 **Lo que se asentó después de ese respaldo no está, y no vuelve solo.** Se concilia a mano:
 
@@ -690,6 +706,7 @@ sh operacion/fuera.sh llave /carpeta/privada/llave-privada.txt   # una llave nue
 sh operacion/fuera.sh sello < /carpeta/privada/llave-privada.txt # sus dos renglones otra vez
 FUERA_ENTORNO=/carpeta/privada/recuperacion.env sh operacion/fuera.sh version < /carpeta/privada/llave-privada.txt   # de qué versión es el último respaldo
 FUERA_ENTORNO=/carpeta/privada/recuperacion.env sh operacion/fuera.sh ensayo < /carpeta/privada/llave-privada.txt    # el ensayo de cada mes
+# (version y ensayo aceptan también un nombre, --diario y --como-estaba=MOMENTO; secciones 6 y 7)
 ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/volver.sh' < /carpeta/privada/llave-privada.txt                       # volver al respaldo de antes de migrar
 ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/publicar.sh --desde-respaldo' < /carpeta/privada/llave-privada.txt   # instalar desde el último respaldo
 

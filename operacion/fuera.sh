@@ -6,7 +6,7 @@
 #
 #   sh operacion/fuera.sh llave /carpeta/privada/llave-privada.txt   una llave nueva, y lo que va al .env
 #   sh operacion/fuera.sh sello [--hasta=<momento>] < llave-privada.txt
-#   sh operacion/fuera.sh version [<respaldo>] < llave-privada.txt
+#   sh operacion/fuera.sh version [<respaldo>] [--diario] [--como-estaba=<momento>] < llave-privada.txt
 #   sh operacion/fuera.sh ensayo [--diario[=<respaldo>] | --remoto=<respaldo>] [--como-estaba=<momento>] < llave-privada.txt
 #
 # «version» y «ensayo» llegan al almacenamiento con la credencial de RECUPERACIÓN, que está en
@@ -132,8 +132,16 @@ case "$orden" in
     herramienta operacion/sello.ts "$@"
     ;;
   version)
-    [ "$#" -le 1 ] || uso
-    case "${1:-}" in -*) uso ;; esac
+    # Un nombre (o el último), y del diario o como estaba el almacenamiento en un momento: lo mismo que
+    # acepta instalar desde un respaldo (publicar.sh --desde-respaldo).
+    nombre_visto=""
+    for a do
+      case "$a" in
+        --diario|--como-estaba=?*) ;;
+        -*) uso ;;
+        *) [ -z "$nombre_visto" ] || uso; nombre_visto=1 ;;
+      esac
+    done
     llave_de_archivo
     entorno_de_recuperacion
     docker run --rm -i --log-driver none ${red:+--network "$red"} --env-file "$entorno" \

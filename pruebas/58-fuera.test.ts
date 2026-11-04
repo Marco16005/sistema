@@ -126,6 +126,15 @@ test("de qué versión es un respaldo: con la credencial de recuperación, que n
   }
   const bien = await fuera(["version"], { entrada: LLAVE, entorno: "# la de recuperación\n\nRESPALDO_DESTINO=respaldo:cubo/feruga\nRCLONE_CONFIG_RESPALDO_TYPE=s3\nRCLONE_CONFIG_DIARIO_KEY=x\nRESPALDO_DESTINO_DIARIO=diario:cubo/feruga\nENSAYO_VIGIA_URL=https://hc-ping.com/abc\n" });
   assert.equal(bien.codigo, 0, bien.queja);
+  // Del diario, y como estaba el almacenamiento en un momento: las mismas opciones que instalar desde un respaldo.
+  const delDiario = await fuera(["version", "un-respaldo", "--diario", "--como-estaba=2026-11-01T12:00:00-06:00"], { entrada: LLAVE });
+  assert.equal(delDiario.codigo, 0, delDiario.queja);
+  assert.match(delDiario.llamadas.find((l) => l.includes("version-del-respaldo"))!, /version-del-respaldo\.ts un-respaldo --diario --como-estaba=2026-11-01T12:00:00-06:00$/);
+  for (const malo of [["--remoto"], ["--como-estaba"], ["uno", "otro"], ["--diario=algo"]]) {
+    const r = await fuera(["version", ...malo], { entrada: LLAVE });
+    assert.equal(r.codigo, 2, malo.join(" "));
+    assert.ok(!r.llamadas.some((l) => l.includes("version-del-respaldo")), `corrió con ${malo.join(" ")}`);
+  }
 });
 
 test("el ensayo de cada mes: una base desechable de la imagen del servidor, restaurar del almacenamiento, avisar al vigilante, y borrar lo desechable", async () => {

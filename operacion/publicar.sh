@@ -3,7 +3,7 @@
 #
 #   sh operacion/publicar.sh               publica
 #   sh operacion/publicar.sh --recuperar   retoma una publicación que quedó sin cerrar
-#   sh operacion/publicar.sh --desde-respaldo[=<respaldo>] < llave-privada.txt
+#   sh operacion/publicar.sh --desde-respaldo[=<respaldo>] [--diario] [--como-estaba=<momento>] < llave-privada.txt
 #                                          en una máquina donde no hay nada: instala desde un respaldo
 #
 # Lo que se promete, exactamente. Antes de cerrar no se altera lo que atiende. Desde que se cierra
@@ -54,21 +54,40 @@ set -eu
 umask 077
 cd "$(dirname "$0")/.."
 
+uso() {
+  echo "Uso: sh operacion/publicar.sh [--recuperar | --desde-respaldo[=<respaldo>] [--diario] [--como-estaba=<momento>] < llave-privada.txt]" >&2
+  echo "--diario y --como-estaba solo se usan con --desde-respaldo. No se repiten opciones." >&2
+  exit 1
+}
 modo=publicar
 respaldo_pedido=""
-case "${1:-}" in
-  "") ;;
-  --recuperar) modo=recuperar ;;
-  --desde-respaldo) modo="instalar desde un respaldo" ;;
-  --desde-respaldo=?*)
-    modo="instalar desde un respaldo"
-    respaldo_pedido=${1#--desde-respaldo=}
-    ;;
-  *)
-    echo "Uso: sh operacion/publicar.sh [--recuperar | --desde-respaldo[=<respaldo>] < llave-privada.txt]" >&2
-    exit 1
-    ;;
-esac
+diario=""
+como_estaba=""
+for argumento do
+  case "$argumento" in
+    --recuperar)
+      [ "$modo" = publicar ] || uso
+      modo=recuperar
+      ;;
+    --desde-respaldo|--desde-respaldo=?*)
+      [ "$modo" = publicar ] || uso
+      modo="instalar desde un respaldo"
+      [ "$argumento" = --desde-respaldo ] || respaldo_pedido=${argumento#--desde-respaldo=}
+      ;;
+    --diario)
+      [ -z "$diario" ] || uso
+      diario=si
+      ;;
+    --como-estaba=?*)
+      [ -z "$como_estaba" ] || uso
+      como_estaba=${argumento#--como-estaba=}
+      ;;
+    *) uso ;;
+  esac
+done
+if [ -n "$diario$como_estaba" ] && [ "$modo" != "instalar desde un respaldo" ]; then uso; fi
+# La selección se guarda en un renglón para poder retomarla sin cambiar de respaldo ni de vista.
+case "$respaldo_pedido$como_estaba" in *[[:space:]]*) uso ;; esac
 
 . operacion/candado.sh
 . operacion/pasos.sh
@@ -487,7 +506,20 @@ instalar() {
     pub=$pendiente
     de_commit=$(manifiesto dato "$pub" commit) || falla "No se pudo leer el manifiesto de la instalación a medias ($pub). No se tocó nada."
     [ "$de_commit" = "$commit" ] || falla "La instalación a medias ($pub) es de otro commit que el de esta carpeta. No se tocó nada."
-    respaldo=$(cut -d' ' -f1 "$PUBLICACIONES/$pub/desde-respaldo") || falla "No se pudo leer de qué respaldo era la instalación a medias ($pub). No se tocó nada."
+    IFS=' ' read -r respaldo de_pub deposito_guardado momento_guardado sobrante <"$PUBLICACIONES/$pub/desde-respaldo" \
+      || falla "No se pudo leer de qué respaldo era la instalación a medias ($pub). No se tocó nada."
+    # Los registros anteriores solo tenían nombre y publicación: horario, vista actual.
+    deposito_guardado=${deposito_guardado:-remoto}
+    momento_guardado=${momento_guardado:--}
+    case "$deposito_guardado" in remoto|diario) ;; *) falla "No se entiende el depósito de la instalación a medias. No se tocó nada." ;; esac
+    [ -z "$sobrante" ] || falla "No se entiende la selección de la instalación a medias. No se tocó nada."
+    [ -z "$respaldo_pedido" ] || [ "$respaldo_pedido" = "$respaldo" ] || falla "La instalación a medias es de otro respaldo. Retómala sin cambiar la selección. No se tocó nada."
+    [ -z "$diario" ] || [ "$deposito_guardado" = diario ] || falla "La instalación a medias es de otro depósito. Retómala sin cambiar la selección. No se tocó nada."
+    [ -z "$como_estaba" ] || [ "$como_estaba" = "$momento_guardado" ] || falla "La instalación a medias es de otro momento del almacenamiento. Retómala sin cambiar la selección. No se tocó nada."
+    diario=""
+    [ "$deposito_guardado" != diario ] || diario=si
+    como_estaba=""
+    [ "$momento_guardado" = - ] || como_estaba=$momento_guardado
     [ -n "$respaldo" ] || falla "No se pudo leer de qué respaldo era la instalación a medias ($pub). No se tocó nada."
     conf="$PUBLICACIONES/$pub/conjunto.json"
     echo "Se retoma la instalación desde el respaldo $respaldo (publicación $pub)."
@@ -509,8 +541,11 @@ instalar() {
     docker compose -f "$privado/arranque.json" run --rm --no-deps -T comprobacion entorno </dev/null || falla "El entorno no pasa la comprobación. No se tocó nada."
     # Lo que el respaldo dice de sí —qué publicación corría, de qué commit— solo se cree con el sello
     # de esta llave: por eso la llave entra también aquí, por la entrada estándar y por ningún otro lado.
-    # shellcheck disable=SC2086  # el nombre del respaldo, o nada
-    de=$(printf '%s\n' "$llave" | docker compose -f "$privado/arranque.json" run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts $respaldo_pedido) \
+    set --
+    [ -z "$respaldo_pedido" ] || set -- "$@" "$respaldo_pedido"
+    [ -z "$diario" ] || set -- "$@" --diario
+    [ -z "$como_estaba" ] || set -- "$@" "--como-estaba=$como_estaba"
+    de=$(printf '%s\n' "$llave" | docker compose -f "$privado/arranque.json" run --rm --no-deps -T --entrypoint node comprobacion operacion/version-del-respaldo.ts "$@") \
       || falla "No se pudo saber qué versión tomó el respaldo: no está, o no lleva el sello de esta llave. No se tocó nada."
     respaldo=${de%% *}
     resto=${de#* }
@@ -541,7 +576,9 @@ instalar() {
     paso "2. El manifiesto de la publicación $pub"
     # shellcheck disable=SC2046  # una opción, o ninguna
     manifiesto_con_entrada crear "$pub" "$commit" "$estado" $(opcion_del_ensayo) <"$conf" || falla "No se pudo escribir el manifiesto de la publicación. No se instaló nada."
-    printf '%s %s\n' "$respaldo" "$de_pub" >"$PUBLICACIONES/$pub/desde-respaldo" || sin_cerrar "No se pudo anotar de qué respaldo se instala."
+    deposito=remoto
+    [ -z "$diario" ] || deposito=diario
+    printf '%s %s %s %s\n' "$respaldo" "$de_pub" "$deposito" "${como_estaba:--}" >"$PUBLICACIONES/$pub/desde-respaldo" || sin_cerrar "No se pudo anotar de qué respaldo se instala."
     conf="$PUBLICACIONES/$pub/conjunto.json"
     punto manifiesto:despues
   fi
@@ -556,8 +593,12 @@ instalar() {
     # de una base que existe. Se quita esa —solo si de verdad está vacía— para dejar libre su nombre.
     en_el_servidor "$conf" quitar-vacia || sin_cerrar "La base de esta máquina no se pudo dejar libre para restaurar."
     # Con el programa de esa misma versión. La llave entra por su entrada estándar, y por ningún otro lado.
+    deposito=remoto
+    [ -z "$diario" ] || deposito=diario
+    set -- "--$deposito=$respaldo"
+    [ -z "$como_estaba" ] || set -- "$@" "--como-estaba=$como_estaba"
     printf '%s\n' "$llave" | docker compose -f "$conf" run --rm --no-deps -T --entrypoint node comprobacion operacion/restaurar.ts \
-      "--remoto=$respaldo" "--nota=Instalación desde un respaldo, publicación $pub" \
+      "$@" "--nota=Instalación desde un respaldo, publicación $pub" \
       || sin_cerrar "No se pudo restaurar el respaldo. No quedó ninguna base a medias."
     punto restaurar:despues
   fi
