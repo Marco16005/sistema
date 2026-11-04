@@ -4,7 +4,7 @@
 # Corre en la imagen de herramientas de esta carpeta (la misma con que el servidor respalda),
 # construida aquí mismo.
 #
-#   sh operacion/fuera.sh llave > llave-privada.txt               una llave nueva, y lo que va al .env
+#   sh operacion/fuera.sh llave /carpeta/privada/llave-privada.txt   una llave nueva, y lo que va al .env
 #   sh operacion/fuera.sh sello [--hasta=<momento>] < llave-privada.txt
 #   sh operacion/fuera.sh version [<respaldo>] < llave-privada.txt
 #   sh operacion/fuera.sh ensayo [--diario[=<respaldo>] | --remoto=<respaldo>] [--como-estaba=<momento>] < llave-privada.txt
@@ -27,6 +27,16 @@ uso() { sed -n 's/^#   \(sh operacion\/fuera\.sh .*\)$/\1/p' operacion/fuera.sh 
 orden=$1
 shift
 case "$orden" in llave|sello|version|ensayo) ;; *) uso ;; esac
+# La llave nueva va al archivo que se dice, y lo crea este guion: con «> archivo» la terminal lo vaciaba
+# antes de arrancar, y repetir la orden borraba la única llave (revisión de Codex del 4 de noviembre, H06).
+if [ "$orden" = llave ]; then
+  [ "$#" -eq 1 ] || uso
+  destino_de_la_llave=$1
+  if [ -e "$destino_de_la_llave" ] || [ -L "$destino_de_la_llave" ]; then
+    falla "Ya existe $destino_de_la_llave: una llave no se escribe encima de otra. Usa otro nombre."
+  fi
+  [ -d "$(dirname "$destino_de_la_llave")" ] || falla "No existe la carpeta de $destino_de_la_llave."
+fi
 command -v docker >/dev/null 2>&1 || falla "Hace falta Docker."
 docker info >/dev/null 2>&1 || falla "Docker no contesta: ¿está encendido?"
 
@@ -103,19 +113,18 @@ entorno_de_recuperacion() {
 
 case "$orden" in
   llave)
-    [ "$#" -eq 0 ] || uso
-    [ ! -t 1 ] || falla "La llave va a un archivo, no a la pantalla: sh operacion/fuera.sh llave > llave-privada.txt"
     # Se genera dentro del contenedor y pasa por la memoria de este guion: al archivo, y a sello.ts
     # para decir los dos renglones del .env. No toca ningún disco más que el archivo que se pidió.
     nueva=$(docker run --rm --log-driver none --network none --entrypoint age-keygen "$imagen" 2>/dev/null) \
       || falla "No se pudo generar la llave."
-    printf '%s\n' "$nueva"
-    renglones=$(printf '%s\n' "$nueva" | herramienta operacion/sello.ts) || falla "La llave quedó en el archivo, pero no se pudo sacar su sello: sh operacion/fuera.sh sello < llave-privada.txt"
-    {
-      echo "La llave quedó en el archivo. Guárdala en el paquete de recuperación y en ningún otro lado."
-      echo "Al .env del servidor van estos dos renglones:"
-      printf '%s\n' "$renglones"
-    } >&2
+    # Solo para su dueño (umask 077), y sin pisar nada: con noclobber, si el archivo apareció mientras
+    # tanto, la redirección falla en vez de vaciarlo.
+    ( umask 077 && set -C && printf '%s\n' "$nueva" > "$destino_de_la_llave" ) 2>/dev/null \
+      || falla "No se pudo crear $destino_de_la_llave (¿apareció mientras tanto?). No se escribió la llave."
+    renglones=$(printf '%s\n' "$nueva" | herramienta operacion/sello.ts) || falla "La llave quedó en $destino_de_la_llave, pero no se pudo sacar su sello: sh operacion/fuera.sh sello < $destino_de_la_llave"
+    echo "La llave quedó en $destino_de_la_llave, solo para su dueño. Guárdala en el paquete de recuperación y en ningún otro lado."
+    echo "Al .env del servidor van estos dos renglones:"
+    printf '%s\n' "$renglones"
     ;;
   sello)
     for a do case "$a" in --hasta=*) ;; *) uso ;; esac; done

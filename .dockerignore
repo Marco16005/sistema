@@ -4,6 +4,9 @@ node_modules
 .env
 # Un cambio de la clave de la base a medias (operacion/cambiar-clave-de-la-base.sh): lleva la clave.
 .env.nueva
+# Lo del paquete de recuperación, si alguien lo deja aquí: va fuera del repositorio (docs/operacion.md, 1).
+recuperacion*.env
+llave*.txt
 docs
 *.log
 publicaciones

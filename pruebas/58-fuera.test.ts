@@ -4,7 +4,7 @@
 // de verdad —restaurar del almacenamiento y avisar al vigilante— lo recorre el ensayo de la operación.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -62,16 +62,36 @@ const sinLlave = (r: Corrida): void => {
   for (const l of r.llamadas) assert.ok(!l.includes("AGE-SECRET-KEY"), `la llave salió en una orden: ${l}`);
 };
 
-test("una llave nueva: el archivo recibe solo la llave, y se dice lo que va al .env; nada toca la red", async () => {
-  const r = await fuera(["llave"]);
-  assert.equal(r.codigo, 0, r.queja);
-  assert.equal(r.salida, LLAVE, "a la salida va la llave tal cual, y nada más");
-  assert.match(r.queja, /RESPALDO_LLAVE_PUBLICA=age1qqq\nRESPALDO_SELLO=abcd/);
-  assert.match(r.queja, /paquete de recuperación/);
-  assert.equal(r.entrada, LLAVE, "el sello se sacó de esa misma llave, por la entrada estándar");
-  for (const l of r.llamadas.filter((x) => x.startsWith("run "))) assert.match(l, /--network none/, `con red: ${l}`);
-  sinLlave(r);
-  assert.equal((await fuera(["llave", "otra-cosa"])).codigo, 2);
+test("una llave nueva: la escribe en el archivo que se le dice, solo para su dueño, y nunca encima de otra; dice lo que va al .env", async () => {
+  // Con «llave > archivo», la terminal vaciaba el archivo antes de que el guion arrancara: repetir la
+  // orden borraba la única llave (revisión de Codex del 4 de noviembre, H06). Ahora el guion crea el archivo.
+  const carpeta = mkdtempSync(join(tmpdir(), "llave-"));
+  try {
+    const archivo = join(carpeta, "llave-privada.txt");
+    const r = await fuera(["llave", archivo]);
+    assert.equal(r.codigo, 0, r.queja);
+    assert.equal(readFileSync(archivo, "utf8"), LLAVE, "el archivo no tiene la llave tal cual");
+    assert.equal(statSync(archivo).mode & 0o777, 0o600, "el archivo de la llave se puede leer por otros");
+    assert.match(r.salida, /RESPALDO_LLAVE_PUBLICA=age1qqq\nRESPALDO_SELLO=abcd/);
+    assert.ok(!r.salida.includes("AGE-SECRET-KEY") && !r.queja.includes("AGE-SECRET-KEY"), "la llave salió en pantalla");
+    assert.match(r.salida, /paquete de recuperación/);
+    assert.equal(r.entrada, LLAVE, "el sello se sacó de esa misma llave, por la entrada estándar");
+    for (const l of r.llamadas.filter((x) => x.startsWith("run "))) assert.match(l, /--network none/, `con red: ${l}`);
+    sinLlave(r);
+    // Otra vez con el mismo nombre: se niega, y la llave que había sigue igual.
+    writeFileSync(archivo, "la de antes\n");
+    const otra = await fuera(["llave", archivo]);
+    assert.equal(otra.codigo, 1);
+    assert.match(otra.queja, /Ya existe .*: una llave no se escribe encima de otra/);
+    assert.equal(readFileSync(archivo, "utf8"), "la de antes\n");
+    // Sin a dónde, o a una carpeta que no existe: se niega sin generar nada.
+    assert.equal((await fuera(["llave"])).codigo, 2);
+    const sinCarpeta = await fuera(["llave", join(carpeta, "no-existe", "llave.txt")]);
+    assert.equal(sinCarpeta.codigo, 1);
+    assert.ok(!sinCarpeta.llamadas.some((l) => l.includes("age-keygen")), "generó una llave sin dónde guardarla");
+  } finally {
+    rmSync(carpeta, { recursive: true, force: true });
+  }
 });
 
 test("el sello: la llave por la entrada estándar, sin red; solo admite --hasta", async () => {
@@ -154,4 +174,12 @@ test("si el ensayo no pasa, se dice, y lo desechable se borra igual; si no se pu
   const conBase = await fuera(["ensayo"], { entrada: LLAVE, entorno: "RESPALDO_DESTINO=respaldo:x/y\nWEB_BD_CLAVE=abc\n" });
   assert.equal(conBase.codigo, 1);
   assert.ok(!conBase.llamadas.some((l) => l.startsWith("run -d ")), "arrancó una base con un entorno que no debía");
+});
+
+test("la llave y la credencial de recuperación no entran al repositorio ni a una imagen, aunque alguien las deje en la carpeta", () => {
+  // Revisión de Codex del 4 de noviembre, H18. La guía pide guardarlas fuera; esto es por si acaso.
+  for (const archivo of [".gitignore", ".dockerignore"]) {
+    const renglones = readFileSync(archivo, "utf8").split("\n").map((l) => l.trim());
+    for (const patron of ["recuperacion*.env", "llave*.txt"]) assert.ok(renglones.includes(patron), `${archivo} no ignora ${patron}`);
+  }
 });

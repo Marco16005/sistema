@@ -184,9 +184,11 @@ case "$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)" in *"
 paso "Desde fuera, con solo Docker: una llave nueva y su sello, de qué versión es el último respaldo, y el ensayo de restauración de cada mes"
 # Lo que la guía hace en la computadora del dueño o de soporte (operacion/fuera.sh). Aquí llega al
 # almacenamiento y al vigilante de mentira por la red del ensayo (FUERA_RED).
-sh operacion/fuera.sh llave > "$trabajo/llave-de-fuera.txt" 2> "$trabajo/fuera.salida" \
+sh operacion/fuera.sh llave "$trabajo/llave-de-fuera.txt" > "$trabajo/fuera.salida" 2>&1 \
   || { cat "$trabajo/fuera.salida" >&2; falla "fuera.sh no dio una llave nueva"; }
 [ "$(grep -c '^AGE-SECRET-KEY-1' "$trabajo/llave-de-fuera.txt")" = 1 ] || falla "lo que fuera.sh puso en el archivo no es una llave de age"
+case "$(ls -l "$trabajo/llave-de-fuera.txt")" in -rw-------*) ;; *) falla "fuera.sh dejó la llave legible para otros";; esac
+if sh operacion/fuera.sh llave "$trabajo/llave-de-fuera.txt" >/dev/null 2>&1; then falla "fuera.sh escribió una llave encima de otra"; fi
 grep '^RESPALDO_' "$trabajo/fuera.salida" > "$trabajo/fuera.env" || falla "fuera.sh no dijo lo que va al .env"
 sh operacion/fuera.sh sello < "$trabajo/llave-de-fuera.txt" 2>/dev/null | cmp -s - "$trabajo/fuera.env" \
   || falla "los renglones que fuera.sh dijo para el .env no son los de la llave que dio"
