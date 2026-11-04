@@ -8,6 +8,12 @@ createServer((peticion, respuesta) => {
     return;
   }
   recibidos.push(`${peticion.method} ${peticion.url}`);
-  peticion.resume();
-  peticion.on("end", () => respuesta.writeHead(200).end("OK"));
+  // De una falla se guarda también el porqué (el cuerpo): así un ensayo que falla dice qué pasó.
+  let cuerpo = "";
+  peticion.setEncoding("utf8");
+  peticion.on("data", (trozo) => { if (cuerpo.length < 2000) cuerpo += trozo; });
+  peticion.on("end", () => {
+    if (peticion.url.includes("/fail") && cuerpo) recibidos.push(`MOTIVO ${peticion.url.split("?")[0]}: ${cuerpo}`);
+    respuesta.writeHead(200).end("OK");
+  });
 }).listen(8080);

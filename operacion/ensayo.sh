@@ -179,7 +179,13 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 [ -n "$latio" ] || { operacion logs --no-log-prefix --tail 20 respaldo >&2 || true; falla "el vigilante del sitio no recibió el latido"; }
-case "$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)" in *"POST /ping/latido/fail"*) falla "el latido dijo que el sitio no contesta";; *) ;; esac
+registro=$(operacion exec -T vigia wget -qO- http://127.0.0.1:8080/registro)
+case "$registro" in
+  *"POST /ping/latido/fail"*)
+    printf '%s\n' "$registro" | tr ',' '\n' | grep 'MOTIVO /ping/latido' >&2 || true
+    falla "el latido avisó una falla (arriba, por qué)";;
+  *) ;;
+esac
 
 paso "Desde fuera, con solo Docker: una llave nueva y su sello, de qué versión es el último respaldo, y el ensayo de restauración de cada mes"
 # Lo que la guía hace en la computadora del dueño o de soporte (operacion/fuera.sh). Aquí llega al

@@ -9,7 +9,7 @@ name: feruga
 services:
   db:
     # Por su huella: la etiqueta se mueve.
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     environment:
       POSTGRES_USER: feruga
       POSTGRES_PASSWORD: "${BD_CLAVE:?Falta BD_CLAVE en .env (para desarrollar, cp .env.desarrollo .env)}"
@@ -96,7 +96,7 @@ services:
 
   # Un segundo servidor, vacío: ahí se restaura el respaldo para probar que sirve.
   db_limpia:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     profiles: ["pruebas"]
     environment:
       POSTGRES_USER: feruga
@@ -162,7 +162,7 @@ services:
   # ── Recorridos: la aplicación completa, con su propia base, vista desde un navegador ──
   #   docker compose --profile recorrido run --rm recorrido
   db_recorrido:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     profiles: ["recorrido", "webkit"]
     environment:
       POSTGRES_USER: feruga
