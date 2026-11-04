@@ -21,3 +21,6 @@ recorrido/papel/*.visto.png
 .DS_Store
 # Una copia de la base de demostración, de antes de sembrarla: lleva huellas de claves.
 *.dump
+
+# Lo que dejan los escaneos de seguridad (seguridad/escanear.sh).
+seguridad/informes/

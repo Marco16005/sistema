@@ -693,6 +693,9 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
   vuelta al respaldo, y retomarlo con la guía.
 - Ver en el servidor cuánto ocupa de verdad cada versión publicada, y que la limpieza al publicar
   y el aviso del latido por poco disco funcionan ahí.
+- La revisión de seguridad del servidor mismo (`docs/seguridad.md`): nmap desde fuera contra su
+  dirección, testssl contra el dominio con su certificado real, y Lynis y Docker Bench en la máquina.
+  Y antes de cada versión, `sh seguridad/escanear.sh` en la computadora de desarrollo.
 
 Lo que se haga se anota aquí con su fecha y su resultado.
 
