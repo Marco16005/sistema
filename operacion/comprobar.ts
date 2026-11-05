@@ -2,8 +2,9 @@
 //
 //   node operacion/comprobar.ts entorno          el entorno completo, de todas las piezas
 //   docker compose config --format json | node operacion/comprobar.ts red [--local]
-//                                                 que a la red solo se publique el proxy (80 y 443);
-//                                                 con --local (un ensayo) se acepta que ni el proxy salga
+//                                                 que solo publique el proxy (80 y 443), y nadie más
+//                                                 ni en esta máquina; con --local (un ensayo) se acepta
+//                                                 que ni el proxy salga
 //   node operacion/comprobar.ts https [máquina] [--abierta | --cerrada] [--version=…] [--base=…] [--rechaza-escribir]
 //                                                 que el sitio conteste por HTTPS, con certificado válido, y esté
 //                                                 listo; y, si se pide, que la operación esté abierta o cerrada,
@@ -44,11 +45,13 @@ const CON_EL_SOCKET = new Set(["/", "/var", "/var/run", "/run"]);
 const soloLocal = (ip: string | undefined): boolean => ip !== undefined && (ip.startsWith("127.") || ip === "::1");
 
 /**
- * Lo que la configuración efectiva publica de más. A la red, solo el proxy y solo 80 y 443: los
+ * Lo que la configuración efectiva publica de más. Solo publica el proxy, y solo 80 y 443: los
  * puertos que publica Docker no pasan por el cortafuegos del sistema, así que la regla es no
- * publicar, no «bloquear después». Ningún contenedor usa la red de la máquina ni sus privilegios,
- * ni recibe el socket de Docker. Lo que aquí no se ve —lo que de verdad contesta desde fuera— se
- * comprueba desde otra máquina.
+ * publicar, no «bloquear después». Y nadie más publica ni en esta máquina: publicado, aunque sea en
+ * 127.0.0.1, otro contenedor llega a ese puerto por la dirección del servicio, aunque esté en otra
+ * red (así llegó el proxy a la base: revisión de seguridad de Codex del 5 de noviembre, R40-01).
+ * Ningún contenedor usa la red de la máquina ni sus privilegios, ni recibe el socket de Docker. Lo
+ * que aquí no se ve —lo que de verdad contesta desde fuera— se comprueba desde otra máquina.
  */
 export function faltasDeRed(config: Configuracion, o: { local?: boolean } = {}): string[] {
   const servicios = config.services;
@@ -57,10 +60,18 @@ export function faltasDeRed(config: Configuracion, o: { local?: boolean } = {}):
   const delProxy = new Set<string>();
   for (const [nombre, servicio] of Object.entries(servicios)) {
     for (const p of servicio.ports ?? []) {
-      if (soloLocal(p.host_ip)) continue;
-      const par = `${p.published}:${p.target}`;
-      if (nombre === "proxy" && (par === "80:80" || par === "443:443")) delProxy.add(par);
-      else faltas.push(`${nombre} publica a la red el puerto ${p.published} (hacia su ${p.target}): a la red solo sale el proxy, en 80 y 443`);
+      const donde = soloLocal(p.host_ip) ? "en esta máquina" : "a la red";
+      const puerto = `${nombre} publica ${donde} el puerto ${p.published} (hacia su ${p.target})`;
+      if (nombre !== "proxy") {
+        faltas.push(`${puerto}: solo publica el proxy; publicado, aunque sea solo aquí, otro contenedor lo alcanza por su dirección`);
+      } else if (Number(p.target) !== 80 && Number(p.target) !== 443) {
+        faltas.push(`${puerto}: del proxy solo se publican el 80 y el 443`);
+      } else if (!soloLocal(p.host_ip)) {
+        // A la red, cada uno en su número: en esta máquina (un ensayo) puede ir en otro.
+        const par = `${p.published}:${p.target}`;
+        if (par === "80:80" || par === "443:443") delProxy.add(par);
+        else faltas.push(`${puerto}: a la red solo sale el proxy, en 80 y 443`);
+      }
     }
     // Con la red de la máquina, lo que el contenedor abra queda en la red sin publicar ningún puerto:
     // la revisión de arriba no lo vería. Solo se admite la red propia de los contenedores.

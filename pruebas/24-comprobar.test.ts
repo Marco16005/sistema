@@ -15,9 +15,9 @@ const operacion = (cambios: Record<string, Servicio> = {}) => ({
   name: "feruga",
   services: {
     comprobacion: {},
-    db: { ports: [local(5432, "54329")], volumes: [{ type: "volume", source: "datos", target: "/var/lib/postgresql/data" }] },
+    db: { volumes: [{ type: "volume", source: "datos", target: "/var/lib/postgresql/data" }] },
     migracion: {},
-    web: { ports: [local(3000, "3210")] },
+    web: {},
     respaldo: {},
     proxy: {
       ports: [aLaRed(80, "80"), aLaRed(443, "443")],
@@ -32,8 +32,26 @@ const operacion = (cambios: Record<string, Servicio> = {}) => ({
 
 test("la configuración de operación publica a la red solo el proxy, en 80 y 443", () => {
   assert.deepEqual(faltasDeRed(operacion()), []);
-  // En esta máquina se puede publicar lo que haga falta: no sale de ella.
-  assert.deepEqual(faltasDeRed(operacion({ consola: { ports: [local(9229, "9229"), { ...local(1, "1"), host_ip: "::1" }] } })), []);
+});
+
+test("ni en esta máquina publica nadie más que el proxy: publicado, aunque sea en 127.0.0.1, otro contenedor lo alcanza por su dirección", () => {
+  // Así llegó el proxy al puerto de la base (revisión de seguridad de Codex del 5 de noviembre, R40-01).
+  const proxy = operacion().services.proxy;
+  const casos: Array<[Record<string, Servicio>, RegExp]> = [
+    [{ db: { ports: [local(5432, "54329")] } }, /db.*54329/],
+    [{ web: { ports: [local(3000, "3210")] } }, /web.*3210/],
+    [{ consola: { ports: [local(9229, "9229")] } }, /consola.*9229/],
+    [{ consola: { ports: [{ ...local(9230, "9230"), host_ip: "::1" }] } }, /consola.*9230/],
+    // Del proxy, solo sus 80 y 443: ni en esta máquina su puerto de administración.
+    [{ proxy: { ...proxy, ports: [...proxy.ports, local(2019, "2019")] } }, /proxy.*2019/],
+  ];
+  for (const [cambio, dice] of casos) {
+    for (const o of [{}, { local: true }]) {
+      const faltas = faltasDeRed(operacion(cambio), o);
+      assert.ok(faltas.length > 0, `debió rechazar ${JSON.stringify(cambio)} ${JSON.stringify(o)}`);
+      assert.match(faltas.join("\n"), dice);
+    }
+  }
 });
 
 test("cualquier otra cosa publicada a la red se rechaza diciendo cuál", () => {
@@ -99,8 +117,9 @@ test("en un ensayo el proxy se queda en esta máquina, y eso se acepta solo si s
   const ensayo = operacion({ proxy: { ...proxy, ports: [local(80, "8480"), local(443, "8443")] } });
   assert.match(faltasDeRed(ensayo).join("\n"), /no publica el 443/);
   assert.deepEqual(faltasDeRed(ensayo, { local: true }), []);
-  // Decir que es un ensayo no deja publicar la base a la red.
+  // Decir que es un ensayo no deja publicar la base: ni a la red, ni en esta máquina.
   assert.match(faltasDeRed(operacion({ db: { ports: [aLaRed(5432, "5432")] } }), { local: true }).join("\n"), /db.*5432/);
+  assert.match(faltasDeRed({ ...ensayo, services: { ...ensayo.services, db: { ports: [local(5432, "54339")] } } }, { local: true }).join("\n"), /db.*54339/);
   assert.match(faltasDeRed({ services: {} }, { local: true }).join("\n"), /no trae servicios/);
 });
 
@@ -151,6 +170,10 @@ test("por la consola: la configuración efectiva entra por la entrada estándar"
   const mal = await comprobar(["red"], {}, JSON.stringify(operacion({ db: { ports: [aLaRed(5432, "5432")] } })));
   assert.equal(mal.codigo, 1);
   assert.match(mal.queja, /db.*5432/);
+  // La base publicada solo en esta máquina tampoco pasa: así se publicaba antes en operación (R40-01).
+  const enLaMaquina = await comprobar(["red"], {}, JSON.stringify(operacion({ db: { ports: [local(5432, "54329")] } })));
+  assert.equal(enLaMaquina.codigo, 1);
+  assert.match(enLaMaquina.queja, /db.*54329/);
   // Lo que no es una configuración no pasa por buena.
   assert.equal((await comprobar(["red"], {}, "")).codigo, 1);
   assert.equal((await comprobar(["red"], {}, "{}")).codigo, 1);
