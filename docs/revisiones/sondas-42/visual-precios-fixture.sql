@@ -1,0 +1,1 @@
+BEGIN; SET LOCAL session_replication_role=replica; INSERT INTO precio (lista_id,material_id,compra,venta) SELECT l.id,m.id,1,2 FROM lista_precios l JOIN jornada j ON j.id=l.jornada_id CROSS JOIN material m WHERE j.cerrada_en IS NULL AND m.id IN (28,29,30) ON CONFLICT DO NOTHING; COMMIT;

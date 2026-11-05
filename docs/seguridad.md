@@ -113,6 +113,13 @@ lo de `style-src 'unsafe-inline'` es lo aceptado (los atributos style); los avis
 informativos (`no-store` ya prohíbe guardar). Informe:
 `docs/revisiones/2026-11-05-codex-verificacion-de-seguridad-41.md`; sondas en `docs/revisiones/sondas-41/`.
 
+Y al verificar esos rincones (encargo 42), Codex los dio por cerrados: en 134 páginas y 1 412
+scripts, ninguno sin el nonce de su respuesta; las precargas, `/apicualquiera` y `favicon.ico`, con
+su política; ninguna cabecera doble; las redirecciones con las suyas, también por HEAD y OPTIONS; los
+errores 500 de verdad, con política y `nosniff`; diez vistas sin ninguna violación. Lo único nuevo es
+la respuesta a una dirección mal escrita (abajo, en lo aceptado). Informe:
+`docs/revisiones/2026-11-05-codex-verificacion-de-seguridad-42.md`; sondas en `docs/revisiones/sondas-42/`.
+
 ## Lo que se aceptó, y por qué
 
 - **rclone** (el de Alpine, 1.75.2): Grype marca avisos en su lector de HTML y en su servidor web
@@ -137,6 +144,11 @@ informativos (`no-store` ya prohíbe guardar). Informe:
 - **Estilos en línea en la política de las páginas** (`style-src 'unsafe-inline'`, ZAP lo marca): las
   pantallas usan el atributo style, que no puede llevar nonce. Un estilo no ejecuta nada; los
   scripts sí van con nonce. Quitarlo pide pasar esos estilos a clases, pantalla por pantalla.
+- **La respuesta a una dirección mal escrita** (R42-01, de Codex, baja): pedir `/%` o `/%ZZ` da
+  `400 Bad Request` en texto plano, sin las cabeceras de seguridad. Es la respuesta fija del servidor
+  HTTP de Go —con el que está hecho Caddy— cuando no puede ni leer la petición (coincide letra por
+  letra), y sale antes de que corra ninguna regla de Caddy: no hay dónde ponérselas. No es HTML,
+  no repite nada de lo pedido, no lleva datos y cierra la conexión.
 - **HEALTHCHECK en los Dockerfile** (Checkov CKV_DOCKER_2): las comprobaciones de salud están en el
   Compose, donde la operación las usa.
 - **Usuario propio** (Checkov CKV_DOCKER_3): la aplicación, la de administración y la del respaldo ya

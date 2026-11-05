@@ -1,0 +1,4 @@
+const tls=require('tls'),fs=require('fs');const out=[];
+(async()=>{for(const path of ['/%','/%ZZ','/api/%','/mostrador'])for(const method of ['GET','HEAD','OPTIONS']){
+ const respuesta=await new Promise((resolve,reject)=>{let data='';const s=tls.connect({host:'patio.test',port:443,servername:'patio.test',ca:fs.readFileSync('/salida/raiz.crt'),ALPNProtocols:['http/1.1']},()=>s.write(`${method} ${path} HTTP/1.1\r\nHost: patio.test\r\nConnection: close\r\n\r\n`));s.setTimeout(10000,()=>s.destroy(new Error('Tiempo agotado')));s.on('data',x=>data+=x.toString());s.on('end',()=>resolve(data));s.on('error',reject)});
+ out.push({path,method,respuesta});fs.writeFileSync('/salida/tls-crudo.json',JSON.stringify(out,null,2));}console.log('TLS crudo:',out.length,'respuestas')})().catch(e=>{console.error(e.message);process.exit(1)});
