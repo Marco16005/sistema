@@ -3,7 +3,8 @@
 Revisión del 4 y 5 de noviembre de 2026, con el sistema terminado y antes del servidor de verdad. Todo
 corre en contenedores, contra copias propias (nunca contra la demostración ni contra nada de fuera).
 Para repetir la parte automática: `sh seguridad/escanear.sh` (solo pide Docker; las salidas quedan
-en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión.
+en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión. SonarQube va aparte,
+porque es pesado: `sh seguridad/sonar.sh` (un servidor desechable; pide unos 3.5 GB de memoria libre).
 
 ## Lo que se revisó
 
@@ -14,6 +15,7 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
 | El código | semgrep 1.182.1 (reglas de TypeScript, Node, React, Next.js, secretos, Docker, inyección SQL) | **Nada real en el código del sistema.** Los avisos estaban en pruebas y recorridos (expresiones regulares de valores que la misma prueba pone) y uno era la etiqueta pública del sello, que no es un secreto |
 | Los Dockerfile y el Compose de operación | hadolint 2.15.1, Checkov 3.4.3 | **Los contenedores conservaban los privilegios de Docker por omisión**: se endurecieron (abajo). Lo demás, aceptado (abajo) |
 | Las imágenes de operación | Trivy 0.76.1, Grype 0.121.1 | **Bases desactualizadas y npm adentro**: se arreglaron (abajo). Quedan los de Caddy, gosu y rclone (abajo) |
+| La calidad y la seguridad del código, regla por regla | SonarQube Community 26.10 (escáner 12.3.1), sobre todo el código y sus pruebas | **Pasa su umbral de calidad; ningún punto de seguridad por revisar.** Un descuido real en una pantalla (una condición que daba lo mismo), corregido. Los demás avisos se revisaron uno por uno: aceptados (abajo) |
 | El sitio en marcha, como lo ve alguien de fuera y como lo ve cada rol | nmap 7.95, testssl 3.2.5, OWASP ZAP 2.16.1 (escaneo activo con la sesión de cada uno de los cuatro roles: 24 497 peticiones de ataque), un navegador de verdad y revisión a mano (Codex, encargo 40) | **Una cosa real, de gravedad media: el proxy alcanzaba la base.** Arreglada del todo (abajo). **Tres mejoras de gravedad baja**, hechas (abajo). Ningún hallazgo alto ni crítico |
 
 ## Lo que se arregló
@@ -154,7 +156,23 @@ la respuesta a una dirección mal escrita (abajo, en lo aceptado). Informe:
 - **Usuario propio** (Checkov CKV_DOCKER_3): la aplicación, la de administración y la del respaldo ya
   corren como `node`; la base cambia de usuario sola; el proxy corre como root pero sin capacidades
   salvo abrir puertos (arriba). Las demás imágenes (pruebas, recorridos, el almacenamiento de
-  mentira) no van al servidor.
+  mentira) no van al servidor. SonarQube marca lo mismo (docker:S6471).
+- **Lo demás que marca SonarQube**, revisado aviso por aviso:
+  - *una «clave» en `db/plantilla.ts`* (S6698): es la dirección por omisión de la base de
+    desarrollo, en esta máquina; en operación la comprobación del entorno rechaza las de desarrollo.
+    Y *una «contraseña comprometida» en `operacion/destino.ts`* (S6437): es la etiqueta pública con
+    que se deriva la clave del sello, no un secreto (lo mismo que semgrep, arriba);
+  - *ordenar sin función de comparación* (S2871): son nombres de migración (`0044_…`) y fechas
+    (`AAAA-MM-DD`), donde el orden de los caracteres es justo el correcto; comparar «según el idioma»
+    lo haría depender de la configuración de la máquina. En `publicacion.ts` se ordenan las dos listas
+    igual solo para compararlas;
+  - *expresiones regulares que podrían tardar* (S8786: quitar las barras o los ceros del final, la
+    forma de un correo): todos sus textos vienen del `.env` de la instalación o de un precio de la
+    base; nadie de fuera puede dárselos;
+  - *un `try` junto a `.catch()`* en `pestana.ts` (S4822): el `try` atrapa lo que falla antes de que
+    haya promesa (un navegador sin candados); *`autoFocus`* (S9379) en el nombre de una cuenta, que
+    aparece justo cuando se pidió cambiarlo; *un objeto como valor por omisión* (S7737), que se crea
+    en cada llamada.
 
 ## Lo pendiente
 
