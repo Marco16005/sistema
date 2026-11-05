@@ -30,11 +30,21 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
   corepack de las imágenes finales (todos los avisos de Node estaban ahí); rclone a la versión
   arreglada; al proxy, `apk upgrade` (brotli tenía uno crítico) y sin curl, que no usa. Resultado:
   **la aplicación, la de administración y la del respaldo, sin avisos** (ni medios, con Trivy y Grype).
+- **Caddy, compilado aquí con el Go de hoy** (`26d7abf`): el binario de la imagen oficial (2.11.7, la
+  última) estaba hecho con un Go y una librería de red con avisos altos y uno crítico, y es la pieza
+  que da a internet. Ahora la imagen del proxy compila esa misma versión con Go 1.27.3 y las
+  librerías de red y de cifrado al día (lo que baja lo comprueba Go contra sum.golang.org). Tarda
+  unos 18 minutos la primera vez; después lo reusa la caché. Trivy: sin avisos altos ni críticos.
+- **Fuera `age-inspect`** de la imagen del respaldo: no se usa, y su código de SSH traía dos avisos
+  altos (Grype).
 - **El latido ya no avisa por un tropiezo suelto** (`10f1f49`): lo mostró un ensayo con la máquina
   cargada; ahora pregunta otra vez a los 15 segundos antes de dar falla.
 
 ## Lo que se aceptó, y por qué
 
+- **rclone** (el de Alpine, 1.75.2): Grype marca avisos en su lector de HTML y en su servidor web
+  (`rclone serve`); aquí solo se usa para mandar al almacenamiento S3, que no pasa por ninguno de los
+  dos.
 - **gosu, en la imagen oficial de PostgreSQL** (Trivy marca avisos de Go en él): gosu solo cambia de
   usuario al arrancar la base; no lee nada de la red ni de quien usa el sistema, así que esos avisos
   no se alcanzan por él. Se revisa en cada actualización de la imagen.
@@ -51,12 +61,6 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
 
 ## Lo pendiente
 
-- **Caddy, compilado con el Go de hoy.** El binario de la imagen oficial (la última versión, 2.11.7)
-  está hecho con un Go y una librería de red que tienen avisos altos y uno crítico. Es la pieza que
-  da a internet. Se puede compilar con la herramienta oficial (`xcaddy`) y el Go más reciente
-  mientras Caddy saca versión nueva: se le encarga a Codex.
-- **rclone**: el de Alpine (1.75.2) usa una librería de cifrado de Go una versión atrás (Grype). Se
-  usa solo para hablar por HTTPS con el almacenamiento. Se vuelve a revisar antes del servidor.
 - **El sitio en marcha** (ZAP, nmap, testssl y la revisión a mano): Codex, encargo 40.
 - **En el servidor de verdad**: nmap desde fuera contra su dirección (solo deben contestar 22, 80 y
   443/TCP), testssl contra el dominio con su certificado real, y una revisión del servidor mismo

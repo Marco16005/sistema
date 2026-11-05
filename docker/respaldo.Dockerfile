@@ -7,7 +7,9 @@
 # Es también la imagen de las herramientas de la operación: comprobar, cerrar y abrir, y llevar el
 # manifiesto de cada publicación. La imagen de la que parte va por su huella.
 FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
-RUN apk add --no-cache postgresql17-client age rclone
+RUN apk add --no-cache postgresql17-client age rclone \
+ # age-inspect no se usa, y su código de SSH traía avisos (revisión de seguridad del 4 de noviembre).
+ && rm -f /usr/bin/age-inspect
 WORKDIR /app
 ENV TZ=America/Mexico_City
 COPY package.json package-lock.json ./
