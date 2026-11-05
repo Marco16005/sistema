@@ -43,7 +43,7 @@ export function Equipos({ equipos, pedirlo, alVer }: { equipos: EquipoAdministra
   return (
     <>
       <div className="card">
-        <header><h2>Equipos</h2><small>{activos.length} {activos.length === 1 ? "en uso" : "en uso"}</small></header>
+        <header><h2>Equipos</h2><small>{activos.length} en uso</small></header>
         <div className="pad">
           {activos.map((e) => (
             <div className="administrado" key={e.id}>
