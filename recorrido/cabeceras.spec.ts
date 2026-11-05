@@ -57,12 +57,45 @@ test("cada script que escribe la página lleva el nonce de su respuesta", async 
 });
 
 test("un nombre con HTML que alguien lograra colar en la página no ejecuta nada: el navegador lo niega", async ({ page }) => {
-  await page.goto("/");
-  await expect.poll(() => tomada(page)).toBe(true);
-  // Como llegaría un XSS guardado: HTML con un manejador en línea, metido por el analizador.
-  await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<img src="/no-existe.png" onerror="window.colado = true">`));
-  await expect.poll(() => negado(page)).toContainEqual(expect.stringMatching(/^script-src/));
-  expect(await page.evaluate(() => (window as any).colado)).toBeUndefined();
+  // También en una página que no existe, aunque su ruta empiece como la de la API (Codex, R41-01).
+  for (const camino of ["/", "/no-existe", "/apicualquiera"]) {
+    await page.goto(camino);
+    await page.waitForLoadState("load");
+    if (camino === "/") await expect.poll(() => tomada(page)).toBe(true);
+    expect(await negado(page), camino).toEqual([]);
+    // Como llegaría un XSS guardado: HTML con un manejador en línea, metido por el analizador.
+    await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<img src="/no-existe.png" onerror="window.colado = true">`));
+    await expect.poll(() => negado(page), { message: camino }).toContainEqual(expect.stringMatching(/^script-src/));
+    expect(await page.evaluate(() => (window as any).colado), camino).toBeUndefined();
+  }
+});
+
+// La regla de qué es una página dejaba fuera todo lo que empezara con «api», «favicon.ico» o
+// «_next/image», y lo pedido por adelantado: salían como HTML sin política (verificación de Codex
+// del 5 de noviembre, R41-01).
+test("ninguna página sale sin su política: tampoco las que no existen ni lo pedido por adelantado, y la política que diga quien pide no cuenta", async ({ page }) => {
+  const elegida = { "content-security-policy": "script-src 'nonce-elegido'" };
+  const casos: Array<[string, Record<string, string>]> = [
+    ["/no-existe", {}], ["/apicualquiera", {}], ["/favicon.ico", {}], ["/favicon.ico/no-existe", {}], ["/_next/imagenes", {}],
+    ["/", { purpose: "prefetch" }], ["/", { "sec-purpose": "prefetch" }], ["/", { "next-router-prefetch": "1" }],
+    ["/", elegida], ["/", { purpose: "prefetch", ...elegida }], ["/no-existe", elegida],
+  ];
+  for (const [camino, cabeceras] of casos) {
+    const dicho = `${camino} ${JSON.stringify(cabeceras)}`;
+    const r = await page.request.get(camino, { headers: cabeceras });
+    expect(r.headers()["content-type"], dicho).toContain("text/html");
+    const nonce = nonceDe(r.headers()["content-security-policy"]);
+    expect(nonce, `${dicho} llegó sin nonce`).toBeTruthy();
+    expect(nonce, dicho).not.toBe("elegido");
+    const scripts = [...(await r.text()).matchAll(/<script\b[^>]*>/g)].map((m) => m[0]);
+    expect(scripts.length, dicho).toBeGreaterThan(0);
+    for (const s of scripts) expect(s, dicho).toContain(`nonce="${nonce}"`);
+  }
+  // Bajo /api lo que no existe lleva la política de la API, que no deja correr nada.
+  for (const camino of ["/api", "/api/no-existe"]) {
+    const r = await page.request.get(camino, { headers: elegida });
+    expect(r.headers()["content-security-policy"], camino).toBe("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  }
 });
 
 test("lo de la API no se guarda en ningún caché, no es una página y no se adivina su tipo", async ({ page }) => {
@@ -78,7 +111,7 @@ test("lo de la API no se guarda en ningún caché, no es una página y no se adi
     expect({ cache: h["cache-control"], tipo: h["x-content-type-options"], politica: h["content-security-policy"], marco: h["x-frame-options"] }, camino).toEqual({
       cache: "private, no-store",
       tipo: "nosniff",
-      politica: "default-src 'none'; frame-ancestors 'none'",
+      politica: "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
       marco: "DENY",
     });
   }

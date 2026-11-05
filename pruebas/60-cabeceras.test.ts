@@ -55,10 +55,11 @@ test("todo lo que sirve la aplicación: sin adivinar su tipo y sin mostrarse en 
   const reglas = await config.headers();
   const de = (fuente: string) => Object.fromEntries((reglas.find((r) => r.source === fuente)?.headers ?? []).map((h) => [h.key, h.value]));
   assert.deepEqual(de("/:camino*"), { "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY" });
-  // La API devuelve datos, nunca una página: ni un script, ni un marco, ni que nadie la guarde.
+  // La API devuelve datos, nunca una página: ni un script, ni un marco, ni que nadie la guarde. Lo
+  // que no cae en default-src se dice aparte (ZAP, en la verificación de Codex del 5 de noviembre).
   assert.deepEqual(de("/api/:camino*"), {
     "Cache-Control": "private, no-store",
-    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   });
   // La política de las páginas la pone src/proxy.ts, con su nonce: aquí no va otra que se le sume.
   assert.equal(reglas.length, 2);

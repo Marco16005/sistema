@@ -25,7 +25,7 @@ const config: NextConfig = {
         source: "/api/:camino*",
         headers: [
           { key: "Cache-Control", value: "private, no-store" },
-          { key: "Content-Security-Policy", value: "default-src 'none'; frame-ancestors 'none'" },
+          { key: "Content-Security-Policy", value: "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },
         ],
       },
     ];

@@ -18,16 +18,10 @@ export function proxy(peticion: NextRequest) {
   return respuesta;
 }
 
-// Solo las páginas. La API tiene la suya, fija (next.config.ts); lo construido (_next/static) no
-// es una página; y lo que Next pide por adelantado para navegar no se muestra solo.
+// Todo menos la API, que tiene la suya, fija (next.config.ts), y lo construido (_next/static/), que
+// no es una página. Exactamente esas carpetas: lo que solo empieza igual («/apicualquiera») es una
+// página que no existe, y sale como HTML. Y sin excepción para lo pedido por adelantado: con esas
+// cabeceras Next también arma la página entera (verificación de Codex del 5 de noviembre, R41-01).
 export const config = {
-  matcher: [
-    {
-      source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
-      missing: [
-        { type: "header", key: "next-router-prefetch" },
-        { type: "header", key: "purpose", value: "prefetch" },
-      ],
-    },
-  ],
+  matcher: ["/((?!api(?:/|$)|_next/static/).*)"],
 };

@@ -46,6 +46,21 @@ test("por HTTPS el sitio contesta con certificado válido, sus cabeceras, y el n
   expect(await page.evaluate(() => navigator.locks.request("ensayo", async () => "con candado"))).toBe("con candado");
 });
 
+// Lo que Next contesta antes de poner sus cabeceras —la redirección que le quita la barra final a
+// una ruta— salía sin ellas (verificación de Codex del 5 de noviembre, R41-02). Las pone el proxy.
+test("lo que Next contesta antes de sus cabeceras sale igual sin adivinar su tipo, sin marco y sin correr nada; lo de la API, sin guardarse", async ({ request }) => {
+  for (const [camino, destino] of [["/mostrador/", "/mostrador"], ["/api/salud/", "/api/salud"]] as const) {
+    const r = await request.get(camino, { maxRedirects: 0 });
+    expect(r.status(), camino).toBe(308);
+    expect(r.headers().location, camino).toBe(destino);
+    expect(r.headers()["x-content-type-options"], camino).toBe("nosniff");
+    expect(r.headers()["content-security-policy"], camino).toBe("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  }
+  expect((await request.get("/api/salud/", { maxRedirects: 0 })).headers()["cache-control"]).toBe("private, no-store");
+  // Lo que la aplicación ya dice, el proxy no lo cambia: la página conserva su política, con su nonce.
+  expect((await request.get("/")).headers()["content-security-policy"]).toMatch(/'nonce-/);
+});
+
 test("los candados son entre pestañas: lo que una tiene tomado, la otra no lo consigue", async ({ context }) => {
   const [una, otra] = [await context.newPage(), await context.newPage()];
   await una.goto("/");
