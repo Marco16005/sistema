@@ -1,0 +1,25 @@
+services:
+  db:
+    container_name: codex-seguridad-db-40
+  web:
+    container_name: codex-seguridad-web-40
+  proxy:
+    container_name: codex-seguridad-proxy-40
+  respaldo:
+    container_name: codex-seguridad-respaldo-40
+  migracion:
+    container_name: codex-seguridad-migracion-40
+  consola:
+    container_name: codex-seguridad-consola-40
+  comprobacion:
+    container_name: codex-seguridad-comprobacion-40
+  autoridad:
+    container_name: codex-seguridad-autoridad-40
+  vigia:
+    container_name: codex-seguridad-vigia-40
+  almacen-ensayo:
+    container_name: codex-seguridad-almacen-ensayo-40
+  almacen_listo:
+    container_name: codex-seguridad-almacen_listo-40
+  recorrido_operacion:
+    container_name: codex-seguridad-recorrido_operacion-40
