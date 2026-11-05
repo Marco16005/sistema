@@ -66,6 +66,24 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
   Lo vigilan `pruebas/60-cabeceras` y `recorrido/cabeceras.spec.ts`, en Chromium y en WebKit: cada
   pantalla llega con su nonce, se arma completa y el navegador no le niega nada; y un HTML colado con
   `onerror` no corre.
+- **Las cabeceras, también en los rincones** (lo que encontró Codex al verificar lo anterior, encargo
+  41; `3e96766`):
+  - **ninguna página sale sin su política** (R41-01, Codex la calificó media; no hubo XSS real, los
+    nombres seguían como texto): la regla de qué es una página dejaba fuera todo lo que *empezara*
+    con «api», «favicon.ico» o «_next/image» (`/apicualquiera` salía como página 404 sin política), y
+    lo pedido por adelantado (con `Purpose: prefetch`, Next arma la página entera, y salía sin
+    política). Ahora solo quedan fuera exactamente `/api/` y lo construido (`/_next/static/`); y una
+    política que diga quien pide se reemplaza siempre por la nueva;
+  - **lo que Next contesta antes de poner sus cabeceras** (R41-02, baja): la redirección que le quita
+    la barra final a una ruta salía sin `nosniff`, y en la API sin la regla de caché. Ahora las pone
+    también el proxy de operación (Caddy) en todo; las que la aplicación ya pone, el proxy las
+    reemplaza por las mismas (sin `defer` salían dobles: se probó con Caddy de verdad), y la
+    política de cada página y el caché de cada respuesta los sigue decidiendo la aplicación;
+  - la política de la API dice además `base-uri` y `form-action` (ZAP avisaba que no caen en
+    `default-src`).
+  Lo vigilan `recorrido/cabeceras.spec.ts` (páginas que no existen, rutas que solo empiezan como la
+  API, lo pedido por adelantado y una política elegida por quien pide) y, por el proxy de verdad,
+  `recorrido/operacion.spec.ts` en el ensayo.
 - **La comprobación por HTTPS con dos plazos** (`2cefb71`): uno de silencio (10 s) y uno total, más
   holgado; con uno solo, un sitio lento pero que contesta se daba por caído a media publicación.
 
@@ -84,6 +102,16 @@ avisos altos automáticos de ZAP (un «recorrido de archivos» y tres «XSS pers
 comprobaron a mano: falsos positivos. Informe completo, con las órdenes para repetirlo:
 `docs/revisiones/2026-11-05-codex-seguridad-del-sitio-en-marcha.md`; sus sondas, en
 `docs/revisiones/sondas-40/` (dependen de la instalación de prueba que ellas mismas levantan).
+
+Al verificar lo arreglado (encargo 41), Codex confirmó cerrado R40-01 (nmap: el 5432 de la base,
+filtrado desde el frente, desde la red del proxy y desde el proxy mismo; abierto solo desde el fondo;
+y la publicación se niega con la base o la aplicación en 127.0.0.1, diciendo cuál); en 54 páginas y
+588 scripts, ninguno sin el nonce de su respuesta; diez vistas sin ninguna violación de la política;
+el HTML colado, negado; ningún uso en el código de `dangerouslySetInnerHTML`, `innerHTML`, `eval` ni
+parecidos. Lo que dejó parcial son los rincones de arriba. ZAP pasivo con la sesión de responsable:
+lo de `style-src 'unsafe-inline'` es lo aceptado (los atributos style); los avisos de caché son
+informativos (`no-store` ya prohíbe guardar). Informe:
+`docs/revisiones/2026-11-05-codex-verificacion-de-seguridad-41.md`; sondas en `docs/revisiones/sondas-41/`.
 
 ## Lo que se aceptó, y por qué
 
@@ -106,6 +134,9 @@ comprobaron a mano: falsos positivos. Informe completo, con las órdenes para re
   que se escribe, hay que revisarlo.
 - **Lo que testssl dice del certificado del ensayo** (sin CRL ni OCSP, cerca de vencer): es el de la
   autoridad desechable del ensayo. El de verdad se revisa en el servidor (abajo).
+- **Estilos en línea en la política de las páginas** (`style-src 'unsafe-inline'`, ZAP lo marca): las
+  pantallas usan el atributo style, que no puede llevar nonce. Un estilo no ejecuta nada; los
+  scripts sí van con nonce. Quitarlo pide pasar esos estilos a clases, pantalla por pantalla.
 - **HEALTHCHECK en los Dockerfile** (Checkov CKV_DOCKER_2): las comprobaciones de salud están en el
   Compose, donde la operación las usa.
 - **Usuario propio** (Checkov CKV_DOCKER_3): la aplicación, la de administración y la del respaldo ya
