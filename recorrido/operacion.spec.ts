@@ -36,7 +36,11 @@ test("por HTTPS el sitio contesta con certificado válido, sus cabeceras, y el n
   const cabeceras = respuesta.headers();
   expect(cabeceras["strict-transport-security"]).toContain("max-age=31536000");
   expect(cabeceras["content-security-policy"]).toContain("frame-ancestors 'none'");
+  expect(cabeceras["content-security-policy"]).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+' 'strict-dynamic'/);
   expect(cabeceras["x-frame-options"]).toBe("DENY");
+  expect(cabeceras["x-content-type-options"]).toBe("nosniff");
+  // Lo de la API, sin guardarse en ningún caché (pruebas/60-cabeceras y recorrido/cabeceras.spec.ts).
+  expect(salud.headers()["cache-control"]).toBe("private, no-store");
   // Lo que el navegador reserva a los orígenes seguros está disponible sin pedirlo con banderas.
   expect(await page.evaluate(() => window.isSecureContext)).toBe(true);
   expect(await page.evaluate(() => navigator.locks.request("ensayo", async () => "con candado"))).toBe("con candado");
