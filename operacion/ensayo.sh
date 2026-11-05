@@ -110,6 +110,16 @@ paso "Por dentro, la red va en dos: el proxy no alcanza la base; la aplicación,
 resuelve() { docker exec "$(operacion ps -q "$1")" nslookup db >/dev/null 2>&1; }
 if resuelve proxy; then falla "desde el proxy se alcanza la base"; fi
 resuelve web || falla "desde la aplicación no se alcanza la base"
+# Ni por su dirección: publicada en la máquina, su puerto le contestaba al proxy aunque el nombre no
+# resolviera (Codex, al verificar R40-01). En operación ni la base ni la aplicación se publican.
+for servicio in db web; do
+  [ -z "$(docker port "$(operacion ps -q "$servicio")")" ] || falla "$servicio está publicado en la máquina"
+done
+ip_de_la_base=$(docker inspect -f "{{(index .NetworkSettings.Networks \"${PROYECTO}_fondo\").IPAddress}}" "$(operacion ps -q db)")
+[ -n "$ip_de_la_base" ] || falla "no se supo la dirección de la base en el fondo"
+llega() { docker exec "$(operacion ps -q "$1")" nc -z -w 3 "$ip_de_la_base" 5432 >/dev/null 2>&1; }
+if llega proxy; then falla "desde el proxy se llega al puerto de la base por su dirección"; fi
+llega web || falla "desde la aplicación no se llega al puerto de la base"
 
 paso "El recorrido en el navegador, por HTTPS"
 arnes --profile ensayo run --rm recorrido_operacion || falla "el recorrido por HTTPS no pasó"

@@ -288,6 +288,31 @@ test("en operación la red va en dos: el proxy no alcanza la base", async () => 
   assert.match(operacion, /^networks:\n(?:.*\n)*?  frente:\n(?:.*\n)*?  fondo:/m, "faltan las dos redes");
 });
 
+test("en operación solo el proxy publica puertos: la base y la aplicación, ni en la máquina", async () => {
+  // Lo comprobó Codex al verificar R40-01 (5 de noviembre): con la red en dos, el proxy ya no resolvía
+  // «db», pero llegaba a su puerto por dirección mientras la base estuviera publicada en la máquina
+  // (el Compose base la publica en 127.0.0.1, para desarrollo). Sin publicarla, ya no.
+  const base = await readFile(join(RAIZ, "docker-compose.yml"), "utf8");
+  const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
+  const bloque = (texto: string, nombre: string): string => {
+    const desde = texto.search(new RegExp(`^  ${nombre}:$`, "m"));
+    assert.notEqual(desde, -1, `no está ${nombre}`);
+    const resto = texto.slice(desde + 1);
+    const hasta = resto.search(/^(  [a-z_-]+:|[a-z]+:)$/m);
+    return hasta === -1 ? resto : resto.slice(0, hasta);
+  };
+  // En el Compose base sí se publican (desarrollo): por eso operación tiene que quitarlos.
+  for (const servicio of ["db", "web"]) {
+    assert.match(bloque(base, servicio), /^    ports:\n\s+- "127\.0\.0\.1:/m, `el Compose base ya no publica ${servicio}: revisa esta prueba`);
+    assert.match(bloque(operacion, servicio), /^    ports: !reset \[\]$/m, `en operación ${servicio} sigue publicado en la máquina`);
+  }
+  // Y en operación nada más publica: solo el proxy.
+  const conPuertos = [...operacion.matchAll(/^  ([a-z_]+):$/gm)]
+    .map((m) => m[1]!)
+    .filter((nombre) => /^    ports:\n\s+- /m.test(bloque(operacion, nombre)));
+  assert.deepEqual(conPuertos, ["proxy"]);
+});
+
 test("en operación cada servicio corre con una imagen que no se mueve: por su identificador, sin construir al levantar, y de bases fijadas por su huella", async () => {
   const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
   /** El trozo del archivo que define ese servicio (o ese bloque compartido). */

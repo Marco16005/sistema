@@ -87,6 +87,10 @@ services:
     # Solo en el fondo: el proxy no la alcanza.
     networks:
       - fondo
+    # Y sin publicarla en la máquina (el Compose base lo hace, para desarrollo): publicada, el proxy
+    # llegaba a su puerto por dirección aunque no la resolviera (Codex, verificación de R40-01).
+    # Para entrar a mano: sh operacion/compose.sh exec db psql -U feruga
+    ports: !reset []
     # Sin ganar privilegios. Sus capacidades se quedan: la imagen oficial cambia de usuario al arrancar.
     security_opt:
       - no-new-privileges:true
@@ -129,6 +133,8 @@ services:
     networks:
       - frente
       - fondo
+    # Sin publicarla en la máquina: solo se llega a ella por el proxy.
+    ports: !reset []
     # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
     security_opt:
       - no-new-privileges:true
