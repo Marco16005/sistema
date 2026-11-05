@@ -81,8 +81,9 @@ done
 # El proxy lleva su configuración adentro: no monta nada de la carpeta del proyecto.
 docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$(operacion ps -q proxy)" | grep -q "/etc/caddy/Caddyfile" \
   && falla "el proxy sigue montando su configuración desde la carpeta del proyecto"
-# En esta máquina, ni el proxy sale a la red. Se mira cada contenedor: cada puerto que publica, en
-# qué dirección de la máquina, y que ninguno use la red de la máquina.
+# Solo publica el proxy, y en esta máquina ni él sale a la red. Se mira cada contenedor: cada puerto
+# que publica, en qué dirección de la máquina, y que ninguno use la red de la máquina. Nadie más
+# publica ni en 127.0.0.1: así le contestaba la base al proxy (Codex, al verificar R40-01).
 # shellcheck disable=SC2046,SC2016  # una lista de identificadores, uno por palabra; y lo de entre comillas es JavaScript
 docker inspect $(operacion ps -q) | nodo -e '
   let texto = "";
@@ -90,13 +91,19 @@ docker inspect $(operacion ps -q) | nodo -e '
     const fuera = [];
     for (const c of JSON.parse(texto)) {
       if (c.HostConfig.NetworkMode === "host") fuera.push(`${c.Name} usa la red de la máquina`);
+      const servicio = c.Config.Labels?.["com.docker.compose.service"];
       for (const [puerto, donde] of Object.entries(c.NetworkSettings.Ports ?? {})) {
-        for (const d of donde ?? []) if (!(d.HostIp.startsWith("127.") || d.HostIp === "::1")) fuera.push(`${c.Name} publica ${puerto} en ${d.HostIp || "todas las direcciones"}`);
+        for (const d of donde ?? []) {
+          const dicho = `${c.Name} publica ${puerto} en ${d.HostIp || "todas las direcciones"}`;
+          if (servicio !== "proxy") fuera.push(`${dicho}: solo publica el proxy`);
+          else if (!(d.HostIp.startsWith("127.") || d.HostIp === "::1")) fuera.push(`${dicho}: en el ensayo, ni el proxy sale a la red`);
+          else if (puerto !== "80/tcp" && puerto !== "443/tcp") fuera.push(`${dicho}: del proxy, solo el 80 y el 443`);
+        }
       }
     }
     if (fuera.length > 0) { console.error(fuera.join("\n")); process.exit(1); }
   });
-' || falla "algo del ensayo quedó publicado a la red"
+' || falla "algo del ensayo quedó publicado de más"
 
 paso "El sitio atiende por HTTPS, y solo con un certificado en el que se confía"
 atiende >/dev/null 2>&1 || falla "el sitio no atiende por HTTPS"
@@ -111,10 +118,7 @@ resuelve() { docker exec "$(operacion ps -q "$1")" nslookup db >/dev/null 2>&1; 
 if resuelve proxy; then falla "desde el proxy se alcanza la base"; fi
 resuelve web || falla "desde la aplicación no se alcanza la base"
 # Ni por su dirección: publicada en la máquina, su puerto le contestaba al proxy aunque el nombre no
-# resolviera (Codex, al verificar R40-01). En operación ni la base ni la aplicación se publican.
-for servicio in db web; do
-  [ -z "$(docker port "$(operacion ps -q "$servicio")")" ] || falla "$servicio está publicado en la máquina"
-done
+# resolviera (Codex, al verificar R40-01). Que nadie más que el proxy publique se revisó arriba.
 ip_de_la_base=$(docker inspect -f "{{(index .NetworkSettings.Networks \"${PROYECTO}_fondo\").IPAddress}}" "$(operacion ps -q db)")
 [ -n "$ip_de_la_base" ] || falla "no se supo la dirección de la base en el fondo"
 llega() { docker exec "$(operacion ps -q "$1")" nc -z -w 3 "$ip_de_la_base" 5432 >/dev/null 2>&1; }
