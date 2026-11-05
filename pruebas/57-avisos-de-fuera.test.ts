@@ -342,6 +342,26 @@ test("el latido no se queda esperando: un sitio que contesta a goteo, o que cort
         setTimeout(() => r.socket?.destroy(), 30);
       },
     };
+    // Lento pero sin parar, y termina (algo más de dos plazos): eso no es un sitio caído. Con la máquina
+    // cargada, a media publicación, pasó en el ensayo; el tope total es más holgado que el de silencio.
+    const lento = createHttpsServer({ key, cert }, (_q, r) => {
+      r.writeHead(200, { "content-type": "application/json" });
+      const cuerpo = JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b" });
+      let k = 0;
+      const t = setInterval(() => {
+        if (k < cuerpo.length) r.write(cuerpo[k++]!); else { clearInterval(t); r.end(); }
+      }, Math.ceil(650 / cuerpo.length));
+      r.on("close", () => clearInterval(t));
+    });
+    lento.listen(0, "127.0.0.1");
+    await once(lento, "listening");
+    try {
+      const e = await estadoPorHttps({ dominio: "patio.prueba", maquina: "127.0.0.1", puerto: (lento.address() as AddressInfo).port, ca: cert, plazo: 300 });
+      assert.equal(e.abierta, true);
+    } finally {
+      lento.closeAllConnections();
+      lento.close();
+    }
     for (const [nombre, contestar] of Object.entries(casos)) {
       const sitio = createHttpsServer({ key, cert }, (_q, r) => contestar(r));
       sitio.listen(0, "127.0.0.1");

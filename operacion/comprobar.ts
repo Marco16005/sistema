@@ -122,10 +122,13 @@ function vigenciaDe(enlace: TLSSocket): { desde: Date; hasta: Date } | null {
  * comprobador y recibe el detalle.
  */
 export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: number; plazo?: number; clave?: string; ca?: string }): Promise<EstadoDelSitio> {
-  // El plazo es para todo —conectar, encabezados y cuerpo—, no solo de inactividad: un sitio que
-  // contesta a goteo, o que corta la respuesta a la mitad, no deja al latido esperando para siempre.
-  // (Revisión de Codex del 3 de noviembre, H2.)
+  // Dos plazos: el de silencio (sin nada del sitio en ese tiempo, falla) y uno total, tres veces más
+  // holgado, para que un sitio a goteo, o que corta la respuesta, no deje esperando para siempre
+  // (revisión de Codex del 3 de noviembre, H2). El total no es igual al de silencio: con la máquina
+  // cargada, a media publicación, un sitio lento pero que contesta se daba por caído (ensayo del 4 de
+  // noviembre).
   const plazo = o.plazo ?? 10_000;
+  const total = plazo * 3;
   return new Promise((bien, mal) => {
     let decidido = false;
     const decidir = (hacer: () => void): void => {
@@ -169,7 +172,7 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
     const reloj = setTimeout(() => {
       decidir(() => mal(new Error("el sitio no contestó a tiempo")));
       peticion.destroy();
-    }, plazo);
+    }, total);
     peticion.on("timeout", () => peticion.destroy(new Error("el sitio no contestó a tiempo")));
     peticion.on("error", (e) => decidir(() => mal(new Error(`no se pudo pedir por HTTPS con certificado válido: ${e.message}`))));
     peticion.end();

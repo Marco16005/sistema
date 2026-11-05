@@ -104,6 +104,13 @@ if operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS= comprobacion https pr
   falla "se dio por bueno un certificado de una autoridad en la que no se confía"
 fi
 
+paso "Por dentro, la red va en dos: el proxy no alcanza la base; la aplicación, sí"
+# Desde el proxy —lo que da a internet— el nombre de la base ni siquiera existe; desde la aplicación, sí.
+# (Revisión de seguridad de Codex del 4 de noviembre, R40-01.)
+resuelve() { docker exec "$(operacion ps -q "$1")" nslookup db >/dev/null 2>&1; }
+if resuelve proxy; then falla "desde el proxy se alcanza la base"; fi
+resuelve web || falla "desde la aplicación no se alcanza la base"
+
 paso "El recorrido en el navegador, por HTTPS"
 arnes --profile ensayo run --rm recorrido_operacion || falla "el recorrido por HTTPS no pasó"
 
@@ -393,7 +400,7 @@ esperar_que_atienda "el proxy no volvió"
 paso "Cambiar la clave de administración de la base con la operación abierta: la base y el .env quedan con la nueva, todo sigue, y la publicación siguiente no se niega"
 # Si con una clave entra el dueño de la base, por la red de la instalación, como entran los servicios.
 entra() {
-  PGPASSWORD="$1" docker run --rm --log-driver none --network "${PROYECTO}_default" -e PGPASSWORD --entrypoint psql "$HERRAMIENTAS_DEL_ENSAYO" \
+  PGPASSWORD="$1" docker run --rm --log-driver none --network "${PROYECTO}_fondo" -e PGPASSWORD --entrypoint psql "$HERRAMIENTAS_DEL_ENSAYO" \
     -X -q -t -A -h db -U feruga -d postgres -c 'SELECT 1' </dev/null 2>/dev/null || true
 }
 vieja=$(sed -n 's/^BD_CLAVE=//p' "$trabajo/.env")

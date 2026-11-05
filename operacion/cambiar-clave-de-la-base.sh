@@ -75,12 +75,12 @@ case "$entorno" in *,*) falla "Compose lee más de un archivo de entorno (COMPOS
 [ "$(grep -c '^BD_CLAVE=' "$entorno")" = 1 ] || falla "El archivo de entorno no tiene un solo renglón BD_CLAVE. No se tocó nada."
 del_env=$(sed -n 's/^BD_CLAVE=//p' "$entorno")
 
-# entra_con <clave>: con esa clave entra el dueño de la base por la red de la instalación, como
+# entra_con <clave>: con esa clave entra el dueño de la base por la red del fondo, como
 # entran los servicios (dentro del contenedor de la base se entra sin clave, y eso no prueba nada).
 # La clave va en el entorno del cliente de Docker, no en sus argumentos.
 entra_con() {
   [ -n "$1" ] || return 1
-  [ "$(PGPASSWORD="$1" docker run --rm -i --log-driver none --network "${proyecto}_default" -e PGPASSWORD \
+  [ "$(PGPASSWORD="$1" docker run --rm -i --log-driver none --network "${proyecto}_fondo" -e PGPASSWORD \
     --entrypoint psql "$HERRAMIENTAS" -X -q -t -A -h db -U feruga -d postgres -c 'SELECT 1' </dev/null 2>/dev/null)" = 1 ]
 }
 # poner_en_la_base <clave>: el dueño de la base queda con esa clave. Va como verificador SCRAM,

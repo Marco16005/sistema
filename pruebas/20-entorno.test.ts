@@ -263,6 +263,31 @@ test("en operación cada contenedor corre con lo mínimo: sin ganar privilegios,
   assert.match(bloque("db"), sinPrivilegios, "la base puede ganar privilegios");
 });
 
+test("en operación la red va en dos: el proxy no alcanza la base", async () => {
+  // Lo encontró Codex en su revisión de seguridad del 4 de noviembre (R40-01): con una sola red, quien
+  // tomara el proxy —lo único que da a internet— tenía la base a la mano (con su clave, pero a la mano).
+  const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
+  const bloque = (nombre: string): string => {
+    const desde = operacion.search(new RegExp(`^(  ${nombre}:|x-${nombre}: &${nombre})$`, "m"));
+    assert.notEqual(desde, -1, `no está ${nombre}`);
+    const resto = operacion.slice(desde + 1);
+    const hasta = resto.search(/^(  [a-z_-]+:|[a-z]+:)$/m);
+    return hasta === -1 ? resto : resto.slice(0, hasta);
+  };
+  const redes = (texto: string): string[] => {
+    const m = /networks:\n((?:\s+- [a-z]+\n)+)/.exec(texto);
+    return m ? [...m[1]!.matchAll(/- ([a-z]+)/g)].map((x) => x[1]!).sort() : [];
+  };
+  const compartido = operacion.slice(operacion.indexOf("x-respaldo: &respaldo"), operacion.indexOf("\nservices:"));
+  assert.deepEqual(redes(bloque("proxy")), ["frente"], "el proxy está en otra red que la del frente");
+  assert.deepEqual(redes(bloque("web")), ["fondo", "frente"], "la aplicación no está en las dos");
+  assert.deepEqual(redes(bloque("db")), ["fondo"], "la base está en otra red que la del fondo");
+  for (const servicio of ["migracion", "consola"]) assert.deepEqual(redes(bloque(servicio)), ["fondo"], servicio);
+  // El respaldo y la comprobación preguntan por el sitio (por el proxy) y usan la base: en las dos.
+  assert.deepEqual(redes(compartido), ["fondo", "frente"], "el respaldo y la comprobación no están en las dos");
+  assert.match(operacion, /^networks:\n(?:.*\n)*?  frente:\n(?:.*\n)*?  fondo:/m, "faltan las dos redes");
+});
+
 test("en operación cada servicio corre con una imagen que no se mueve: por su identificador, sin construir al levantar, y de bases fijadas por su huella", async () => {
   const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
   /** El trozo del archivo que define ese servicio (o ese bloque compartido). */

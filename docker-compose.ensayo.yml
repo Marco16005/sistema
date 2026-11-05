@@ -39,10 +39,16 @@ services:
   comprobacion:
     volumes:
       - autoridad:/ca:ro
+    # Además de sus dos redes, la de lo que en el servidor está fuera (el almacenamiento, el vigilante).
+    networks:
+      default: {}
 
   respaldo:
     volumes:
       - autoridad:/ca:ro
+    # Además de sus dos redes, la de lo que en el servidor está fuera (el almacenamiento, el vigilante).
+    networks:
+      default: {}
     # El latido pregunta al sitio por el proxy de ensayo, con su autoridad (en el servidor, la de verdad).
     environment:
       NODE_EXTRA_CA_CERTS: /ca/raiz.crt
@@ -108,6 +114,10 @@ services:
       NODE_EXTRA_CA_CERTS: /ca/raiz.crt
       TZ: America/Mexico_City
     command: sh -c "npm ci --no-audit --no-fund --silent && sh operacion/ensayo/confiar.sh && npx playwright test -c playwright.operacion.config.ts"
+    # Llega al sitio por el proxy (default) y prepara sus datos en la base (fondo).
+    networks:
+      default: {}
+      fondo: {}
 
 volumes:
   almacen:

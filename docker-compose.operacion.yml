@@ -20,6 +20,10 @@ x-respaldo: &respaldo
     - no-new-privileges:true
   cap_drop:
     - ALL
+  # Pregunta por el sitio (por el proxy) y usa la base: está en las dos redes.
+  networks:
+    - frente
+    - fondo
   environment: &entorno-del-respaldo
     DATABASE_URL: "postgres://feruga:${BD_CLAVE:?Falta BD_CLAVE en .env}@db:5432/feruga"
     MODO: ${MODO:-}
@@ -80,6 +84,9 @@ services:
   db:
     image: "${IMAGEN_DB:?Falta IMAGEN_DB. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Solo en el fondo: el proxy no la alcanza.
+    networks:
+      - fondo
     # Sin ganar privilegios. Sus capacidades se quedan: la imagen oficial cambia de usuario al arrancar.
     security_opt:
       - no-new-privileges:true
@@ -92,6 +99,9 @@ services:
     build: !reset null
     image: "${IMAGEN_ADMIN:?Falta IMAGEN_ADMIN. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Solo usa la base.
+    networks:
+      - fondo
     # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
     security_opt:
       - no-new-privileges:true
@@ -102,6 +112,9 @@ services:
     build: !reset null
     image: "${IMAGEN_ADMIN:?Falta IMAGEN_ADMIN. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Solo usa la base.
+    networks:
+      - fondo
     # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
     security_opt:
       - no-new-privileges:true
@@ -112,6 +125,10 @@ services:
     build: !reset null
     image: "${IMAGEN_WEB:?Falta IMAGEN_WEB. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # La recibe el proxy (frente) y usa la base (fondo).
+    networks:
+      - frente
+      - fondo
     # Sin ganar privilegios y sin capacidades del núcleo: no las usa.
     security_opt:
       - no-new-privileges:true
@@ -138,6 +155,9 @@ services:
   proxy:
     image: "${IMAGEN_PROXY:?Falta IMAGEN_PROXY. En operación las imágenes las pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
     pull_policy: never
+    # Solo en el frente: llega a la aplicación, no a la base.
+    networks:
+      - frente
     # Sin ganar privilegios, y de las capacidades del núcleo solo la de abrir los puertos 80 y 443.
     security_opt:
       - no-new-privileges:true
@@ -158,6 +178,12 @@ services:
       web:
         condition: service_healthy
     restart: unless-stopped
+
+# Dos redes, para que lo que da a internet no alcance la base (revisión de seguridad de Codex del 4 de
+# noviembre, R40-01). El frente: el proxy y la aplicación. El fondo: la aplicación, la base y lo que la usa.
+networks:
+  frente:
+  fondo:
 
 volumes:
   certificados:
