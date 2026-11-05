@@ -14,7 +14,7 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
 | El código | semgrep 1.182.1 (reglas de TypeScript, Node, React, Next.js, secretos, Docker, inyección SQL) | **Nada real en el código del sistema.** Los avisos estaban en pruebas y recorridos (expresiones regulares de valores que la misma prueba pone) y uno era la etiqueta pública del sello, que no es un secreto |
 | Los Dockerfile y el Compose de operación | hadolint 2.15.1, Checkov 3.4.3 | **Los contenedores conservaban los privilegios de Docker por omisión**: se endurecieron (abajo). Lo demás, aceptado (abajo) |
 | Las imágenes de operación | Trivy 0.76.1, Grype 0.121.1 | **Bases desactualizadas y npm adentro**: se arreglaron (abajo). Quedan los de Caddy, gosu y rclone (abajo) |
-| El sitio en marcha, como lo ve alguien de fuera | OWASP ZAP, nmap, testssl, y revisión a mano de la entrada con clave, sesiones y roles | **Pendiente**: lo hace Codex (encargo 40) en cuanto tenga cuota |
+| El sitio en marcha, como lo ve alguien de fuera | nmap 7.95, testssl 3.2.5, OWASP ZAP 2.16.1, y revisión a mano (Codex, encargo 40) | **Una cosa real, ya arreglada: el proxy alcanzaba la base** (abajo). Lo demás, bien. Se le cortó la cuota a media pasada de ZAP: falta su escaneo activo con los otros tres roles |
 
 ## Lo que se arregló
 
@@ -40,6 +40,24 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
 - **El latido ya no avisa por un tropiezo suelto** (`10f1f49`): lo mostró un ensayo con la máquina
   cargada; ahora pregunta otra vez a los 15 segundos antes de dar falla.
 
+- **La red de operación va en dos, y el proxy no alcanza la base** (`2cefb71`): lo encontró Codex con
+  nmap (R40-01). Antes, con una sola red, quien tomara el proxy —lo que da a internet— tenía la base a
+  la mano (con su clave, pero a la mano). Ahora: el frente (proxy y aplicación) y el fondo
+  (aplicación, base, migración, consola). El ensayo lo comprueba con Docker de verdad.
+- **La comprobación por HTTPS con dos plazos** (`2cefb71`): uno de silencio (10 s) y uno total, más
+  holgado; con uno solo, un sitio lento pero que contesta se daba por caído a media publicación.
+
+### Lo que Codex encontró bien en el sitio en marcha (encargo 40, parcial)
+
+Solo contestan 80 y 443 (el puerto de administración de Caddy, cerrado); HTTPS con TLS 1.2 y 1.3,
+cifrados modernos y HSTS (testssl: A+); ningún rol hace lo de otro, y consulta no escribe; lo que
+escribe exige su Origin y rechaza los ausentes, nulos, ajenos o disfrazados; cinco claves mal tecleadas
+bloquean incluso la buena, y se desbloquea a los cinco minutos; el código de alta no se usa dos veces,
+ni a la vez; las sesiones vencen (30 minutos sin uso, 12 horas en total) y salir las cierra; dar de
+baja un equipo deja fuera su cookie; lo tecleado con comillas o SQL se guarda como texto, sin errores
+ni trazas; reenviar una cuenta con el mismo identificador no la duplica. Informe:
+`docs/revisiones/2026-11-04-codex-seguridad-del-sitio-en-marcha-incompleta.md`.
+
 ## Lo que se aceptó, y por qué
 
 - **rclone** (el de Alpine, 1.75.2): Grype marca avisos en su lector de HTML y en su servidor web
@@ -61,7 +79,8 @@ en `seguridad/informes/`, fuera de Git). Se corre antes de publicar una versión
 
 ## Lo pendiente
 
-- **El sitio en marcha** (ZAP, nmap, testssl y la revisión a mano): Codex, encargo 40.
+- **El escaneo activo de ZAP con mostrador, patio y consulta**, y ver en el navegador que un nombre
+  con etiquetas HTML no se ejecuta (Codex, al volver su cuota).
 - **En el servidor de verdad**: nmap desde fuera contra su dirección (solo deben contestar 22, 80 y
   443/TCP), testssl contra el dominio con su certificado real, y una revisión del servidor mismo
   (Lynis, Docker Bench). Va en la lista de la guía (`docs/operacion.md`, sección 10).
