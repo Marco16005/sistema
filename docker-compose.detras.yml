@@ -1,0 +1,35 @@
+# Detrás de otro proxy: para cuando en el servidor ya vive otra aplicación, y su proxy tiene los
+# puertos 80 y 443. Se suma a los dos archivos de operación desde el .env, que
+# «sh operacion/entorno.sh <dominio> --detras-de-otro-proxy» deja así:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.operacion.yml:docker-compose.detras.yml
+#   RED_DE_ENTRADA=feruga-entrada
+#
+# El otro proxy saca el certificado del dominio y le pasa lo de este sitio al de feruga por una red
+# interna de Docker que solo comparten los dos (se crea antes, con docker network create --internal).
+# El de feruga no publica ningún puerto ni pide certificado, y pone las mismas cabeceras
+# (operacion/Caddyfile.detras). Que así quede lo revisa cada publicación (operacion/comprobar.ts, la
+# red); cómo se arma y cómo se vuelve atrás, la guía (docs/operacion.md, 2.1 bis).
+services:
+  proxy:
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile.detras", "--adapter", "caddyfile"]
+    ports: !reset []
+    networks:
+      entrada:
+        # El nombre por el que lo encuentra el otro proxy. No «proxy»: el otro puede llamarse igual, y
+        # en la red compartida los dos nombres se cruzarían.
+        aliases: ["feruga-proxy"]
+
+  # Al sitio se le pregunta por donde entra la gente: la dirección pública, que pasa por el otro
+  # proxy. Así el latido y las comprobaciones de cada publicación ven lo que ve quien entra, con el
+  # certificado que de verdad se presenta.
+  comprobacion:
+    environment:
+      SITIO_POR: "${DOMINIO:?Falta DOMINIO en .env}"
+  respaldo:
+    environment:
+      SITIO_POR: "${DOMINIO:?Falta DOMINIO en .env}"
+
+networks:
+  entrada:
+    external: true
+    name: "${RED_DE_ENTRADA:?Falta RED_DE_ENTRADA en .env: el nombre de la red que el proxy comparte con el otro}"

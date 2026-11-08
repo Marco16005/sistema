@@ -450,3 +450,75 @@ test("el horario que el entorno acepta es el que el respaldo sabe leer", () => {
     assert.throws(() => leerHorario(horario), horario);
   }
 });
+
+// ── detrás de otro proxy ───────────────────────────────────────────────────
+
+test("detrás de otro proxy: el proxy no publica, va en la red compartida con un nombre propio, y al sitio se le pregunta por la dirección pública", async () => {
+  // Para cuando en el servidor ya vive otra aplicación, cuyo proxy tiene 80 y 443 (7 de noviembre).
+  const detras = await readFile(join(RAIZ, "docker-compose.detras.yml"), "utf8");
+  const bloque = (nombre: string): string => {
+    const desde = detras.search(new RegExp(`^  ${nombre}:$`, "m"));
+    assert.notEqual(desde, -1, `no está ${nombre}`);
+    const resto = detras.slice(desde + 1);
+    const hasta = resto.search(/^(  [a-z_-]+:|[a-z]+:)$/m);
+    return hasta === -1 ? resto : resto.slice(0, hasta);
+  };
+  assert.match(bloque("proxy"), /^    ports: !reset \[\]$/m, "detrás de otro proxy, el de feruga sigue publicando");
+  assert.match(bloque("proxy"), /command: \["caddy", "run", "--config", "\/etc\/caddy\/Caddyfile\.detras", "--adapter", "caddyfile"\]/);
+  // El otro proxy lo encuentra por un nombre que no es «proxy»: así se llama también el suyo.
+  assert.match(bloque("proxy"), /networks:\n\s+entrada:\n(?:\s+#.*\n)*\s+aliases: \["feruga-proxy"\]/);
+  // No cambia nada de lo que lo contiene: ni privilegios, ni capacidades, ni lo que monta.
+  assert.doesNotMatch(detras, /security_opt|cap_add|cap_drop|privileged|volumes:|network_mode/);
+  for (const servicio of ["comprobacion", "respaldo"]) assert.match(bloque(servicio), /SITIO_POR: "\$\{DOMINIO:\?/, servicio);
+  // La red compartida existe aparte, y se nombra en el .env: sin él, Compose no arranca.
+  assert.match(detras, /^networks:\n  entrada:\n    external: true\n    name: "\$\{RED_DE_ENTRADA:\?[^}]+\}"$/m);
+  // Con el proxy de siempre, al sitio se le pregunta por él; la comprobación de la red sabe si va detrás de otro.
+  const operacion = await readFile(join(RAIZ, "docker-compose.operacion.yml"), "utf8");
+  const compartido = operacion.slice(operacion.indexOf("x-respaldo: &respaldo"), operacion.indexOf("\nservices:"));
+  assert.match(compartido, /^    SITIO_POR: proxy$/m);
+  assert.match(operacion, /^  comprobacion:\n(?:    .*\n|      .*\n)*?      RED_DE_ENTRADA: "\$\{RED_DE_ENTRADA:-\}"$/m);
+
+  // El proxy lleva adentro las dos configuraciones, y lo que hacen con cada petición es lo mismo.
+  const dockerfile = await readFile(join(RAIZ, "docker/proxy.Dockerfile"), "utf8");
+  for (const archivo of ["Caddyfile", "sitio.caddy", "Caddyfile.detras"]) {
+    assert.match(dockerfile, new RegExp(`^COPY operacion/${archivo.replace(".", "\\.")} /etc/caddy/${archivo.replace(".", "\\.")}$`, "m"), archivo);
+  }
+  const normal = await readFile(join(RAIZ, "operacion/Caddyfile"), "utf8");
+  const atras = await readFile(join(RAIZ, "operacion/Caddyfile.detras"), "utf8");
+  const sitio = await readFile(join(RAIZ, "operacion/sitio.caddy"), "utf8");
+  assert.match(normal, /^\{\$DOMINIO\} \{\n\timport \/etc\/caddy\/sitio\.caddy\n\}$/m);
+  // Detrás de otro: solo HTTP —sin pedir certificado ni redirigir, que haría un ciclo— y sin administración.
+  assert.match(atras, /^http:\/\/\{\$DOMINIO\} \{\n\timport \/etc\/caddy\/sitio\.caddy\n\}$/m);
+  for (const texto of [normal, atras]) assert.match(texto, /^\tadmin off$/m);
+  assert.match(atras, /^\t\ttrusted_proxies static private_ranges$/m);
+  assert.doesNotMatch(atras.replace(/#.*$/gm, ""), /redir|tls|https:|import \/etc\/caddy\/(global|sitios)\.d/);
+  // Las cabeceras viajan con el sitio, en los dos: HSTS incluida, que el otro proxy entrega por HTTPS.
+  assert.match(sitio, /Strict-Transport-Security "max-age=31536000"/);
+  assert.match(sitio, /^reverse_proxy web:3000$/m);
+  for (const texto of [normal, atras]) assert.doesNotMatch(texto.replace(/#.*$/gm, ""), /Strict-Transport-Security|reverse_proxy/, "las cabeceras quedaron fuera de sitio.caddy");
+});
+
+test("el guion genera el entorno para ir detrás de otro proxy, solo si se dice", async () => {
+  const guion = join(RAIZ, "operacion/entorno.sh");
+  const [una, otra, mala] = await Promise.all([1, 2, 3].map(() => mkdtemp(join(tmpdir(), "entorno-"))));
+  try {
+    await correr("sh", [guion, "gestion.ejemplo.mx", "--detras-de-otro-proxy"], { cwd: una! });
+    const detras = await leerEntorno(join(una!, ".env"));
+    assert.equal(detras.COMPOSE_FILE, "docker-compose.yml:docker-compose.operacion.yml:docker-compose.detras.yml");
+    assert.equal(detras.RED_DE_ENTRADA, "feruga-entrada");
+    assert.equal(detras.ORIGEN, "https://gestion.ejemplo.mx");
+    assert.equal(detras.COOKIE_SEGURA, "1");
+    // Sin decirlo, el de siempre: sin red compartida.
+    await correr("sh", [guion, "gestion.ejemplo.mx"], { cwd: otra! });
+    const normal = await leerEntorno(join(otra!, ".env"));
+    assert.equal(normal.COMPOSE_FILE, "docker-compose.yml:docker-compose.operacion.yml");
+    assert.equal(normal.RED_DE_ENTRADA, undefined);
+    // Lo que no conoce no lo adivina: no genera nada.
+    for (const args of [["gestion.ejemplo.mx", "--detras"], ["--detras-de-otro-proxy", "gestion.ejemplo.mx"], ["gestion.ejemplo.mx", "--detras-de-otro-proxy", "otra"]]) {
+      await assert.rejects(correr("sh", [guion, ...args], { cwd: mala! }), JSON.stringify(args));
+      await assert.rejects(stat(join(mala!, ".env")), JSON.stringify(args));
+    }
+  } finally {
+    for (const carpeta of [una!, otra!, mala!]) await rm(carpeta, { recursive: true });
+  }
+});

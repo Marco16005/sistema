@@ -1,0 +1,16 @@
+services:
+  proxy:
+    image: caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    entrypoint: ["sh", "-c", "sleep 300"]
+    networks: [entrada]
+  db:
+    image: caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    entrypoint: ["caddy", "file-server", "--listen", ":5432", "--root", "/tmp"]
+    networks: [fondo]
+networks:
+  entrada:
+    external: true
+    name: codex43-entrada
+  fondo:
+    name: codex43-entrada
+    internal: true

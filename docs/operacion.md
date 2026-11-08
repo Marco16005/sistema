@@ -3,8 +3,9 @@
 Cómo se instala, se cuida y se recupera el sistema en su servidor. Es para quien da el soporte
 técnico y para el dueño; la gente del patio no necesita nada de esto.
 
-> **Estado (4 de noviembre de 2026).** Todavía no hay servidor, dominio ni almacenamiento
-> contratados. Esta guía está escrita con lo que hay en el repositorio: cada orden que aparece
+> **Estado (8 de noviembre de 2026).** Ya hay servidor y dominio; el almacenamiento todavía no. En
+> el servidor vive otra aplicación, así que feruga se instala detrás de su proxy (2.1 bis). Esta
+> guía está escrita con lo que hay en el repositorio: cada orden que aparece
 > aquí existe y está probada en las pruebas automáticas y en los simulacros
 > (`operacion/ensayo.sh`, `operacion/ensayo-publicacion.sh` y `operacion/ensayo-servidor.sh`), que
 > arman una instalación completa en una máquina de desarrollo. Codex la revisó contra los guiones
@@ -65,22 +66,26 @@ ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/volver.sh' < /carpeta/pr
 
 ## 2. Instalar por primera vez
 
-El orden: preparar el servidor (2.1); fuera de él, la llave y el sello (2.2); contratar y preparar
-el almacenamiento y los vigilantes (2.3) y los avisos (2.3 bis); y de vuelta en el servidor, el
-entorno y la primera publicación (2.4).
+El orden: preparar el servidor (2.1, o 2.1 bis si en él ya vive otra aplicación); fuera de él, la
+llave y el sello (2.2); contratar y preparar el almacenamiento y los vigilantes (2.3) y los avisos
+(2.3 bis); y de vuelta en el servidor, el entorno y la primera publicación (2.4).
 
 ### 2.1 El servidor — *ensayado en un Ubuntu desechable; por probar en el servidor*
 
 Un **Ubuntu 24.04 LTS recién contratado**, con entrada por SSH y la consola del proveedor a la mano
 (es la salida si algo deja fuera la conexión). El guion está dentro del repositorio, así que Git se
-instala a mano para clonarlo:
+instala a mano para clonarlo. La raíz del repositorio es la carpeta del sistema: se clona dentro de
+`feruga/sistema`, y ahí se trabaja de aquí en adelante.
 
 ```bash
 # En el servidor:
 sudo apt-get update && sudo apt-get install -y git
-git clone DIRECCION_DEL_REPOSITORIO feruga && cd feruga/sistema
+git clone DIRECCION_DEL_REPOSITORIO feruga/sistema && cd feruga/sistema
 sudo sh operacion/servidor.sh                 # como root, sin sudo
 ```
+
+**Si en el servidor ya vive otra aplicación, este guion no se corre**: es para un servidor vacío
+(cambia el cortafuegos y la configuración de Docker, que la otra ya usa). Ver 2.1 bis.
 
 Lo que deja:
 
@@ -133,6 +138,108 @@ se niegue en los casos en que debe negarse. Ahí no puede encender servicios, ac
 cortafuegos ni recargar SSH; eso, y entrar desde otra máquina, **está por probar en el servidor**.
 
 Sigue 2.2, en la computadora del dueño o de soporte; la sesión SSH puede quedar abierta.
+
+### 2.1 bis Si en el servidor ya vive otra aplicación — *ensayado aquí; por probar en el servidor*
+
+Cuando el servidor ya tiene otra aplicación y su proxy tiene los puertos 80 y 443, el de feruga va
+**detrás de él** (`docker-compose.detras.yml`):
+
+- **El otro proxy** saca el certificado del dominio de feruga y le pasa ese tráfico al de feruga por
+  una **red interna de Docker que solo comparten los dos** (`feruga-entrada`). Ni la aplicación ni la
+  base de feruga están en esa red, y ninguna pieza de la otra aplicación entra en las de feruga.
+- **El proxy de feruga** no publica ningún puerto ni pide certificado. Atiende solo por HTTP dentro de
+  esa red, sin redirigir (lo que llega ya vino cifrado hasta el otro), y pone las mismas cabeceras
+  que siempre, HSTS incluida (`operacion/Caddyfile.detras`; lo que hace con cada petición está en
+  `operacion/sitio.caddy`, el mismo archivo en los dos modos).
+- **El latido y las comprobaciones de cada publicación** le preguntan al sitio por la dirección
+  pública, que pasa por el otro proxy: ven el certificado que de verdad se presenta, y si el otro
+  proxy se cae o deja de renovarlo, el latido avisa. Cada pregunta lleva un reto nuevo que la salud
+  del sitio repite: una respuesta guardada por el otro proxy, o de otra aplicación, no pasa por buena.
+- **Cada publicación lo comprueba** (`operacion/comprobar.ts`): que el proxy no publique nada, que
+  esté en esa red —reconocida por su nombre en Docker— y que nadie más de feruga lo esté, ni en la
+  red general de Docker; y, antes de tocar nada, que la red exista y sea interna. Lo mismo al
+  levantar, al retomar una publicación interrumpida y al volver a un respaldo.
+
+Lo que se acepta al compartir: **el otro proxy tiene el certificado y ve el tráfico de feruga
+descifrado** (también la credencial con que el comprobador pregunta la versión y la marca de la base,
+que no abre nada más). **Si el otro proxy se cae o se configura mal, feruga queda fuera** aunque esté
+bien. Y las dos aplicaciones comparten CPU: construir una versión (la primera vez, unos 18 minutos
+para el proxy) hace más lenta a la otra mientras dura; conviene publicar en horas tranquilas.
+
+**Preparar el servidor, sin `servidor.sh`.** Se revisa a mano que ya esté lo que él dejaría, sin
+cambiar nada de la otra aplicación:
+
+- Docker oficial (`docker-ce`) con el plugin de Compose, no el `docker.io` de Ubuntu.
+- Los registros de Docker con tope: en `/etc/docker/daemon.json`, `"log-driver": "json-file"` con
+  `"max-size": "10m"` y `"max-file": "3"`, o algo parecido. Si no lo tiene, se habla con quien
+  cuida la otra aplicación: cambiarlo reinicia Docker, y con él a las dos.
+- El cortafuegos dejando entrar solo 22/TCP, 80/TCP, 443/TCP y 443/UDP (`sudo ufw status verbose`).
+  feruga no agrega ninguna regla: no publica nada.
+- Las actualizaciones de seguridad, automáticas.
+
+**Los pasos**, en el servidor, con la carpeta clonada como en 2.1:
+
+1. La red que comparten los dos proxies, interna:
+
+   ```bash
+   # En el servidor:
+   docker network create --internal feruga-entrada
+   ```
+
+2. El otro proxy entra a esa red. Para no cortarlo, primero en vivo (`docker network connect
+   feruga-entrada CONTENEDOR_DEL_OTRO_PROXY`), y además en su Compose, para que siga ahí cuando se
+   recree. Si su servicio no decía redes, hay que nombrar también la que ya tenía (`default`):
+
+   ```yaml
+   # En el Compose de la otra aplicación:
+   services:
+     proxy:                 # el servicio de su proxy
+       networks:
+         - default          # la que ya tenía
+         - feruga-entrada
+   networks:
+     feruga-entrada:
+       external: true
+   ```
+
+3. El otro proxy atiende el dominio de feruga. Si es Caddy, se le agrega a su Caddyfile:
+
+   ```
+   TU_DOMINIO {
+   	reverse_proxy feruga-proxy:80
+   }
+   ```
+
+   y se recarga sin cortar (por ejemplo `docker compose exec proxy caddy reload --config
+   /etc/caddy/Caddyfile`, si tiene encendida su administración dentro del contenedor). Si su
+   Caddyfile está montado como archivo suelto, se edita en su lugar —no con herramientas que lo
+   reemplazan, como `sed -i`: el contenedor seguiría viendo el viejo— y antes de recargar se mira
+   dentro del contenedor que ya tiene el cambio. «feruga-proxy» es el nombre del proxy de feruga en
+   esa red; no se usa «proxy», que en esa red puede ser de los dos. Hasta que feruga se publique,
+   ese sitio contesta 502: es lo esperado.
+
+4. **Los cambios 2 y 3 se hacen también en el repositorio de la otra aplicación.** Si solo se hacen
+   en el servidor, su siguiente publicación los quita y feruga se queda sin entrada.
+
+5. El dominio: un registro A hacia este servidor. AAAA solo si el otro proxy contesta por IPv6 y se
+   quiere así; si no, sin AAAA.
+
+6. Sigue 2.2; y en 2.4 el entorno se genera con la opción de este modo:
+   `sh operacion/entorno.sh TU_DOMINIO --detras-de-otro-proxy` (agrega `docker-compose.detras.yml`
+   a `COMPOSE_FILE` y deja `RED_DE_ENTRADA=feruga-entrada`).
+
+**El ensayo de este modo** se corre igual, en el servidor o en cualquier máquina con Docker:
+`sh operacion/ensayo.sh --detras-de-otro-proxy` (y `sh operacion/ensayo-publicacion.sh
+--detras-de-otro-proxy`). Levanta su propio «otro proxy» de mentira (`operacion/ensayo/otro-proxy.yml`,
+con el mismo bloque del paso 3) y su propia red; no toca la red ni el proxy de verdad. Además de
+todo lo de siempre, comprueba que desde el otro proxy solo se llegue al de feruga —ni a la
+aplicación ni a la base, ni por nombre ni por dirección— y que el de feruga le conteste sin
+redirigir y con HSTS.
+
+**Volver atrás**: se quita el bloque del paso 3 del Caddyfile del otro y se recarga, y se saca al
+otro de la red (`docker network disconnect feruga-entrada CONTENEDOR_DEL_OTRO_PROXY`, y del Compose y
+del repositorio de la otra aplicación). feruga sigue corriendo, sin entrada desde fuera. Para que
+feruga tenga su propio servidor se instala como en 2.1 y se trae su información con la sección 7.
 
 ### 2.2 Fuera del servidor: la llave y el sello
 
@@ -230,13 +337,16 @@ dos veces por el que sí funcionó: es el mismo aviso, no otra diferencia.
 Antes: **el dominio** ya apunta a la dirección de este servidor (en el proveedor del dominio, un
 registro A para IPv4 y, si tiene, AAAA para IPv6), y desde fuera llegan los puertos 80 y 443/TCP.
 Sin eso el certificado no se emite y la primera publicación no abre. Si se preparó Docker con
-`sudo`, salir y volver a entrar antes de seguir.
+`sudo`, salir y volver a entrar antes de seguir. Detrás de otro proxy (2.1 bis), los pasos 1 a 5 de
+allá ya están hechos: el otro tiene el certificado, y la red compartida existe.
 
 En la carpeta `feruga/sistema` que se clonó en 2.1:
 
 ```bash
 # En el servidor:
 sh operacion/entorno.sh TU_DOMINIO            # genera .env con claves nuevas; no muestra ninguna
+# o, si el proxy va detrás de otro (2.1 bis):
+sh operacion/entorno.sh TU_DOMINIO --detras-de-otro-proxy
 ```
 
 `entorno.sh` ya llena lo que puede inventar —las claves de la base (`BD_CLAVE`, `WEB_BD_CLAVE`), la
@@ -297,7 +407,9 @@ manda uno de prueba por cada canal; se comprueba que llegue.
 Si el certificado no se emite, el sitio no se da por disponible y la operación no se abre. La
 salida nunca es quitar la cookie segura ni servir por HTTP: se revisa que el dominio apunte al
 servidor y que los puertos 80 y 443 lleguen. El certificado que se está presentando, y cuándo
-vence: `sh operacion/compose.sh run --rm --no-deps comprobacion certificado`.
+vence: `sh operacion/compose.sh run --rm --no-deps comprobacion certificado`. **Detrás de otro
+proxy** (2.1 bis), el certificado lo saca el otro: por qué no lo emite lo dicen los registros de
+ese otro proxy, no los del de feruga.
 
 ### 2.5 El primer día, en la pantalla
 
@@ -488,8 +600,14 @@ Con el paquete de recuperación, en una máquina nueva:
 
 1. Se prepara **solo como en 2.1**: Git, clonar una vez, `servidor.sh`, y comprobar la entrada con
    llave. **No** se corre `entorno.sh`, ni `publicar.sh` a secas, ni el arranque: instalar desde un
-   respaldo pide una instalación sin nada publicado y una base vacía.
+   respaldo pide una instalación sin nada publicado y una base vacía. Si en la máquina nueva también
+   vive otra aplicación, en vez de 2.1 se hacen los pasos 1 a 5 de 2.1 bis.
 2. El `.env` del paquete se copia a `feruga/sistema/.env`, solo para su dueño (`chmod 600 .env`).
+   Sus claves se quedan como están. **Si el `.env` es de una instalación detrás de otro proxy y la
+   máquina nueva es solo de feruga**, se cambian dos renglones, y nada más: `COMPOSE_FILE` queda en
+   `docker-compose.yml:docker-compose.operacion.yml` y se borra el de `RED_DE_ENTRADA` (si no, la
+   instalación espera una red y otro proxy que ahí no hay, y se detiene). Y al revés: de un servidor
+   propio a uno compartido, se agregan como los deja `entorno.sh --detras-de-otro-proxy` (2.1 bis).
 3. El dominio se apunta al servidor nuevo (2.4).
 4. Desde fuera se pregunta de qué versión es el respaldo:
    `FUERA_ENTORNO=/carpeta/privada/recuperacion.env sh operacion/fuera.sh version < /carpeta/privada/llave-privada.txt`
@@ -596,10 +714,12 @@ el sitio no contestó (lo que sigue), que queda poco disco («Se llenó el disco
 certificado no se ha renovado, o que no se pudo medir el disco o leer el certificado. Lo del
 certificado casi siempre es que el dominio dejó de apuntar al servidor o que el puerto 80 ya no
 llega: `sh operacion/compose.sh run --rm --no-deps comprobacion certificado` dice cuál presenta y
-cuándo vence, y `sh operacion/compose.sh logs --tail 200 proxy` dice por qué no lo renovó. **Si la
-señal solo dejó de oírse, sin mensaje,** puede ser el servidor, el servicio de respaldos, su salida
-a internet, o la dirección de la señal: se revisan en ese orden. El latido pregunta por el proxy
-desde dentro de Docker; que el sitio se abra desde el patio se comprueba aparte, desde fuera.
+cuándo vence, y `sh operacion/compose.sh logs --tail 200 proxy` dice por qué no lo renovó (detrás
+de otro proxy, el que lo renueva es el otro: sus registros). **Si la señal solo dejó de oírse, sin
+mensaje,** puede ser el servidor, el servicio de respaldos, su salida a internet, o la dirección de
+la señal: se revisan en ese orden. El latido pregunta por el proxy desde dentro de Docker (detrás
+de otro, por la dirección pública, que pasa por el otro); que el sitio se abra desde el patio se
+comprueba aparte, desde fuera.
 
 **El sitio no contesta, o dice que el sistema no está disponible.**
 
@@ -667,7 +787,10 @@ amplía el disco.
 
 ## 10. Lo que falta, dicho
 
-Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni almacenamiento:
+Nada de esto se ha podido hacer todavía: el servidor y el dominio ya están, pero no el
+almacenamiento, y feruga aún no se instala en el servidor. El servidor contratado tiene otra
+aplicación, así que se prepara a mano (2.1 bis) y no con `servidor.sh`; lo de `servidor.sh` queda
+por probar para cuando haga falta un servidor propio.
 
 - Preparar el servidor con su guion (`operacion/servidor.sh`, ya escrito y ensayado en un Ubuntu
   desechable) y comprobar ahí lo que el ensayo no puede: que los servicios arrancan y vuelven a
@@ -696,6 +819,10 @@ Nada de esto se ha podido hacer todavía, porque no hay servidor, dominio ni alm
 - La revisión de seguridad del servidor mismo (`docs/seguridad.md`): nmap desde fuera contra su
   dirección, testssl contra el dominio con su certificado real, y Lynis y Docker Bench en la máquina.
   Y antes de cada versión, `sh seguridad/escanear.sh` en la computadora de desarrollo.
+- Detrás de otro proxy (2.1 bis), en el servidor de verdad: que el latido y las comprobaciones
+  lleguen al sitio por su dirección pública desde los contenedores (pasa por el otro proxy), que
+  la otra aplicación siga bien después de unir su proxy a la red y recargarlo, y que su siguiente
+  publicación conserve el bloque del dominio y la red.
 
 Lo que se haga se anota aquí con su fecha y su resultado.
 
@@ -717,6 +844,12 @@ ssh USUARIO@SERVIDOR 'cd feruga/sistema && sh operacion/publicar.sh --desde-resp
 sudo sh operacion/servidor.sh                              # prepararlo (2.1)
 sudo sh operacion/servidor.sh --quitar-contrasenas         # después de probar la entrada con llave
 sh operacion/entorno.sh TU_DOMINIO                         # el .env, con claves nuevas
+sh operacion/publicar.sh                                   # la primera publicación
+sh operacion/compose.sh run --rm consola arranque          # el primer responsable y el primer equipo
+
+# ── En un servidor donde ya vive otra aplicación (2.1 bis), en vez de lo de arriba ──
+docker network create --internal feruga-entrada            # la red que comparten los dos proxies (y los pasos 2 a 5 de 2.1 bis)
+sh operacion/entorno.sh TU_DOMINIO --detras-de-otro-proxy  # el .env, con claves nuevas
 sh operacion/publicar.sh                                   # la primera publicación
 sh operacion/compose.sh run --rm consola arranque          # el primer responsable y el primer equipo
 

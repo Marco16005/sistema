@@ -197,11 +197,31 @@ estado_de_la_base() {
   en_la_base "$1" estado 2>/dev/null || echo no-contesta
 }
 
-# por_https <configuración> <qué se espera…>: le pregunta al sitio, por HTTPS y a través del proxy.
+# por_https <configuración> <qué se espera…>: le pregunta al sitio, por HTTPS, por donde lo diga la
+# instalación (SITIO_POR): su proxy; o, si va detrás de otro, la dirección pública, por la que entra la gente.
 por_https() {
   pasos_conf=$1
   shift
-  docker compose -f "$pasos_conf" run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https proxy "$@" </dev/null
+  docker compose -f "$pasos_conf" run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https "$@" </dev/null
+}
+
+# exigir_redes_de_fuera <configuración>: las redes que esa configuración usa sin crearlas —la que el
+# proxy comparte con otro, si va detrás de él— existen, y son internas: solo sirven para que los dos
+# proxies se hablen. Se mira antes de tocar nada; si faltara, el proxy no levantaría a media
+# publicación, con el negocio ya cerrado.
+exigir_redes_de_fuera() {
+  # shellcheck disable=SC2094  # el mismo archivo, como configuración y como lo que se revisa; no se escribe
+  pasos_redes=$(docker compose -f "$1" run --rm --no-deps -T comprobacion redes-de-fuera <"$1") || return 1
+  for pasos_red in $pasos_redes; do
+    if ! pasos_interna=$(docker network inspect -f '{{.Internal}}' "$pasos_red" 2>/dev/null); then
+      printf 'No existe la red %s, la que el proxy comparte con el otro. Se crea así: docker network create --internal %s\n' "$pasos_red" "$pasos_red" >&2
+      return 1
+    fi
+    if [ "$pasos_interna" != true ]; then
+      printf 'La red %s no es interna: tiene que servir solo para que los dos proxies se hablen (ver la guía, 2.1 bis).\n' "$pasos_red" >&2
+      return 1
+    fi
+  done
 }
 
 # esperar_el_sitio <configuración> <qué se espera…>: lo mismo, dándole tiempo. La primera vez el

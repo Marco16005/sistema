@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { test } from "node:test";
 import { faltasDeRed } from "../operacion/comprobar.ts";
 
-type Servicio = { ports?: object[]; volumes?: object[]; network_mode?: string; privileged?: boolean };
+type Servicio = { ports?: object[]; volumes?: object[]; network_mode?: string; privileged?: boolean; networks?: Record<string, object | null> };
 const local = (target: number, published: string) => ({ mode: "ingress", host_ip: "127.0.0.1", target, published, protocol: "tcp" });
 const aLaRed = (target: number, published: string) => ({ mode: "ingress", target, published, protocol: "tcp" });
 
@@ -29,6 +29,9 @@ const operacion = (cambios: Record<string, Servicio> = {}) => ({
     ...cambios,
   },
 });
+
+/** Lo que se dice cuando el proxy va detrás de otro: la red que comparten. */
+const ENTRADA = { entrada: "feruga-entrada" };
 
 test("la configuración de operación publica a la red solo el proxy, en 80 y 443", () => {
   assert.deepEqual(faltasDeRed(operacion()), []);
@@ -108,8 +111,13 @@ test("lo que sale a la red sin pasar por «ports» también se rechaza: la red d
     // Tampoco en un ensayo.
     assert.match(faltasDeRed(operacion(cambio), { local: true }).join("\n"), dice);
   }
-  // La red de siempre, dicha expresamente, y una carpeta cualquiera del proyecto, pasan.
-  assert.deepEqual(faltasDeRed(operacion({ otro: { network_mode: "bridge", volumes: [{ type: "bind", source: "/srv/feruga/operacion", target: "/o" }] } })), []);
+  // La red general de Docker tampoco: no es la de este proyecto, y en ella cualquier otro contenedor
+  // del servidor —el otro proxy, por ejemplo— llegaría a sus puertos por dirección (Codex, R43-07).
+  for (const o of [{}, { local: true }, ENTRADA]) {
+    assert.match(faltasDeRed(operacion({ db: { network_mode: "bridge" } }), o).join("\n"), /db usa la red general de Docker/, JSON.stringify(o));
+  }
+  // Sin red ninguna, y una carpeta cualquiera del proyecto, pasan.
+  assert.deepEqual(faltasDeRed(operacion({ otro: { network_mode: "none", volumes: [{ type: "bind", source: "/srv/feruga/operacion", target: "/o" }] } })), []);
 });
 
 test("en un ensayo el proxy se queda en esta máquina, y eso se acepta solo si se dice; lo demás se exige igual", () => {
@@ -183,4 +191,116 @@ test("por la consola: la configuración efectiva entra por la entrada estándar"
   const ensayo = JSON.stringify(operacion({ proxy: { ...proxy, ports: [local(80, "8480"), local(443, "8443")] } }));
   assert.equal((await comprobar(["red"], {}, ensayo)).codigo, 1);
   assert.equal((await comprobar(["red", "--local"], {}, ensayo)).codigo, 0);
+});
+
+/**
+ * La de operación detrás de otro proxy (docker-compose.detras.yml), como la entrega Compose: el
+ * proxy sin puertos, en el frente y en la red que comparte con el otro, que existe aparte.
+ */
+const detras = (cambios: Record<string, Servicio> = {}, redes: Record<string, object> = {}) => {
+  const proxy = { ...operacion().services.proxy, ports: [], networks: { frente: null, entrada: { aliases: ["feruga-proxy"] } } };
+  return {
+    ...operacion({ proxy, ...cambios }),
+    networks: { entrada: { name: "feruga-entrada", external: true }, fondo: { name: "feruga_fondo" }, frente: { name: "feruga_frente" }, ...redes },
+  };
+};
+
+test("detrás de otro proxy: el de feruga no publica nada y está en la red que comparte con el otro; se acepta solo si se dice", () => {
+  assert.deepEqual(faltasDeRed(detras(), ENTRADA), []);
+  // En un ensayo es lo mismo: ni en esta máquina publica.
+  assert.deepEqual(faltasDeRed(detras(), { ...ENTRADA, local: true }), []);
+  // Sin decirlo, una red de fuera es una puerta que nadie revisó, y sin 80 y 443 no hay sitio.
+  const sinDecir = faltasDeRed(detras()).join("\n");
+  assert.match(sinDecir, /proxy.*feruga-entrada/);
+  assert.match(sinDecir, /no publica el 443/);
+  // Dicho, pero con el proxy de siempre: publica, y no está en la red.
+  const comoSiempre = faltasDeRed(operacion(), ENTRADA).join("\n");
+  assert.match(comoSiempre, /proxy publica a la red el puerto 80.*detrás de otro proxy/);
+  assert.match(comoSiempre, /proxy publica a la red el puerto 443/);
+  assert.match(comoSiempre, /El proxy no está en la red feruga-entrada/);
+});
+
+test("detrás de otro proxy, lo demás se rechaza diciendo qué", () => {
+  const proxy = detras().services.proxy;
+  const casos: Array<[ReturnType<typeof detras>, RegExp]> = [
+    // Ni en esta máquina publica el proxy: el otro le llega por la red compartida.
+    [detras({ proxy: { ...proxy, ports: [local(80, "8480")] } }), /proxy publica en esta máquina el puerto 8480/],
+    // La red tiene que ser la que se dijo, y existir aparte: si la crea este Compose, el otro proxy no está en ella.
+    [detras({ proxy: { ...proxy, networks: { frente: null, otra: {} } } }, { otra: { name: "otra-red", external: true } }), /otra-red/],
+    [detras({}, { entrada: { name: "feruga-entrada" } }), /feruga-entrada.*aparte/],
+    // Nadie más de feruga en la red compartida: el otro proxy llegaría a la aplicación sin pasar por el de feruga, o a la base.
+    [detras({ web: { networks: { frente: null, fondo: null, entrada: null } } }), /web.*feruga-entrada/],
+    [detras({ db: { networks: { fondo: null, entrada: null } } }), /db.*feruga-entrada/],
+    // Ni en otra red de fuera.
+    [detras({ respaldo: { networks: { fondo: null, otra: null } } }, { otra: { name: "de-otro-proyecto", external: true } }), /respaldo.*de-otro-proyecto/],
+  ];
+  for (const [config, dice] of casos) {
+    for (const o of [ENTRADA, { ...ENTRADA, local: true }]) {
+      const faltas = faltasDeRed(config, o);
+      assert.ok(faltas.length > 0, `debió rechazar ${JSON.stringify(config.services)} ${JSON.stringify(o)}`);
+      assert.match(faltas.join("\n"), dice);
+    }
+  }
+});
+
+test("con el proxy de siempre, ningún servicio está en una red de fuera", () => {
+  const conRedDeFuera = { ...operacion({ web: { networks: { frente: null, fondo: null, ajena: null } } }), networks: { ajena: { name: "de-otro-proyecto", external: true } } };
+  assert.match(faltasDeRed(conRedDeFuera).join("\n"), /web.*de-otro-proyecto/);
+  assert.match(faltasDeRed(conRedDeFuera, { local: true }).join("\n"), /web.*de-otro-proyecto/);
+  // Las suyas, aunque las nombre, pasan.
+  assert.deepEqual(faltasDeRed({ ...operacion({ web: { networks: { frente: null, fondo: null } } }), networks: { frente: { name: "feruga_frente" }, fondo: { name: "feruga_fondo" } } }), []);
+});
+
+test("por la consola: la red compartida se dice en el entorno o en la orden, y se pueden pedir las redes de fuera", async () => {
+  const config = JSON.stringify(detras());
+  assert.equal((await comprobar(["red"], {}, config)).codigo, 1);
+  const porEntorno = await comprobar(["red"], { RED_DE_ENTRADA: "feruga-entrada" }, config);
+  assert.equal(porEntorno.codigo, 0, porEntorno.queja);
+  assert.equal((await comprobar(["red", "--entrada=feruga-entrada"], {}, config)).codigo, 0);
+  assert.equal((await comprobar(["red", "--local", "--entrada=feruga-entrada"], {}, config)).codigo, 0);
+  // Vacía es como no decirla: el proxy de siempre pasa.
+  assert.equal((await comprobar(["red"], { RED_DE_ENTRADA: "" }, JSON.stringify(operacion()))).codigo, 0);
+  // Las redes que tienen que existir antes de levantar, una por renglón.
+  const fuera = await comprobar(["redes-de-fuera"], {}, config);
+  assert.equal(fuera.codigo, 0, fuera.queja);
+  assert.equal(fuera.salida, "feruga-entrada\n");
+  assert.equal((await comprobar(["redes-de-fuera"], {}, JSON.stringify(operacion()))).salida, "");
+  assert.equal((await comprobar(["redes-de-fuera"], {}, "no es json")).codigo, 1);
+});
+
+test("la red compartida se reconoce por su nombre en Docker, no por su clave ni por el orden en que se declara (Codex, R43-01)", () => {
+  // Otra clave con el mismo nombre, sin «external»: Compose puede reusar esa red, y la base quedaría
+  // junto al otro proxy. Se rechaza en cualquier orden, y aunque el proxy de siempre esté bien.
+  const colision = { colision: { name: "feruga-entrada" } };
+  const db = { db: { networks: { fondo: null, colision: null } } };
+  for (const redes of [
+    { ...colision, entrada: { name: "feruga-entrada", external: true }, fondo: { name: "feruga_fondo" }, frente: { name: "feruga_frente" } },
+    { entrada: { name: "feruga-entrada", external: true }, fondo: { name: "feruga_fondo" }, frente: { name: "feruga_frente" }, ...colision },
+  ]) {
+    const config = { ...detras(db), networks: redes };
+    for (const o of [ENTRADA, { ...ENTRADA, local: true }]) {
+      const faltas = faltasDeRed(config, o).join("\n");
+      assert.match(faltas, /db está en la red feruga-entrada/, JSON.stringify(Object.keys(redes)));
+      assert.match(faltas, /feruga-entrada la crearía esta configuración/);
+    }
+  }
+  // El proxy en esa red por una clave que no es de fuera tampoco cuenta como estar en la compartida.
+  const proxy = { ...detras().services.proxy, networks: { frente: null, colision: null } };
+  assert.match(faltasDeRed({ ...detras({ proxy }), networks: { ...colision, frente: { name: "feruga_frente" } } }, ENTRADA).join("\n"), /El proxy no está en la red feruga-entrada/);
+});
+
+test("el nombre de la red compartida es uno solo, sin blancos: si no, no se sabe cuál se revisó (Codex, R43-02)", async () => {
+  for (const malo of ["feruga entrada", "   ", "feruga-entrada\notra", "../feruga", "-feruga", "feruga*"]) {
+    assert.match(faltasDeRed(detras(), { entrada: malo }).join("\n"), /RED_DE_ENTRADA.*no es un nombre de red/, JSON.stringify(malo));
+  }
+  for (const bueno of ["feruga-entrada", "feruga_ensayo-entrada", "red.1"]) {
+    const config = { ...detras(), networks: { entrada: { name: bueno, external: true }, frente: { name: "feruga_frente" } } };
+    assert.deepEqual(faltasDeRed(config, { entrada: bueno }), [], bueno);
+  }
+  // Las redes de fuera se dicen una por renglón solo si cada nombre es uno solo; si no, no se dice ninguna.
+  const conEspacio = { ...detras(), networks: { entrada: { name: "codex43-a codex43-b", external: true } } };
+  const fuera = await comprobar(["redes-de-fuera"], {}, JSON.stringify(conEspacio));
+  assert.equal(fuera.codigo, 1);
+  assert.equal(fuera.salida, "");
+  assert.match(fuera.queja, /codex43-a codex43-b.*no es un nombre de red/);
 });

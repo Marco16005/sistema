@@ -1,0 +1,15 @@
+# Solo para el ensayo detrás de otro proxy: la configuración del otro, el de la otra aplicación del
+# servidor. El bloque del dominio es lo que la guía pide agregarle a ese otro (docs/operacion.md, 2.1 bis).
+{
+	# El dominio no existe en internet: el certificado lo emite una autoridad propia de este proxy.
+	local_certs
+}
+
+{$DOMINIO} {
+	reverse_proxy feruga-proxy:80
+}
+
+# El vigilante de mentira, también por HTTPS.
+vigia.test {
+	reverse_proxy vigia:8080
+}

@@ -327,6 +327,7 @@ publicar() {
   # ENSAYO=1 lo pone solo el ensayo en una máquina de desarrollo, donde ni el proxy sale a la red.
   # shellcheck disable=SC2094  # el mismo archivo se lee dos veces —como configuración y como lo que se revisa—; no se escribe
   docker compose -f "$conf" run --rm --no-deps -T comprobacion red ${ENSAYO:+--local} <"$conf" || falla "La configuración publica de más a la red. No se tocó nada."
+  exigir_redes_de_fuera "$conf" || falla "Falta la red que el proxy comparte con el otro, o no es como debe. No se tocó nada."
 
   if [ -z "$vigente" ]; then
     # La primera publicación de la instalación. No hay nada que cerrar ni que respaldar.
@@ -421,6 +422,12 @@ recuperar() {
   conf="$PUBLICACIONES/$pub/conjunto.json"
   anterior=$(manifiesto dato "$pub" anterior.configuracion) || falla "No se pudo leer el manifiesto de la publicación $pub. No se tocó nada."
   [ -z "$anterior" ] || conf_ant="$PUBLICACIONES/$anterior"
+  # Cualquiera de los dos conjuntos puede ser el que se levante: si su proxy va detrás de otro, la red
+  # que comparten tiene que estar. Se mira cada vez, también al retomar (Codex, R43-03).
+  for cual in "$conf" "$conf_ant"; do
+    [ -z "$cual" ] || exigir_redes_de_fuera "$cual" \
+      || falla "Falta la red que el proxy comparte con el otro, o no es como debe. No se tocó nada; creada la red, vuelve a correr: sh operacion/publicar.sh --recuperar"
+  done
   # Una instalación desde un respaldo que quedó a medias se retoma por su propio camino —necesita la
   # llave—, salvo que ya se hubiera decidido abrir: eso se termina aquí, como cualquier otra.
   decidida=$(manifiesto dato "$pub" marcas.seDecidioAbrir) || falla "No se pudo leer el manifiesto de la publicación $pub. No se tocó nada."
@@ -522,6 +529,7 @@ instalar() {
     [ "$momento_guardado" = - ] || como_estaba=$momento_guardado
     [ -n "$respaldo" ] || falla "No se pudo leer de qué respaldo era la instalación a medias ($pub). No se tocó nada."
     conf="$PUBLICACIONES/$pub/conjunto.json"
+    exigir_redes_de_fuera "$conf" || falla "Falta la red que el proxy comparte con el otro, o no es como debe. No se tocó nada."
     echo "Se retoma la instalación desde el respaldo $respaldo (publicación $pub)."
     # Que aquel guion haya muerto no dice nada de lo que dejó corriendo: una restauración, por ejemplo.
     esperar_lo_que_quedo "$conf"
@@ -568,6 +576,7 @@ instalar() {
     conf="$privado/conjunto.json"
     # shellcheck disable=SC2094  # el mismo archivo se lee dos veces; no se escribe
     docker compose -f "$conf" run --rm --no-deps -T comprobacion red ${ENSAYO:+--local} <"$conf" || falla "La configuración publica de más a la red. No se tocó nada."
+    exigir_redes_de_fuera "$conf" || falla "Falta la red que el proxy comparte con el otro, o no es como debe. No se tocó nada."
     arrancar "$conf" db || falla "La base de datos no levantó. No se instaló nada."
     estado=$(estado_de_la_base "$conf")
     [ "$estado" = '{"base":"no hay"}' ] || falla "En esta máquina ya hay una base con datos (o no contesta): instalar desde un respaldo es para una máquina donde todavía no hay nada. No se instaló nada."

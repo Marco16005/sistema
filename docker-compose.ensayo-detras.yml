@@ -1,0 +1,14 @@
+# El ensayo detrás de otro proxy (sh operacion/ensayo.sh --detras-de-otro-proxy). El otro proxy —el
+# de la otra aplicación del servidor— corre como proyecto aparte (operacion/ensayo/otro-proxy.yml),
+# igual que allá: él saca el certificado y atiende al dominio y al vigilante de mentira. El de
+# feruga no lleva nada del ensayo: va tal como irá al servidor.
+services:
+  # La raíz de la autoridad que emite el certificado está en el volumen del otro proxy.
+  autoridad:
+    volumes:
+      - datos_del_otro_proxy:/data:ro
+
+volumes:
+  datos_del_otro_proxy:
+    external: true
+    name: "${OTRO_PROXY_DATOS:?Falta OTRO_PROXY_DATOS: lo pone operacion/ensayo/comun.sh}"

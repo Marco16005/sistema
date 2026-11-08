@@ -515,7 +515,7 @@ test("abrir después de volver al respaldo: si ya había abierto —se repite po
     const llamadas = await i.llamadas();
     const levanta = llamadas.findIndex((l) => l.endsWith("up -d --wait --no-deps respaldo"));
     const comprueba = llamadas.findIndex((l) => / corre pub1 candidato --nada-mas db=h web=h proxy=h respaldo=h$/.test(l));
-    const porHttps = llamadas.findIndex((l) => l.includes(" comprobacion https proxy --abierta --version=pub1 "));
+    const porHttps = llamadas.findIndex((l) => l.includes(" comprobacion https --abierta --version=pub1 "));
     assert.ok(levanta >= 0, "dijo que ya estaba abierta y no levantó el servicio de respaldo");
     assert.ok(comprueba > levanta && porHttps > comprueba, "no comprobó, después de reponer el respaldo, qué corre y qué dice el sitio");
     // No volvió a decidir ni a abrir: eso ya estaba.
@@ -834,4 +834,69 @@ test("instalar transmite depósito y momento a ambas lecturas, los conserva al r
     const antigua = await ejecutar(["--desde-respaldo"]);
     assert.equal(antigua.codigo, 0, antigua.queja);
     assert.ok((await i.llamadas()).at(-1)!.includes(`--remoto=${objeto}`));
+  }));
+
+test("la red que el proxy comparte con otro: si no existe o no es interna, no se sigue; y si no se puede preguntar, tampoco", () =>
+  conInstalacion(async (i) => {
+    const pide = () => i.sh('echo "{}" > conjunto.json\nexigir_redes_de_fuera conjunto.json\necho sigue');
+    const PIDE_REDES = '*"comprobacion redes-de-fuera"*)';
+    // No poder preguntar qué redes usa no es «ninguna».
+    await i.docker(`case "$*" in ${PIDE_REDES} exit 1 ;; esac`);
+    assert.equal((await pide()).codigo, 1);
+    // Ninguna de fuera (el proxy de siempre): se sigue sin preguntar más.
+    await i.docker(`case "$*" in ${PIDE_REDES} ;; "network inspect"*) exit 1 ;; esac`);
+    assert.deepEqual([(await pide()).codigo, (await pide()).salida], [0, "sigue"]);
+    // La del proxy, que no existe: se dice cómo crearla.
+    await i.docker(`case "$*" in ${PIDE_REDES} echo feruga-entrada ;; "network inspect"*) exit 1 ;; esac`);
+    const falta = await pide();
+    assert.equal(falta.codigo, 1);
+    assert.match(falta.queja, /No existe la red feruga-entrada.*docker network create --internal feruga-entrada/);
+    // Existe, pero no es interna.
+    await i.docker(`case "$*" in ${PIDE_REDES} echo feruga-entrada ;; "network inspect -f {{.Internal}} feruga-entrada") echo false ;; esac`);
+    const abierta = await pide();
+    assert.equal(abierta.codigo, 1);
+    assert.match(abierta.queja, /La red feruga-entrada no es interna/);
+    // Existe y es interna: se sigue.
+    await i.docker(`case "$*" in ${PIDE_REDES} echo feruga-entrada ;; "network inspect -f {{.Internal}} feruga-entrada") echo true ;; esac`);
+    assert.deepEqual([(await pide()).codigo, (await pide()).salida], [0, "sigue"]);
+    // Y quien levanta o publica lo pregunta justo después de revisar qué se publica: antes de tocar nada.
+    for (const [guion, veces] of [["publicar.sh", 2], ["levantar.sh", 1]] as const) {
+      const texto = await readFile(join(OPERACION, guion), "utf8");
+      const pares = [...texto.matchAll(/comprobacion red \$\{ENSAYO:\+--local\} <"\$(\w+)" \|\| falla [^\n]*\n\s*exigir_redes_de_fuera "\$(\w+)" \|\| falla "[^"]*No se tocó nada\."/g)];
+      assert.equal(pares.length, veces, guion);
+      for (const [, revisa, exige] of pares) assert.equal(exige, revisa, guion);
+    }
+    // Volver al respaldo levanta el proxy de la versión anterior: lo pregunta en todas sus ramas —también
+    // al retomar—, antes de la primera que toca algo (Codex, R43-03).
+    const volver = await readFile(join(OPERACION, "volver.sh"), "utf8");
+    const exige = volver.indexOf('exigir_redes_de_fuera "$conf_ant" || falla');
+    const primeraRama = volver.indexOf('if [ "$hay_suya" = si ] && [ "$hay_apartada" = no ]');
+    assert.ok(exige > 0 && exige < primeraRama, "volver.sh no revisa la red antes de sus ramas");
+  }));
+
+test("retomar una publicación interrumpida vuelve a revisar la red compartida, antes de tocar nada (Codex, R43-03)", () =>
+  conInstalacion(async (i) => {
+    await i.git('case "$*" in rev-parse*) echo abc123def4567890 ;; esac');
+    const PENDIENTE = (red: string) => `case "$*" in
+  ${red}
+  "image inspect "*) exit 0 ;;
+  *"publicacion.ts /publicaciones pendiente") echo pub2 ;;
+  *"publicacion.ts /publicaciones dato pub2 commit") echo abc123def4567890 ;;
+  *"publicacion.ts /publicaciones dato pub2 anterior.configuracion") echo pub1/conjunto.json ;;
+esac`;
+    for (const pub of ["pub1", "pub2"]) {
+      await mkdir(join(i.carpeta, "publicaciones", pub), { recursive: true });
+      await writeFile(join(i.carpeta, "publicaciones", pub, "conjunto.json"), "{}");
+    }
+    // La red no existe: se dice, y no se espera, ni se pregunta a la base, ni se levanta o detiene nada.
+    await i.docker(PENDIENTE('*"comprobacion redes-de-fuera"*) echo feruga-entrada ;;\n  "network inspect"*) exit 1 ;;'));
+    const falta = await i.guion("publicar.sh", ["--recuperar"]);
+    assert.equal(falta.codigo, 1, falta.salida);
+    assert.match(falta.queja, /No existe la red feruga-entrada/);
+    assert.match(falta.queja, /No se tocó nada; creada la red, vuelve a correr: sh operacion\/publicar\.sh --recuperar/);
+    const llamadas = await i.llamadas();
+    assert.ok(!llamadas.some((l) => / (up|stop|start|rm|down|wait|ps)( |$)/.test(l) || l.includes("operacion.ts")), `tocó algo: ${llamadas.join("\n")}`);
+    // Se revisan los dos conjuntos: el que se publicaba y el anterior, que es el que se levantaría al volver.
+    const revisadas = llamadas.filter((l) => l.includes("comprobacion redes-de-fuera"));
+    assert.ok(revisadas.some((l) => l.includes("publicaciones/pub2/conjunto.json")), "no revisó el conjunto que se publicaba");
   }));

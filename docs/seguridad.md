@@ -88,6 +88,22 @@ porque es pesado: `sh seguridad/sonar.sh` (un servidor desechable; pide unos 3.5
   `recorrido/operacion.spec.ts` en el ensayo.
 - **La comprobación por HTTPS con dos plazos** (`2cefb71`): uno de silencio (10 s) y uno total, más
   holgado; con uno solo, un sitio lento pero que contesta se daba por caído a media publicación.
+- **El modo detrás de otro proxy, revisado por Codex** (encargo 43, 8 de noviembre;
+  `docs/revisiones/2026-11-08-codex-detras-de-otro-proxy-43.md`). Lo que encontró, arreglado con su prueba:
+  - *la red compartida se reconocía por su clave y no por su nombre en Docker* (R43-01, alta): con
+    otra clave del mismo nombre sin «external», la base podía quedar junto al otro proxy y la
+    comprobación pasaba según el orden de las declaraciones. Ahora cuenta el nombre, en cualquier orden;
+  - *un nombre de red con blancos se revisaba como varios* (R43-02): ahora se exige uno solo, de
+    letras, números, «_», «.» y «-»;
+  - *al retomar una publicación, o al volver a un respaldo ya empezado, no se revisaba otra vez la
+    red* (R43-03): ahora se revisa en cada camino que levanta el proxy, antes de tocar nada;
+  - *una salud guardada por algo de en medio pasaba por nueva* (R43-04): cada pregunta del latido y
+    de las comprobaciones lleva un reto al azar que la salud repite;
+  - *el ensayo de publicación mataba cualquier `publicar.sh` de la máquina* (R43-05): ahora solo el
+    que lanzó él, así que se puede correr en el servidor sin tocar una publicación de verdad;
+  - *la guía no decía cómo pasar de un servidor compartido a uno propio* (R43-06): sección 7;
+  - *`network_mode: bridge` se aceptaba* (R43-07): es la red general de Docker, donde cualquier otro
+    contenedor del servidor llega por dirección; ahora se rechaza.
 
 ### Lo que Codex encontró bien en el sitio en marcha (encargo 40)
 
@@ -174,8 +190,20 @@ la respuesta a una dirección mal escrita (abajo, en lo aceptado). Informe:
     aparece justo cuando se pidió cambiarlo; *un objeto como valor por omisión* (S7737), que se crea
     en cada llamada.
 
+- **Detrás de otro proxy** (7 de noviembre; `docs/operacion.md`, 2.1 bis): en el servidor contratado
+  vive otra aplicación, y su proxy tiene 80 y 443. El de feruga va detrás de él, por una red interna
+  de Docker que solo comparten los dos proxies. Lo que se acepta: **ese otro proxy tiene el
+  certificado y ve el tráfico de feruga descifrado**, también la credencial del comprobador (que
+  solo da la versión, el esquema y la marca de la base); y si se cae, feruga queda fuera. Lo que no
+  cambia: feruga no publica ningún puerto; el otro solo alcanza al proxy de feruga, no a la
+  aplicación ni a la base (lo comprueba el ensayo, por nombre y por dirección); el proxy de feruga
+  pone las mismas cabeceras, HSTS incluida, y no redirige; y cada publicación revisa que así esté
+  (`operacion/comprobar.ts`). La aplicación no usa la dirección del cliente (los bloqueos por claves
+  equivocadas son por cuenta), así que pasar por otro proxy no le quita nada.
+
 ## Lo pendiente
 
 - **En el servidor de verdad**: nmap desde fuera contra su dirección (solo deben contestar 22, 80 y
   443/TCP), testssl contra el dominio con su certificado real, y una revisión del servidor mismo
-  (Lynis, Docker Bench). Va en la lista de la guía (`docs/operacion.md`, sección 10).
+  (Lynis, Docker Bench). Va en la lista de la guía (`docs/operacion.md`, sección 10). Con el proxy
+  detrás de otro, testssl revisa el certificado y el cifrado que pone ese otro.

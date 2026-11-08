@@ -61,6 +61,7 @@ echo "Comprobando qué se publica a la red…"
 # ENSAYO=1 lo pone solo el ensayo en una máquina de desarrollo, donde ni el proxy sale a la red.
 # shellcheck disable=SC2094  # el mismo archivo se lee dos veces —como configuración y como lo que se revisa—; no se escribe
 docker compose -f "$fija" run --rm --no-deps -T comprobacion red ${ENSAYO:+--local} <"$fija" || falla "La configuración publica de más a la red. No se tocó nada."
+exigir_redes_de_fuera "$fija" || falla "Falta la red que el proxy comparte con el otro, o no es como debe. No se tocó nada."
 
 # Lo comprobado se guarda como la configuración de lo publicado, y eso —no el .env— es lo que se levanta.
 # shellcheck disable=SC2046  # una opción, o ninguna

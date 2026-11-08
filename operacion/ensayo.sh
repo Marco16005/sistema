@@ -16,10 +16,22 @@
 # operacion/ensayo-publicacion.sh.
 #
 # Solo necesita Docker y Git. Para dejarlo levantado y mirarlo: CONSERVAR=1 sh operacion/ensayo.sh
+#
+#   sh operacion/ensayo.sh --detras-de-otro-proxy
+#
+# ensaya lo mismo con el proxy detrás de otro, como en un servidor donde ya vive otra aplicación
+# (docker-compose.detras.yml): un proxy aparte hace de la otra, con el certificado y los puertos, y
+# se comprueba además que solo alcance al proxy de feruga.
 set -eu
 umask 077
 cd "$(dirname "$0")/.."
 
+DETRAS=""
+case "$#:${1:-}" in
+  0:) ;;
+  1:--detras-de-otro-proxy) DETRAS=1 ;;
+  *) echo "Uso: sh operacion/ensayo.sh [--detras-de-otro-proxy]" >&2; exit 2 ;;
+esac
 PROYECTO=feruga_ensayo
 BD_PUERTO=54339
 WEB_PUERTO=3220
@@ -86,6 +98,7 @@ docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$(operacion ps -q
 # publica ni en 127.0.0.1: así le contestaba la base al proxy (Codex, al verificar R40-01).
 # shellcheck disable=SC2046,SC2016  # una lista de identificadores, uno por palabra; y lo de entre comillas es JavaScript
 docker inspect $(operacion ps -q) | nodo -e '
+  const detras = process.argv[1] === "detras";
   let texto = "";
   process.stdin.on("data", (t) => (texto += t)).on("end", () => {
     const fuera = [];
@@ -96,6 +109,7 @@ docker inspect $(operacion ps -q) | nodo -e '
         for (const d of donde ?? []) {
           const dicho = `${c.Name} publica ${puerto} en ${d.HostIp || "todas las direcciones"}`;
           if (servicio !== "proxy") fuera.push(`${dicho}: solo publica el proxy`);
+          else if (detras) fuera.push(`${dicho}: detrás de otro proxy, el de feruga no publica nada`);
           else if (!(d.HostIp.startsWith("127.") || d.HostIp === "::1")) fuera.push(`${dicho}: en el ensayo, ni el proxy sale a la red`);
           else if (puerto !== "80/tcp" && puerto !== "443/tcp") fuera.push(`${dicho}: del proxy, solo el 80 y el 443`);
         }
@@ -103,11 +117,11 @@ docker inspect $(operacion ps -q) | nodo -e '
     }
     if (fuera.length > 0) { console.error(fuera.join("\n")); process.exit(1); }
   });
-' || falla "algo del ensayo quedó publicado de más"
+' "${DETRAS:+detras}" || falla "algo del ensayo quedó publicado de más"
 
 paso "El sitio atiende por HTTPS, y solo con un certificado en el que se confía"
 atiende >/dev/null 2>&1 || falla "el sitio no atiende por HTTPS"
-if operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS= comprobacion https proxy >/dev/null 2>&1; then
+if operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS= comprobacion https >/dev/null 2>&1; then
   falla "se dio por bueno un certificado de una autoridad en la que no se confía"
 fi
 
@@ -125,12 +139,39 @@ llega() { docker exec "$(operacion ps -q "$1")" nc -z -w 3 "$ip_de_la_base" 5432
 if llega proxy; then falla "desde el proxy se llega al puerto de la base por su dirección"; fi
 llega web || falla "desde la aplicación no se llega al puerto de la base"
 
+if [ -n "$DETRAS" ]; then
+  paso "Detrás de otro proxy: el otro solo alcanza al de feruga, que le contesta por HTTP, sin redirigir y con sus cabeceras"
+  otro=$(otro_proxy ps -q proxy)
+  [ -n "$otro" ] || falla "no está corriendo el otro proxy del ensayo"
+  # La red que comparten es interna, y de feruga solo tiene al proxy.
+  [ "$(docker network inspect -f '{{.Internal}}' "$RED_DE_ENTRADA_DEL_ENSAYO")" = true ] || falla "la red que comparten los dos proxies no es interna"
+  en_la_entrada=$(docker network inspect -f '{{range $id, $c := .Containers}}{{$id}} {{end}}' "$RED_DE_ENTRADA_DEL_ENSAYO" | tr ' ' '\n' | grep . | sort | tr '\n' ' ')
+  esperados=$(for c in "$(operacion ps -q proxy)" "$otro"; do docker inspect -f '{{.Id}}' "$c"; done | sort | tr '\n' ' ')
+  [ "$en_la_entrada" = "$esperados" ] || falla "en la red que comparten los dos proxies hay algo más que ellos"
+  # Desde el otro: llega al de feruga por su nombre propio; ni el nombre de la base ni el de la
+  # aplicación existen, y por su dirección tampoco les llega.
+  docker exec "$otro" nc -z -w 3 feruga-proxy 80 || falla "el otro proxy no llega al de feruga por «feruga-proxy»"
+  for nombre in db web; do
+    if docker exec "$otro" nslookup "$nombre" >/dev/null 2>&1; then falla "desde el otro proxy se resuelve «${nombre}»"; fi
+  done
+  ip_de_la_web=$(docker inspect -f "{{(index .NetworkSettings.Networks \"${PROYECTO}_frente\").IPAddress}}" "$(operacion ps -q web)")
+  [ -n "$ip_de_la_web" ] || falla "no se supo la dirección de la aplicación en el frente"
+  if docker exec "$otro" nc -z -w 3 "$ip_de_la_web" 3000 >/dev/null 2>&1; then falla "desde el otro proxy se llega a la aplicación sin pasar por el de feruga"; fi
+  if docker exec "$otro" nc -z -w 3 "$ip_de_la_base" 5432 >/dev/null 2>&1; then falla "desde el otro proxy se llega al puerto de la base"; fi
+  # El de feruga contesta lo del dominio por HTTP —sin redirigir a HTTPS, que sería un ciclo— y con HSTS,
+  # que el otro entrega por HTTPS. (La primera respuesta es la suya: si redirigiera, sería un 30x.)
+  docker exec "$otro" wget -S -O /dev/null --header "Host: $DOMINIO" http://feruga-proxy/api/salud >"$trabajo/salida" 2>&1 \
+    || { cat "$trabajo/salida" >&2; falla "el proxy de feruga no le contestó al otro por HTTP"; }
+  grep "HTTP/1.1 " "$trabajo/salida" | head -1 | grep -q "HTTP/1.1 200" || { cat "$trabajo/salida" >&2; falla "el proxy de feruga no contestó 200 por HTTP: si redirige a HTTPS, con el otro delante hace un ciclo"; }
+  grep -qi "strict-transport-security: max-age=31536000" "$trabajo/salida" || { cat "$trabajo/salida" >&2; falla "el proxy de feruga no pone HSTS detrás del otro"; }
+fi
+
 paso "El recorrido en el navegador, por HTTPS"
 arnes --profile ensayo run --rm recorrido_operacion || falla "el recorrido por HTTPS no pasó"
 
 paso "En mantenimiento: la operación se cierra y se abre en la base, sin reiniciar nada"
 # El comprobador pregunta por HTTPS, a través del proxy, y distingue «lista» de «abierta».
-dice() { operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https proxy "$@" >"$trabajo/salida" 2>&1; }
+dice() { operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https "$@" >"$trabajo/salida" 2>&1; }
 dice --abierta || { cat "$trabajo/salida" >&2; falla "recién publicado, el sitio no dice que la operación está abierta"; }
 if dice --cerrada; then falla "se dio por cerrada una operación abierta"; fi
 # Sabe qué versión contesta —la publicación— y sobre qué base: su marca. A otro que no tenga el entorno de esta instalación no se lo dice.
@@ -138,7 +179,7 @@ marca=$(enlabase "SELECT id FROM vida")
 dice --abierta "--base=$marca" "--version=$pub" || { cat "$trabajo/salida" >&2; falla "el comprobador no reconoció la versión o la base con que contesta el sitio"; }
 if dice "--base=00000000-0000-4000-8000-000000000000"; then falla "se dio por buena otra base"; fi
 if dice "--version=20200101T000000Z-000000000000-000000"; then falla "se dio por buena otra versión"; fi
-if operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS -e SESION_CLAVE=otra-clave-que-no-es-la-de-esta-instalacion-0123 comprobacion https proxy "--base=$marca" >/dev/null 2>&1; then
+if operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS -e SESION_CLAVE=otra-clave-que-no-es-la-de-esta-instalacion-0123 comprobacion https "--base=$marca" >/dev/null 2>&1; then
   falla "el sitio le dijo su base a quien no tiene la clave de la instalación"
 fi
 # Abierta, un intento de escribir no se rechaza «por mantenimiento»: el comprobador lo distingue.
@@ -403,8 +444,13 @@ done
 sh operacion/levantar.sh >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; diagnostico; falla "no volvió a levantar con el entorno bueno"; }
 atiende >/dev/null 2>&1 || falla "después de levantar con el entorno bueno el sitio no atiende"
 
-paso "El certificado sobrevive a recrear el proxy"
-huella() { operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion certificado proxy | cut -d' ' -f1; }
+if [ -n "$DETRAS" ]; then
+  # El certificado es del otro: recrear el de feruga no lo toca, y el otro lo vuelve a encontrar por su nombre.
+  paso "Recrear el proxy de feruga: el otro lo vuelve a encontrar, con el mismo certificado"
+else
+  paso "El certificado sobrevive a recrear el proxy"
+fi
+huella() { operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion certificado | cut -d' ' -f1; }
 anterior=$(huella)
 [ -n "$anterior" ] || falla "no se pudo leer el certificado"
 por_fuera up -d --force-recreate --no-deps proxy >/dev/null 2>&1
@@ -454,4 +500,4 @@ dice --abierta "--version=$pub_nueva" || falla "la versión publicada después d
 [ "$(entra "$nueva")" = 1 ] || falla "después de publicar, la clave nueva ya no entra"
 rm -f "$trabajo/bueno.env" "$trabajo/sin-clave.nuevo" "$trabajo/sin-clave.antes"
 
-printf '\nEl ensayo pasó.\n'
+if [ -n "$DETRAS" ]; then printf '\nEl ensayo pasó, detrás de otro proxy.\n'; else printf '\nEl ensayo pasó.\n'; fi

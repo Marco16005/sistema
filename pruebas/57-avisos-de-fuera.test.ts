@@ -274,6 +274,52 @@ test("el latido avisa antes de que el sitio se caiga: si queda poco disco o si e
   assert.ok(d.total > 0 && d.libre >= 0 && d.libre <= d.total, `disco raro: ${JSON.stringify(d)}`);
 });
 
+/** El reto que trae la pregunta por la salud: el sitio de verdad lo repite (src/app/api/salud/route.ts). */
+const retoDe = (q: import("node:http").IncomingMessage): string | null => new URL(q.url ?? "/", "https://x").searchParams.get("reto");
+
+test("una salud que no repite el reto de esta pregunta no pasa: puede ser una guardada de antes, o de otra aplicación (Codex, R43-04)", async () => {
+  const carpeta = mkdtempSync(join(tmpdir(), "reto-"));
+  try {
+    execFileSync("openssl", [
+      "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+      "-keyout", join(carpeta, "llave.pem"), "-out", join(carpeta, "cert.pem"),
+      "-subj", "/CN=patio.prueba", "-addext", "subjectAltName=DNS:patio.prueba", "-days", "30",
+    ], { stdio: "ignore" });
+    const cert = readFileSync(join(carpeta, "cert.pem"), "utf8");
+    const retos: string[] = [];
+    let contestar: (reto: string | null) => object = (reto) => ({ bien: true, abierta: true, reto });
+    const sitio = createHttpsServer({ key: readFileSync(join(carpeta, "llave.pem")), cert }, (q, r) => {
+      const reto = retoDe(q);
+      if (reto) retos.push(reto);
+      r.setHeader("content-type", "application/json");
+      r.setHeader("connection", "close");
+      r.end(JSON.stringify(contestar(reto)));
+    });
+    sitio.listen(0, "127.0.0.1");
+    await once(sitio, "listening");
+    try {
+      const o = { dominio: "patio.prueba", maquina: "127.0.0.1", puerto: (sitio.address() as AddressInfo).port, ca: cert };
+      // Cada pregunta lleva uno nuevo, de 32 de 0-9 y a-f, y si vuelve, pasa.
+      assert.equal((await estadoPorHttps(o)).abierta, true);
+      assert.equal((await estadoPorHttps(o)).abierta, true);
+      assert.equal(retos.length, 2);
+      for (const reto of retos) assert.match(reto, /^[0-9a-f]{32}$/);
+      assert.notEqual(retos[0], retos[1]);
+      // Sin reto —una salud de antes de este cambio, o de otra aplicación con la misma forma—, o con el de
+      // otra pregunta —una guardada—: no pasa, y se dice por qué.
+      const primero = retos[0]!;
+      for (const responder of [() => ({ bien: true, abierta: true }), () => ({ bien: true, abierta: true, reto: primero })]) {
+        contestar = responder;
+        await assert.rejects(estadoPorHttps(o), /no repitió el reto de esta pregunta/);
+      }
+    } finally {
+      sitio.close();
+    }
+  } finally {
+    rmSync(carpeta, { recursive: true, force: true });
+  }
+});
+
 test("el latido lee el certificado que de verdad presenta el sitio, y avisa si está por vencer sin renovarse", async () => {
   const carpeta = mkdtempSync(join(tmpdir(), "certificado-"));
   try {
@@ -287,11 +333,11 @@ test("el latido lee el certificado que de verdad presenta el sitio, y avisa si e
       "-not_before", fecha(hoy - 80 * DIA), "-not_after", fecha(hoy + 10 * DIA),
     ], { stdio: "ignore" });
     const cert = readFileSync(join(carpeta, "cert.pem"), "utf8");
-    const sitio = createHttpsServer({ key: readFileSync(join(carpeta, "llave.pem")), cert }, (_q, r) => {
+    const sitio = createHttpsServer({ key: readFileSync(join(carpeta, "llave.pem")), cert }, (q, r) => {
       r.setHeader("content-type", "application/json");
       // Cada respuesta cierra su conexión: la siguiente es otra, y reanudaría la sesión TLS de antes.
       r.setHeader("connection", "close");
-      r.end(JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b" }));
+      r.end(JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b", reto: retoDe(q) }));
     });
     sitio.listen(0, "127.0.0.1");
     await once(sitio, "listening");
@@ -344,9 +390,9 @@ test("el latido no se queda esperando: un sitio que contesta a goteo, o que cort
     };
     // Lento pero sin parar, y termina (algo más de dos plazos): eso no es un sitio caído. Con la máquina
     // cargada, a media publicación, pasó en el ensayo; el tope total es más holgado que el de silencio.
-    const lento = createHttpsServer({ key, cert }, (_q, r) => {
+    const lento = createHttpsServer({ key, cert }, (q, r) => {
       r.writeHead(200, { "content-type": "application/json" });
-      const cuerpo = JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b" });
+      const cuerpo = JSON.stringify({ bien: true, abierta: true, version: "1", esquema: "e", base: "b", reto: retoDe(q) });
       let k = 0;
       const t = setInterval(() => {
         if (k < cuerpo.length) r.write(cuerpo[k++]!); else { clearInterval(t); r.end(); }

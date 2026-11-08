@@ -581,12 +581,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         if (env.LATIDO_VIGIA_URL && env.DOMINIO) {
           // Cada 5 minutos, si no se dice otra cosa. El primero espera un intervalo: al arrancar, el sitio
           // puede no estar listo todavía, y eso no es que se haya caído. Además de que conteste, revisa
-          // el disco de Docker («/» de este contenedor) y el certificado que presenta (`revisarSitio`).
+          // el disco de Docker («/» de este contenedor) y el certificado que presenta (`revisarSitio`). Le
+          // pregunta por donde diga la instalación (SITIO_POR): su proxy, o, si va detrás de otro, la
+          // dirección pública, con el certificado que de verdad se presenta.
           const cada = Math.max(5, Number(env.LATIDO_CADA) || 300) * 1000;
           const latido = vigiaHttp(env.LATIDO_VIGIA_URL);
           console.log(`El latido del sitio sale cada ${cada / 1000} segundos.`);
           deFondo.push(cadaTanto(cada, "No se pudo avisar el latido del sitio", () =>
-            latir(() => revisarSitio({ estado: () => estadoPorHttps({ dominio: env.DOMINIO!, maquina: "proxy" }), disco: () => discoDe("/") }), latido), true));
+            latir(() => revisarSitio({ estado: () => estadoPorHttps({ dominio: env.DOMINIO!, maquina: env.SITIO_POR || "proxy" }), disco: () => discoDe("/") }), latido), true));
         }
         const respaldos = servicio({
           horario: leerHorario(env.RESPALDO_HORARIO!), zona, reintento: 5 * 60_000,

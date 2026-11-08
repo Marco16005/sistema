@@ -1,0 +1,32 @@
+# Solo para el ensayo detrás de otro proxy (sh operacion/ensayo.sh --detras-de-otro-proxy): hace de
+# la otra aplicación del servidor, la que tiene los puertos 80 y 443. Es un proyecto aparte, como en
+# el servidor, y se llama «proxy», como el de feruga: en la red que comparten, ese nombre es de los
+# dos, y por eso el de feruga se busca por «feruga-proxy». No publica nada: en el ensayo, quien entra
+# al sitio (el comprobador, el respaldo, el navegador) está en la red del ensayo, que hace de internet.
+# Lo levanta y lo quita operacion/ensayo/comun.sh, que le pone lo de abajo.
+services:
+  proxy:
+    image: "${OTRO_PROXY_IMAGEN:?}"
+    environment:
+      DOMINIO: "${DOMINIO:?}"
+    volumes:
+      - ./otro-proxy.caddy:/etc/caddy/Caddyfile:ro
+      - datos:/data
+    networks:
+      ensayo:
+        # En la red del ensayo, el dominio y el vigilante son este proxy.
+        aliases: ["${DOMINIO}", "vigia.test"]
+      entrada: {}
+    restart: "no"
+
+networks:
+  ensayo:
+    external: true
+    name: "${RED_DEL_ENSAYO:?}"
+  entrada:
+    external: true
+    name: "${RED_DE_ENTRADA:?}"
+
+volumes:
+  datos:
+    name: "${OTRO_PROXY_DATOS:?}"

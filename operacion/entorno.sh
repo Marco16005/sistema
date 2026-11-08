@@ -2,6 +2,10 @@
 # Genera el archivo de entorno de operación, con claves al azar.
 #
 #   sh operacion/entorno.sh patio.ejemplo.mx
+#   sh operacion/entorno.sh patio.ejemplo.mx --detras-de-otro-proxy
+#
+# La segunda, para cuando en el servidor ya vive otra aplicación cuyo proxy tiene los puertos 80 y
+# 443: el de feruga va detrás de él (docker-compose.detras.yml; la guía, 2.1 bis).
 #
 # Deja un archivo .env en la carpeta donde se corre, que solo puede leer quien lo creó. No necesita
 # Docker ni la base: es lo primero que se hace en un servidor nuevo. No muestra ninguna clave en
@@ -10,8 +14,14 @@ set -eu
 umask 077
 
 dominio="${1:-}"
+detras=""
+case "$#:${2:-}" in
+  1:) ;;
+  2:--detras-de-otro-proxy) detras=1 ;;
+  *) dominio="" ;;
+esac
 if ! printf '%s' "$dominio" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'; then
-  echo "Uso: sh operacion/entorno.sh <dominio>" >&2
+  echo "Uso: sh operacion/entorno.sh <dominio> [--detras-de-otro-proxy]" >&2
   echo "El dominio va solo, sin https:// ni ruta. Por ejemplo: patio.ejemplo.mx" >&2
   exit 2
 fi
@@ -32,7 +42,14 @@ set -C
   echo "# Entorno de operación de $dominio."
   echo "# Lleva las claves del sistema: guarda una copia fuera del servidor, junto con la llave privada del respaldo."
   echo
-  echo "COMPOSE_FILE=docker-compose.yml:docker-compose.operacion.yml"
+  if [ -n "$detras" ]; then
+    echo "# El proxy va detrás de otro, que tiene los puertos 80 y 443 y saca el certificado: le llega por esta red"
+    echo "# interna, que solo comparten los dos (docker-compose.detras.yml; la guía, 2.1 bis)."
+    echo "COMPOSE_FILE=docker-compose.yml:docker-compose.operacion.yml:docker-compose.detras.yml"
+    echo "RED_DE_ENTRADA=feruga-entrada"
+  else
+    echo "COMPOSE_FILE=docker-compose.yml:docker-compose.operacion.yml"
+  fi
   echo "MODO=operacion"
   echo
   echo "DOMINIO=$dominio"

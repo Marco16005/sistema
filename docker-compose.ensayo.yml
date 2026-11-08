@@ -2,18 +2,12 @@
 # proyecto y con un dominio que no existe en internet; esta capa pone solo lo que aquí no puede ser
 # de verdad: quién emite el certificado, a dónde van los respaldos y a quién se le avisa.
 #   sh operacion/ensayo.sh
+# Quién atiende al dominio y saca su certificado depende de cómo va el proxy: lo pone otra capa,
+# docker-compose.ensayo-proxy.yml (el de siempre) o docker-compose.ensayo-detras.yml (detrás de otro).
 services:
-  proxy:
-    volumes:
-      - ./operacion/ensayo/local.caddy:/etc/caddy/global.d/local.caddy:ro
-      - ./operacion/ensayo/vigia.caddy:/etc/caddy/sitios.d/vigia.caddy:ro
-    networks:
-      default:
-        # Dentro de la red del ensayo, el dominio y el vigilante son el proxy.
-        aliases: ["${DOMINIO}", "vigia.test"]
-
-  # Saca la raíz de la autoridad del proxy a donde la puedan leer los que van a confiar en ella, y
-  # se queda en pie: el ensayo no sigue hasta que la raíz está en su lugar.
+  # Saca la raíz de la autoridad que emite el certificado a donde la puedan leer los que van a
+  # confiar en ella, y se queda en pie: el ensayo no sigue hasta que la raíz está en su lugar. De
+  # dónde la saca (el volumen montado en /data) lo dice la capa de cada modo.
   autoridad:
     image: caddy:2-alpine
     user: root
@@ -24,11 +18,7 @@ services:
         cp /data/caddy/pki/authorities/local/root.crt /ca/raiz.crt && chmod 644 /ca/raiz.crt
         exec tail -f /dev/null
     volumes:
-      - certificados:/data:ro
       - autoridad:/ca
-    depends_on:
-      proxy:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "test -f /ca/raiz.crt"]
       interval: 1s

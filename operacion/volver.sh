@@ -116,6 +116,9 @@ volver() {
   esperar_lo_que_quedo "$conf"
 
   mirar_las_bases "No se tocó nada."
+  # La versión anterior va a levantar su proxy: si va detrás de otro, la red que comparten tiene que
+  # estar. Se mira cada vez, también al retomar: que estuviera antes no dice que siga (Codex, R43-03).
+  exigir_redes_de_fuera "$conf_ant" || falla "Falta la red que el proxy comparte con el otro, o no es como debe. No se tocó nada."
 
   if [ "$hay_suya" = si ] && [ "$hay_apartada" = no ] && [ "$la_suya" = "$marca_de_antes" ]; then
     # Desde el principio. Solo se vuelve de una publicación que empezó a migrar y no decidió abrir.

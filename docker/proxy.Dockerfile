@@ -20,3 +20,6 @@ FROM caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe2
 RUN apk upgrade --no-cache && apk del --no-cache curl
 COPY --from=construccion /caddy /usr/bin/caddy
 COPY operacion/Caddyfile /etc/caddy/Caddyfile
+# Lo que hace con cada petición, y la configuración para cuando va detrás de otro proxy (docker-compose.detras.yml).
+COPY operacion/sitio.caddy /etc/caddy/sitio.caddy
+COPY operacion/Caddyfile.detras /etc/caddy/Caddyfile.detras

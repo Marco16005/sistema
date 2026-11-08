@@ -7,11 +7,25 @@
 # existe en internet, un almacenamiento de mentira para los respaldos y un vigilante que solo
 # anota. Al terminar no deja nada.
 #
-# Quien lo incluye define antes PROYECTO (el nombre del proyecto de Compose) y los puertos.
+# Quien lo incluye define antes PROYECTO (el nombre del proyecto de Compose) y los puertos; y DETRAS,
+# no vacío, para ensayar con el proxy detrás de otro (docker-compose.detras.yml): entonces el otro
+# —el de la otra aplicación del servidor— corre como proyecto aparte (operacion/ensayo/otro-proxy.yml),
+# y es él quien tiene el certificado y atiende al dominio.
 
 DOMINIO=patio.test
 HERRAMIENTAS_DEL_ENSAYO="$PROYECTO-herramientas-arnes:ensayo"
-OPERACION=docker-compose.yml:docker-compose.operacion.yml
+DETRAS=${DETRAS:-}
+if [ -n "$DETRAS" ]; then
+  OPERACION=docker-compose.yml:docker-compose.operacion.yml:docker-compose.detras.yml
+  CAPA_DEL_ENSAYO=docker-compose.ensayo.yml:docker-compose.ensayo-detras.yml
+else
+  OPERACION=docker-compose.yml:docker-compose.operacion.yml
+  CAPA_DEL_ENSAYO=docker-compose.ensayo.yml:docker-compose.ensayo-proxy.yml
+fi
+# Lo del otro proxy, con nombres propios del ensayo: en un servidor no toca la red ni el proxy de verdad.
+RED_DE_ENTRADA_DEL_ENSAYO="$PROYECTO-entrada"
+OTRO_PROXY="$PROYECTO-otro-proxy"
+OTRO_PROXY_DATOS="$PROYECTO-otro-proxy-datos"
 trabajo=$(mktemp -d)
 # La instalación del ensayo: la copia, con su repositorio.
 copia="$trabajo/instalacion"
@@ -41,6 +55,14 @@ arnes() {
 }
 # El Compose de lo publicado, como lo usa quien opera.
 operacion() { sh operacion/compose.sh "$@"; }
+# El Compose del otro proxy, aparte del de la instalación, como en el servidor. La imagen es la
+# oficial de Caddy de la que parte el de feruga, por su huella.
+otro_proxy() {
+  env -u COMPOSE_FILE -u COMPOSE_ENV_FILES -u COMPOSE_PROJECT_NAME \
+    DOMINIO="$DOMINIO" RED_DEL_ENSAYO="${PROYECTO}_default" RED_DE_ENTRADA="$RED_DE_ENTRADA_DEL_ENSAYO" OTRO_PROXY_DATOS="$OTRO_PROXY_DATOS" \
+    OTRO_PROXY_IMAGEN="$(sed -n 's/^FROM \(caddy:2-alpine@[^ ]*\).*/\1/p' docker/proxy.Dockerfile)" \
+    docker compose -p "$OTRO_PROXY" -f operacion/ensayo/otro-proxy.yml "$@"
+}
 # Lo mismo, saltándose el guion a propósito: para mirar o mover algo a media publicación —cuando el
 # guion, con razón, no deja correr nada suelto— y para lo que el guion no hace, como recrear un servicio.
 por_fuera() {
@@ -61,9 +83,17 @@ limpiar() {
   [ -z "$otra" ] || kill -9 "$otra" 2>/dev/null || true
   if [ "${CONSERVAR:-}" = 1 ]; then
     printf '\nSe conserva el ensayo, en %s. Para quitarlo:\n  docker compose -p %s down --volumes --remove-orphans\n  y borrar esa carpeta.\n' "$copia" "$PROYECTO"
+    [ -z "$DETRAS" ] || printf 'Y lo del otro proxy, antes y después de eso:\n  docker compose -p %s down   (antes)\n  docker compose -p %s down --volumes && docker network rm %s   (después)\n' "$OTRO_PROXY" "$OTRO_PROXY" "$RED_DE_ENTRADA_DEL_ENSAYO"
   else
     # Por su nombre, sin los archivos de Compose: la limpieza corre aunque el ensayo haya fallado pronto.
+    # El otro proxy sale primero de las redes del ensayo, y su volumen se borra al final: lo lee la autoridad del ensayo.
+    [ -z "$DETRAS" ] || (cd / && env -u COMPOSE_FILE -u COMPOSE_ENV_FILES -u COMPOSE_PROJECT_NAME docker compose -p "$OTRO_PROXY" down >/dev/null 2>&1) || true
     (cd / && env -u COMPOSE_FILE -u COMPOSE_ENV_FILES docker compose -p "$PROYECTO" down --volumes --remove-orphans >/dev/null 2>&1) || true
+    if [ -n "$DETRAS" ]; then
+      (cd / && env -u COMPOSE_FILE -u COMPOSE_ENV_FILES -u COMPOSE_PROJECT_NAME docker compose -p "$OTRO_PROXY" down --volumes >/dev/null 2>&1) || true
+      docker volume rm "$OTRO_PROXY_DATOS" >/dev/null 2>&1 || true
+      docker network rm "$RED_DE_ENTRADA_DEL_ENSAYO" >/dev/null 2>&1 || true
+    fi
     # Las imágenes que construyeron sus publicaciones, y las herramientas de sus commits. Por su
     # nombre, nunca por su identificador: una imagen sin cambios sobre su base comparte el de la base.
     for imagen in $(docker image ls --format '{{.Repository}}:{{.Tag}}' --filter "reference=$PROYECTO-*"); do
@@ -92,12 +122,19 @@ preparar_la_instalacion() {
   tar -cf - --exclude ./node_modules --exclude ./.next --exclude ./.git --exclude ./.env --exclude ./publicaciones \
     --exclude './.operacion.candado*' --exclude ./.operacion.trabajo --exclude ./test-results --exclude ./playwright-report --exclude ./recorrido/capturas \
     --exclude ./docs --exclude '*.log' . | tar -xf - -C "$copia"
+  # Con umask 077 la copia queda solo para su dueño, y lo que se monta en un contenedor sin
+  # capacidades no se puede leer: el proxy corre como root, pero sin poder saltarse los permisos de
+  # otro usuario, y no arranca. Así falló el ensayo en el servidor, en Linux, el 8 de noviembre; en
+  # Docker Desktop no se nota, porque ahí lo montado aparece como de root. La carpeta de trabajo que
+  # la contiene sigue siendo solo del dueño, y en la copia no hay claves: el .env va aparte.
+  chmod -R a+rX "$copia"
   git -C "$copia" init -q
   confirmar "La versión que se ensaya"
   cd "$copia" || exit 1
 
   paso "El entorno, como se genera en un servidor nuevo"
-  (cd "$trabajo" && sh "$copia/operacion/entorno.sh" "$DOMINIO" >/dev/null)
+  # shellcheck disable=SC2086  # la opción, o nada
+  (cd "$trabajo" && sh "$copia/operacion/entorno.sh" "$DOMINIO" ${DETRAS:+--detras-de-otro-proxy} >/dev/null)
   docker build -q -f docker/respaldo.Dockerfile -t "$HERRAMIENTAS_DEL_ENSAYO" . >/dev/null
   # Recién generado le falta lo del respaldo, y Compose se niega diciendo qué.
   if arnes --env-file "$trabajo/.env" config >/dev/null 2>"$trabajo/queja"; then
@@ -138,6 +175,11 @@ preparar_la_instalacion() {
   # El latido del sitio, apurado: en el servidor va cada 5 minutos.
   poner LATIDO_VIGIA_URL "https://vigia.test/ping/latido"
   poner LATIDO_CADA 5
+  # Detrás de otro proxy, la red que comparten tiene nombre propio del ensayo: en un servidor no es la de verdad.
+  if [ -n "$DETRAS" ]; then
+    grep -qx "RED_DE_ENTRADA=feruga-entrada" "$trabajo/.env" || falla "el entorno para ir detrás de otro proxy no trae su red"
+    poner RED_DE_ENTRADA "$RED_DE_ENTRADA_DEL_ENSAYO"
+  fi
 
   paso "A la red, solo el proxy: la configuración de operación tal como irá al servidor"
   # Con solo el .env generado, Compose toma los dos archivos de operación sin que se le diga a mano.
@@ -145,13 +187,15 @@ preparar_la_instalacion() {
   if ! grep -qx proxy "$trabajo/servicios" || ! grep -qx respaldo "$trabajo/servicios"; then
     falla "con solo el .env, Compose no tomó el archivo de operación"
   fi
-  arnes --env-file "$trabajo/.env" config --format json | nodo operacion/comprobar.ts red \
+  # shellcheck disable=SC2086  # la opción, o nada
+  arnes --env-file "$trabajo/.env" config --format json | nodo operacion/comprobar.ts red ${DETRAS:+--entrada=$RED_DE_ENTRADA_DEL_ENSAYO} \
     || falla "la configuración de operación publica algo de más, o no publica el proxy"
 
   # De aquí en adelante, el proyecto del ensayo: el Compose de operación más la capa que pone lo que
   # aquí no puede ser de verdad. Y otros puertos, para no chocar con lo que ya corre en esta máquina.
   export COMPOSE_PROJECT_NAME="$PROYECTO"
-  export COMPOSE_FILE="$OPERACION:docker-compose.ensayo.yml"
+  export COMPOSE_FILE="$OPERACION:$CAPA_DEL_ENSAYO"
+  export OTRO_PROXY_DATOS
   export COMPOSE_ENV_FILES="$trabajo/.env"
   export ENSAYO=1
   # Lo que en el servidor está fuera y aquí corre junto, en la misma instalación: se dice cuál es,
@@ -160,8 +204,11 @@ preparar_la_instalacion() {
   export NODE_EXTRA_CA_CERTS=/ca/raiz.crt
   poner BD_PUERTO "$BD_PUERTO"
   poner WEB_PUERTO "$WEB_PUERTO"
-  poner PROXY_HTTP "127.0.0.1:$PROXY_HTTP"
-  poner PROXY_HTTPS "127.0.0.1:$PROXY_HTTPS"
+  # Detrás de otro proxy, el de feruga no publica nada; si no, solo en esta máquina.
+  if [ -z "$DETRAS" ]; then
+    poner PROXY_HTTP "127.0.0.1:$PROXY_HTTP"
+    poner PROXY_HTTPS "127.0.0.1:$PROXY_HTTPS"
+  fi
   cp "$trabajo/.env" "$trabajo/roto.env"
   poner SESION_CLAVE corta "$trabajo/roto.env"
 }
@@ -173,6 +220,11 @@ preparar_el_arnes() {
   paso "Lo que en el servidor está fuera: el almacenamiento, el vigilante y la autoridad de los certificados"
   arnes up -d --wait --no-deps almacen-ensayo >/dev/null 2>&1 || falla "no levantó el almacenamiento del ensayo"
   arnes run --rm --no-deps almacen_listo >/dev/null 2>&1 || falla "no se pudo preparar el almacenamiento del ensayo"
+  if [ -n "$DETRAS" ]; then
+    # El otro proxy, como en el servidor: la red que comparten se crea aparte, interna, y él es otro proyecto.
+    docker network create --internal "$RED_DE_ENTRADA_DEL_ENSAYO" >/dev/null || falla "no se pudo crear la red que comparten los dos proxies"
+    otro_proxy up -d >/dev/null 2>&1 || falla "no levantó el otro proxy del ensayo"
+  fi
   arnes up -d --no-deps vigia autoridad >/dev/null 2>&1 || falla "no levantaron el vigilante y la autoridad del ensayo"
 }
 
@@ -196,7 +248,8 @@ enlabase() {
   docker exec "$(docker ps -q --filter "label=com.docker.compose.project=$PROYECTO" --filter "label=com.docker.compose.service=db" | head -1)" psql -U feruga -d "${2:-feruga}" -Atc "$1"
 }
 # El sitio contesta por HTTPS, validando su certificado contra la autoridad del ensayo.
-atiende() { por_fuera run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https proxy; }
+# (Por donde lo diga la instalación: su proxy, o la dirección pública si va detrás de otro.)
+atiende() { por_fuera run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https; }
 esperar_que_atienda() {
   k=0
   until atiende >/dev/null 2>&1; do

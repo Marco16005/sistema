@@ -1,0 +1,19 @@
+# El ensayo con el proxy de siempre (sh operacion/ensayo.sh): él saca el certificado —de una
+# autoridad propia, porque el dominio no existe en internet— y atiende también al vigilante de mentira.
+services:
+  proxy:
+    volumes:
+      - ./operacion/ensayo/local.caddy:/etc/caddy/global.d/local.caddy:ro
+      - ./operacion/ensayo/vigia.caddy:/etc/caddy/sitios.d/vigia.caddy:ro
+    networks:
+      default:
+        # Dentro de la red del ensayo, el dominio y el vigilante son el proxy.
+        aliases: ["${DOMINIO}", "vigia.test"]
+
+  # La raíz de su autoridad está en su volumen de certificados.
+  autoridad:
+    volumes:
+      - certificados:/data:ro
+    depends_on:
+      proxy:
+        condition: service_started

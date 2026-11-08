@@ -47,6 +47,9 @@ x-respaldo: &respaldo
     LATIDO_VIGIA_URL: "${LATIDO_VIGIA_URL:-}"
     # Cada cuántos segundos late (300, si no se dice; el ensayo lo apura).
     LATIDO_CADA: "${LATIDO_CADA:-300}"
+    # Por dónde se le pregunta al sitio (el latido y las comprobaciones de cada publicación): por su
+    # proxy, por su nombre en el frente. Detrás de otro proxy, por la dirección pública (docker-compose.detras.yml).
+    SITIO_POR: proxy
     RESPALDO_DESTINO: "${RESPALDO_DESTINO:?Falta RESPALDO_DESTINO en .env}"
     RESPALDO_HORARIO: "${RESPALDO_HORARIO:?Falta RESPALDO_HORARIO en .env}"
     RESPALDO_VIGIA_URL: "${RESPALDO_VIGIA_URL:?Falta RESPALDO_VIGIA_URL en .env}"
@@ -79,6 +82,8 @@ services:
       COOKIE_SEGURA: "${COOKIE_SEGURA:?Falta COOKIE_SEGURA en .env}"
       ORIGEN: "${ORIGEN:?Falta ORIGEN en .env}"
       DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
+      # Si el proxy va detrás de otro, la red que comparten: la revisión de la red la exige así (comprobar.ts).
+      RED_DE_ENTRADA: "${RED_DE_ENTRADA:-}"
     restart: "no"
 
   db:

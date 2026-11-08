@@ -1,12 +1,19 @@
 // Lo que se comprueba antes de dar por buena una instalación de operación.
 //
 //   node operacion/comprobar.ts entorno          el entorno completo, de todas las piezas
-//   docker compose config --format json | node operacion/comprobar.ts red [--local]
+//   docker compose config --format json | node operacion/comprobar.ts red [--local] [--entrada=<red>]
 //                                                 que solo publique el proxy (80 y 443), y nadie más
 //                                                 ni en esta máquina; con --local (un ensayo) se acepta
-//                                                 que ni el proxy salga
+//                                                 que ni el proxy salga. Con --entrada (o RED_DE_ENTRADA),
+//                                                 que el proxy vaya detrás de otro: sin publicar nada, y
+//                                                 en esa red, que comparte solo con él
+//   docker compose config --format json | node operacion/comprobar.ts redes-de-fuera
+//                                                 las redes que la configuración usa sin crearlas: tienen
+//                                                 que existir antes de levantar
 //   node operacion/comprobar.ts https [máquina] [--abierta | --cerrada] [--version=…] [--base=…] [--rechaza-escribir]
 //                                                 que el sitio conteste por HTTPS, con certificado válido, y esté
+//                                                 (sin máquina, por donde diga SITIO_POR: su proxy, o la
+//                                                 dirección pública si va detrás de otro)
 //                                                 listo; y, si se pide, que la operación esté abierta o cerrada,
 //                                                 que conteste esa versión y que lo haga sobre esa base (su marca),
 //                                                 y que un intento de escribir se rechace por mantenimiento
@@ -15,7 +22,7 @@
 // «entorno» es el primer servicio que corre en operación: avisa pronto. No es la garantía —cada
 // proceso vuelve a validar lo suyo al iniciar—, salvo en una cosa: aquí no vale decir que es
 // desarrollo. El Compose de operación publica el sitio a la red, y eso no se hace con claves de desarrollo.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { request } from "node:https";
 import { connect } from "node:tls";
 import type { TLSSocket } from "node:tls";
@@ -35,8 +42,20 @@ interface Montaje {
   target?: string;
 }
 interface Configuracion {
-  services?: Record<string, { ports?: Puerto[]; volumes?: Montaje[]; network_mode?: string; privileged?: boolean }>;
+  services?: Record<string, { ports?: Puerto[]; volumes?: Montaje[]; network_mode?: string; privileged?: boolean; networks?: Record<string, unknown> }>;
+  networks?: Record<string, { name?: string; external?: boolean }>;
 }
+
+/**
+ * Cada red de la configuración, por su clave: su nombre en Docker y si existe aparte («external»).
+ * Lo que cuenta es el nombre: dos claves con el mismo nombre son la misma red (Codex, R43-01).
+ */
+function redesDe(config: Configuracion): Map<string, { nombre: string; externa: boolean }> {
+  return new Map(Object.entries(config.networks ?? {}).map(([clave, red]) => [clave, { nombre: red?.name ?? clave, externa: red?.external === true }]));
+}
+
+/** Un nombre de red de Docker, uno solo: letras, números, «_», «.» y «-», sin blancos (Codex, R43-02). */
+const NOMBRE_DE_RED = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 
 /** Las carpetas de la máquina que traen dentro el socket de Docker: montarlas es montarlo. */
 const CON_EL_SOCKET = new Set(["/", "/var", "/var/run", "/run"]);
@@ -52,18 +71,47 @@ const soloLocal = (ip: string | undefined): boolean => ip !== undefined && (ip.s
  * red (así llegó el proxy a la base: revisión de seguridad de Codex del 5 de noviembre, R40-01).
  * Ningún contenedor usa la red de la máquina ni sus privilegios, ni recibe el socket de Docker. Lo
  * que aquí no se ve —lo que de verdad contesta desde fuera— se comprueba desde otra máquina.
+ *
+ * Detrás de otro proxy (`entrada`, docker-compose.detras.yml), el de feruga no publica nada, ni en
+ * esta máquina: el otro, que tiene 80 y 443, le llega por esa red, que existe aparte y que de
+ * feruga solo tiene al proxy. Si no se dice, ningún servicio está en una red de fuera: sería una
+ * puerta que nadie revisó.
  */
-export function faltasDeRed(config: Configuracion, o: { local?: boolean } = {}): string[] {
+export function faltasDeRed(config: Configuracion, o: { local?: boolean; entrada?: string } = {}): string[] {
   const servicios = config.services;
   if (!servicios || Object.keys(servicios).length === 0) return ["No es una configuración de Compose: no trae servicios"];
   const faltas: string[] = [];
   const delProxy = new Set<string>();
+  const redes = redesDe(config);
+  const entrada = o.entrada === undefined || o.entrada === "" ? undefined : o.entrada;
+  if (entrada !== undefined && !NOMBRE_DE_RED.test(entrada)) {
+    faltas.push(`RED_DE_ENTRADA (${JSON.stringify(entrada)}) no es un nombre de red: uno solo, de letras, números, «_», «.» y «-», sin blancos`);
+  }
+  if (entrada) {
+    for (const [clave, red] of redes) {
+      if (red.nombre === entrada && !red.externa) {
+        faltas.push(`La red ${entrada} la crearía esta configuración (como «${clave}»): tiene que existir aparte (docker network create --internal ${entrada}), y declararse solo como de fuera`);
+      }
+    }
+  }
   for (const [nombre, servicio] of Object.entries(servicios)) {
+    for (const clave of Object.keys(servicio.networks ?? {})) {
+      const red = redes.get(clave) ?? { nombre: clave, externa: false };
+      if (entrada && red.nombre === entrada) {
+        // La compartida, por la clave que sea: solo el proxy.
+        if (nombre !== "proxy") faltas.push(`${nombre} está en la red ${entrada}, que es solo del proxy: el otro proxy le llegaría sin pasar por el de feruga`);
+        continue;
+      }
+      if (!red.externa) continue;
+      faltas.push(`${nombre} está en la red de fuera ${red.nombre}${entrada ? `: la única de fuera es ${entrada}, y solo para el proxy` : ": sin decir que el proxy va detrás de otro (RED_DE_ENTRADA), ningún servicio está en una red de fuera"}`);
+    }
     for (const p of servicio.ports ?? []) {
       const donde = soloLocal(p.host_ip) ? "en esta máquina" : "a la red";
       const puerto = `${nombre} publica ${donde} el puerto ${p.published} (hacia su ${p.target})`;
       if (nombre !== "proxy") {
         faltas.push(`${puerto}: solo publica el proxy; publicado, aunque sea solo aquí, otro contenedor lo alcanza por su dirección`);
+      } else if (entrada) {
+        faltas.push(`${puerto}: detrás de otro proxy, el de feruga no publica nada; el otro le llega por la red ${entrada}`);
       } else if (Number(p.target) !== 80 && Number(p.target) !== 443) {
         faltas.push(`${puerto}: del proxy solo se publican el 80 y el 443`);
       } else if (!soloLocal(p.host_ip)) {
@@ -74,11 +122,15 @@ export function faltasDeRed(config: Configuracion, o: { local?: boolean } = {}):
       }
     }
     // Con la red de la máquina, lo que el contenedor abra queda en la red sin publicar ningún puerto:
-    // la revisión de arriba no lo vería. Solo se admite la red propia de los contenedores.
-    if (servicio.network_mode !== undefined && servicio.network_mode !== "bridge") {
+    // la revisión de arriba no lo vería. Solo se admiten las redes de este proyecto (las de «networks»),
+    // o ninguna. La general de Docker («bridge») tampoco: en ella cualquier otro contenedor del
+    // servidor —el otro proxy, por ejemplo— llegaría a sus puertos por dirección (Codex, R43-07).
+    if (servicio.network_mode !== undefined && servicio.network_mode !== "none") {
       faltas.push(servicio.network_mode === "host"
         ? `${nombre} usa la red de la máquina (network_mode: host): todo lo que abra sale a la red`
-        : `${nombre} usa otra red que la de los contenedores (network_mode: ${servicio.network_mode}): no es lo que aquí se comprueba`);
+        : servicio.network_mode === "bridge"
+          ? `${nombre} usa la red general de Docker (network_mode: bridge): no es la de este proyecto, y cualquier otro contenedor del servidor le llega por dirección`
+          : `${nombre} usa otra red que las de este proyecto (network_mode: ${servicio.network_mode}): no es lo que aquí se comprueba`);
     }
     if (servicio.privileged === true) faltas.push(`${nombre} corre con los privilegios de la máquina (privileged): nada lo contiene`);
     for (const v of servicio.volumes ?? []) {
@@ -88,11 +140,39 @@ export function faltasDeRed(config: Configuracion, o: { local?: boolean } = {}):
       }
     }
   }
+  if (entrada) {
+    // Detrás de otro proxy, igual en un ensayo: lo que atiende es el proxy, en la red que comparte con el otro.
+    if (!servicios.proxy) faltas.push("No hay proxy: nada atiende");
+    else if (!Object.keys(servicios.proxy.networks ?? {}).some((clave) => redes.get(clave)?.externa === true && redes.get(clave)?.nombre === entrada)) {
+      faltas.push(`El proxy no está en la red ${entrada}: el otro proxy no tendría por dónde llegarle`);
+    }
+    return faltas;
+  }
   // En un ensayo el proxy se queda en esta máquina; eso se acepta solo si se dice. Lo de arriba se exige igual.
   if (o.local) return faltas;
   if (!servicios.proxy) faltas.push("No hay proxy: nada atiende por HTTPS");
   else for (const par of ["80:80", "443:443"]) if (!delProxy.has(par)) faltas.push(`El proxy no publica el ${par.split(":")[0]}`);
   return faltas;
+}
+
+/**
+ * Los nombres en Docker de las redes de fuera que usa algún servicio: las que tienen que existir
+ * antes de levantar. Si alguno no es un nombre de red de los de NOMBRE_DE_RED, falla: quien los lee
+ * los toma uno por renglón, y uno con blancos se revisaría como otros (Codex, R43-02).
+ */
+export function redesQueDebenExistir(config: Configuracion): string[] {
+  const redes = redesDe(config);
+  const usadas = new Set<string>();
+  for (const servicio of Object.values(config.services ?? {})) {
+    for (const clave of Object.keys(servicio.networks ?? {})) {
+      const red = redes.get(clave);
+      if (red?.externa) usadas.add(red.nombre);
+    }
+  }
+  for (const nombre of usadas) {
+    if (!NOMBRE_DE_RED.test(nombre)) throw new Error(`La red de fuera ${JSON.stringify(nombre)} no es un nombre de red: uno solo, de letras, números, «_», «.» y «-», sin blancos`);
+  }
+  return [...usadas].sort();
 }
 
 // ── el sitio ───────────────────────────────────────────────────────────────
@@ -140,6 +220,9 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
   // noviembre).
   const plazo = o.plazo ?? 10_000;
   const total = plazo * 3;
+  // Un reto nuevo en cada pregunta, que la salud repite: una respuesta guardada por algo de en medio
+  // —otro proxy, al ir detrás de él—, o de otra aplicación con la misma forma, no lo trae (Codex, R43-04).
+  const reto = randomBytes(16).toString("hex");
   return new Promise((bien, mal) => {
     let decidido = false;
     const decidir = (hacer: () => void): void => {
@@ -150,7 +233,7 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
     };
     const peticion = request(
       {
-        host: o.maquina ?? o.dominio, port: o.puerto ?? 443, servername: o.dominio, path: "/api/salud", method: "GET",
+        host: o.maquina ?? o.dominio, port: o.puerto ?? 443, servername: o.dominio, path: `/api/salud?reto=${reto}`, method: "GET",
         headers: { Host: o.dominio, ...(o.clave ? encabezadoDelComprobador(o.clave) : {}) }, timeout: plazo, rejectUnauthorized: true,
         ...(o.ca ? { ca: o.ca } : {}),
         // Sin el agente compartido: cada vez se negocia la conexión entera. En una sesión TLS reanudada
@@ -169,14 +252,18 @@ export function estadoPorHttps(o: { dominio: string; maquina?: string; puerto?: 
         });
         respuesta.on("end", () => decidir(() => {
           if (respuesta.statusCode !== 200) return mal(new Error(`el sitio contestó ${respuesta.statusCode}`));
+          let d: Record<string, unknown>;
           try {
-            const d = JSON.parse(cuerpo) as Record<string, unknown>;
+            d = JSON.parse(cuerpo) as Record<string, unknown>;
             if (d.bien !== true || typeof d.abierta !== "boolean") throw new Error("sin forma");
-            const texto = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
-            bien({ abierta: d.abierta, version: texto(d.version), esquema: texto(d.esquema), base: texto(d.base), certificado });
           } catch {
-            mal(new Error("el sitio contestó 200, pero no con lo que dice la salud de esta aplicación"));
+            return mal(new Error("el sitio contestó 200, pero no con lo que dice la salud de esta aplicación"));
           }
+          if (d.reto !== reto) {
+            return mal(new Error("el sitio contestó la salud, pero no repitió el reto de esta pregunta: puede ser una respuesta guardada de antes, o de otra aplicación"));
+          }
+          const texto = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+          bien({ abierta: d.abierta as boolean, version: texto(d.version), esquema: texto(d.esquema), base: texto(d.base), certificado });
         }));
       },
     );
@@ -254,6 +341,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const [orden, ...resto] = process.argv.slice(2);
   const argumento = resto.find((a) => !a.startsWith("--"));
   const opcion = (nombre: string): string | undefined => resto.find((a) => a.startsWith(`--${nombre}=`))?.slice(nombre.length + 3);
+  // A qué máquina se le pregunta por el sitio: la que se diga; si no, por donde lo diga la
+  // instalación (SITIO_POR: su proxy, o la dirección pública si va detrás de otro); si no, el dominio.
+  const maquina = argumento ?? (process.env.SITIO_POR || undefined);
   let faltas: string[];
   if (orden === "entorno") {
     faltas = process.env.MODO === "desarrollo"
@@ -261,15 +351,33 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       : faltasDelEntorno(process.env, ["administracion", "conexion", "aplicacion", "respaldo", "sitio"]);
   } else if (orden === "red") {
     try {
-      faltas = faltasDeRed(JSON.parse(await entradaEstandar()) as Configuracion, { local: resto.includes("--local") });
+      const entrada = opcion("entrada") ?? process.env.RED_DE_ENTRADA ?? "";
+      faltas = faltasDeRed(JSON.parse(await entradaEstandar()) as Configuracion, { local: resto.includes("--local"), entrada });
     } catch {
       faltas = ["Lo que llegó por la entrada estándar no es la configuración de Compose (docker compose config --format json)"];
+    }
+  } else if (orden === "redes-de-fuera") {
+    faltas = [];
+    let config: Configuracion | undefined;
+    try {
+      config = JSON.parse(await entradaEstandar()) as Configuracion;
+    } catch {
+      faltas = ["Lo que llegó por la entrada estándar no es la configuración de Compose (docker compose config --format json)"];
+    }
+    if (config) {
+      try {
+        // Todas juntas, o ninguna: a medias, quien las lee creería que eran todas.
+        process.stdout.write(redesQueDebenExistir(config).map((red) => `${red}\n`).join(""));
+        process.exit(0);
+      } catch (e) {
+        faltas = [(e as Error).message];
+      }
     }
   } else if (orden === "https") {
     const dominio = process.env.DOMINIO;
     try {
       if (!dominio) throw new Error("Falta DOMINIO");
-      const e = await estadoPorHttps({ dominio, ...(argumento ? { maquina: argumento } : {}), ...(process.env.SESION_CLAVE ? { clave: process.env.SESION_CLAVE } : {}) });
+      const e = await estadoPorHttps({ dominio, ...(maquina ? { maquina } : {}), ...(process.env.SESION_CLAVE ? { clave: process.env.SESION_CLAVE } : {}) });
       faltas = [];
       // Listo ya está: contestó. Lo demás se comprueba solo si se pide.
       if (resto.includes("--abierta") && !e.abierta) faltas.push("la operación está en mantenimiento, y se esperaba abierta");
@@ -281,7 +389,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         else if (dice !== esperada) faltas.push(`el sitio contesta ${nombre === "base" ? "sobre la base" : "con la versión"} ${dice}, y se esperaba ${esperada}`);
       }
       if (resto.includes("--rechaza-escribir")) {
-        await rechazoPorHttps({ dominio, ...(argumento ? { maquina: argumento } : {}) }).catch((e: Error) => faltas.push(e.message));
+        await rechazoPorHttps({ dominio, ...(maquina ? { maquina } : {}) }).catch((e: Error) => faltas.push(e.message));
       }
     } catch (e) {
       faltas = [(e as Error).message];
@@ -290,14 +398,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const dominio = process.env.DOMINIO;
     try {
       if (!dominio) throw new Error("Falta DOMINIO");
-      const c = await certificadoDe({ dominio, ...(argumento ? { maquina: argumento } : {}) });
+      const c = await certificadoDe({ dominio, ...(maquina ? { maquina } : {}) });
       console.log(`${c.huella} vence ${c.vence.toISOString()}`);
       process.exit(0);
     } catch (e) {
       faltas = [(e as Error).message];
     }
   } else {
-    console.error("Uso: node operacion/comprobar.ts entorno | red [--local] | https [máquina] [--abierta|--cerrada] [--version=…] [--base=…] [--rechaza-escribir] | certificado [máquina]");
+    console.error("Uso: node operacion/comprobar.ts entorno | red [--local] [--entrada=<red>] | redes-de-fuera | https [máquina] [--abierta|--cerrada] [--version=…] [--base=…] [--rechaza-escribir] | certificado [máquina]");
     process.exit(2);
   }
   if (faltas.length > 0) {

@@ -19,10 +19,17 @@
 #
 # Al terminar no deja nada. Tarda: cada publicación construye, cierra, respalda, migra y comprueba.
 # Solo necesita Docker y Git. Para dejarlo levantado y mirarlo: CONSERVAR=1 sh operacion/ensayo-publicacion.sh
+# Con --detras-de-otro-proxy, lo mismo con el proxy detrás de otro (como operacion/ensayo.sh).
 set -eu
 umask 077
 cd "$(dirname "$0")/.."
 
+DETRAS=""
+case "$#:${1:-}" in
+  0:) ;;
+  1:--detras-de-otro-proxy) DETRAS=1 ;;
+  *) echo "Uso: sh operacion/ensayo-publicacion.sh [--detras-de-otro-proxy]" >&2; exit 2 ;;
+esac
 PROYECTO=feruga_publicacion
 BD_PUERTO=54349
 WEB_PUERTO=3230
@@ -48,7 +55,7 @@ manifiesto() {
     --entrypoint node "$HERRAMIENTAS_DEL_ENSAYO" operacion/publicacion.ts /publicaciones "$@" </dev/null
 }
 # El sitio, por HTTPS y a través del proxy, dice eso de sí mismo.
-dice() { por_fuera run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https proxy "$@" >"$trabajo/dice" 2>&1; }
+dice() { por_fuera run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS comprobacion https "$@" >"$trabajo/dice" 2>&1; }
 # Lo que el negocio lleva asentado: si la base «no se tocó», esto no cambia. Es la huella de cada
 # tabla del negocio —las cuentas con sus renglones, sus pesadas y sus comprobantes; el inventario;
 # las jornadas y sus precios; el catálogo; los clientes y sus precios especiales; los envíos; las
@@ -431,8 +438,13 @@ until [ "$(enlabase "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' A
   kill -0 "$publicando" 2>/dev/null || { dicho; falla "la publicación terminó antes de migrar"; }
   sleep 0.5
 done
-# El guion de publicar es hijo de este; su proceso es el del «sh operacion/publicar.sh».
-pkill -9 -f "sh operacion/publicar.sh" || falla "no se encontró el guion de publicar para matarlo"
+# El guion de publicar es hijo de este: se mata ese, el que se lanzó —el proceso mismo o su hijo—, y
+# ninguno otro. Con «pkill -f» a secas caería también el de otra instalación de la misma máquina, como
+# una publicación de verdad en el servidor (Codex, R43-05).
+guion=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$publicando" '($1 == p || $2 == p) && /sh operacion\/publicar\.sh/ { print $1 }')
+[ -n "$guion" ] || falla "no se encontró el guion de publicar de este ensayo para matarlo"
+# shellcheck disable=SC2086  # uno o más identificadores de proceso
+kill -9 $guion
 wait "$publicando" 2>/dev/null || true
 pub=$(manifiesto pendiente)
 [ -n "$pub" ] || falla "murió a media migración y no quedó ninguna publicación sin cerrar"

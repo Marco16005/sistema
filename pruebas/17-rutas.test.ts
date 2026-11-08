@@ -836,6 +836,24 @@ test("la salud da el detalle —qué versión contesta, qué esquema espera y so
     }
   }));
 
+test("la salud repite el reto de cada pregunta: una respuesta guardada de antes no pasa por nueva (Codex, R43-04)", () =>
+  conMundo(async () => {
+    const { GET: salud } = await import("../src/app/api/salud/route.ts");
+    const { credencialDelComprobador } = await import("../src/servidor/comprobador.ts");
+    const pedir = async (consulta: string, encabezados: Record<string, string> = {}) =>
+      (await salud(new Request(`http://prueba/api/salud${consulta}`, { headers: encabezados }))).json();
+    const reto = "0123456789abcdef0123456789abcdef";
+    assert.deepEqual(await pedir(`?reto=${reto}`), { bien: true, abierta: true, reto });
+    // Con el detalle del comprobador, también.
+    const conDetalle = await pedir(`?reto=${reto}`, { "x-comprobador": credencialDelComprobador(process.env.SESION_CLAVE!) });
+    assert.equal(conDetalle.reto, reto);
+    assert.equal(conDetalle.bien, true);
+    // Solo un reto con su forma exacta —32 de 0-9 y a-f— se repite; lo demás no se devuelve, ni se rechaza la salud.
+    for (const malo of ["", "?reto=", `?reto=${reto.toUpperCase()}`, `?reto=${reto.slice(1)}`, `?reto=${reto}0`, "?reto=<script>", `?reto=${reto}&reto=${"f".repeat(32)}`]) {
+      assert.deepEqual(await pedir(malo), { bien: true, abierta: true }, malo);
+    }
+  }));
+
 test("si la base no contesta, las rutas dicen que el sistema no está disponible, igual que la salud", async () => {
   // Un pozo que apunta a donde no hay base.
   const sinBase = crearBd("postgres://feruga_prueba:prueba@127.0.0.1:9/no_hay", { conexiones: 1 });

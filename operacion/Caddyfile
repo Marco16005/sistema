@@ -1,5 +1,6 @@
 # El proxy: lo único que se publica a la red. Recibe por HTTPS, con un certificado que él mismo
 # pide y renueva, y le pasa todo a la aplicación. Por HTTP solo redirige a HTTPS.
+# (Si en el servidor ya hay otro proxy en 80 y 443, este va detrás de él: Caddyfile.detras.)
 {
 	# Sin puerto de administración: la configuración es este archivo y nada más.
 	admin off
@@ -8,21 +9,7 @@
 }
 
 {$DOMINIO} {
-	encode zstd gzip
-	# Lo que la aplicación ya pone en lo que contesta; aquí también para lo que Next contesta antes de
-	# ponerlo, como la redirección que le quita la barra final a una ruta (verificación de seguridad
-	# de Codex del 5 de noviembre, R41-02). Con «?» solo se pone si no viene: la política de cada
-	# página, con su nonce, y el caché de cada respuesta los decide la aplicación. «defer»: se ponen
-	# al final, en lugar de lo que diga la aplicación; si no, las que ella también pone salen dobles.
-	header {
-		defer
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		?Content-Security-Policy "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-	}
-	header /api/* ?Cache-Control "private, no-store"
-	reverse_proxy web:3000
+	import /etc/caddy/sitio.caddy
 }
 
 # Otros sitios en este mismo proxy. En operación no hay ninguno; el ensayo pone aquí su vigilante de mentira.

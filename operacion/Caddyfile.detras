@@ -1,0 +1,20 @@
+# El proxy, detrás de otro proxy (docker-compose.detras.yml). Es para cuando en el servidor ya vive
+# otra aplicación, cuyo proxy tiene los puertos 80 y 443: ese otro saca el certificado del dominio y
+# le pasa lo de este sitio por una red interna de Docker que solo comparten los dos. Este no publica
+# ningún puerto ni pide certificado; lo que hace con cada petición es lo mismo (sitio.caddy).
+{
+	# Sin puerto de administración: la configuración es este archivo y nada más.
+	admin off
+	servers {
+		# Lo que el otro proxy dice de la petición (que llegó por HTTPS, y de dónde) se le cree: desde
+		# fuera solo él llega aquí. La aplicación no usa la dirección del cliente; el protocolo sí lo
+		# usa Next al armar direcciones, y tiene que seguir diciendo HTTPS.
+		trusted_proxies static private_ranges
+	}
+}
+
+# Solo por HTTP, y sin redirigir a HTTPS: lo que llega ya vino cifrado hasta el otro proxy, y
+# redirigirlo armaría un ciclo. Las cabeceras, HSTS incluida, son las mismas que con certificado propio.
+http://{$DOMINIO} {
+	import /etc/caddy/sitio.caddy
+}
