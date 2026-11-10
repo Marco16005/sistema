@@ -104,6 +104,19 @@ porque es pesado: `sh seguridad/sonar.sh` (un servidor desechable; pide unos 3.5
   - *la guía no decía cómo pasar de un servidor compartido a uno propio* (R43-06): sección 7;
   - *`network_mode: bridge` se aceptaba* (R43-07): es la red general de Docker, donde cualquier otro
     contenedor del servidor llega por dirección; ahora se rechaza.
+- **Topes de memoria, CPU y procesos en cada servicio** (Docker Bench en el servidor, 10 de
+  noviembre): ahí vive otra aplicación, y sin topes, algo de feruga que se desbocara podía dejarla
+  sin memoria. Lo exige `pruebas/20-entorno.test.ts` y lo comprueba el ensayo en los contenedores
+  que corren, también en lo que se corre suelto. Codex los midió con un año de datos de prueba
+  (encargo 44, `docs/revisiones/2026-11-10-codex-topes-de-recursos-44.md`): ninguno se queda corto.
+  Lo que encontró, arreglado:
+  - *se prometía que siempre le queda CPU a la otra aplicación* (R44-01): un tope no es una reserva;
+    se corrigió lo que dicen la prueba, el Compose y la guía;
+  - *memoria de intercambio aparte por omisión* (R44-02): ahora es la misma que el tope;
+  - *los contenedores de ayuda de los guiones corrían sin tope* (R44-03): ahora con 256 MB y medio
+    procesador. La construcción de las imágenes queda fuera: la guía pide publicar en horas tranquilas;
+  - *una corrida del respaldo que muere sin terminar dejaba sus temporales* (R44-04), entre ellos el
+    volcado sin cifrar, y con cada caída se acumulaban: el servicio los quita al arrancar.
 
 ### Lo que Codex encontró bien en el sitio en marcha (encargo 40)
 

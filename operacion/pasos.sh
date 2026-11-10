@@ -140,6 +140,11 @@ preparar_herramientas() {
   asegurar_publicaciones || falla "No se pudo preparar la carpeta de publicaciones."
 }
 
+# Los topes de los contenedores de ayuda que los guiones corren sueltos (el manifiesto, la limpieza,
+# el cambio de clave): en un servidor compartido, ni lo de paso queda sin tope (Codex, R44-03). Sin
+# memoria de intercambio aparte, como los servicios.
+TOPES_DE_AYUDA="--memory 256m --memory-swap 256m --cpus 0.5 --pids-limit 64"
+
 # manifiesto <orden…>: le pregunta o le anota algo a la carpeta de publicaciones.
 manifiesto() {
   manifiesto_con_entrada "$@" </dev/null
@@ -148,7 +153,8 @@ manifiesto() {
 # Lo mismo, para las órdenes que reciben algo por la entrada estándar.
 manifiesto_con_entrada() {
   asegurar_publicaciones || return 1
-  docker run --rm -i --network none --user "$(id -u):$(id -g)" -v "$PWD/$PUBLICACIONES:/publicaciones" \
+  # shellcheck disable=SC2086  # los topes, una opción por palabra
+  docker run --rm -i $TOPES_DE_AYUDA --network none --user "$(id -u):$(id -g)" -v "$PWD/$PUBLICACIONES:/publicaciones" \
     --entrypoint node "$HERRAMIENTAS" operacion/publicacion.ts /publicaciones "$@"
 }
 

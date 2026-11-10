@@ -1,0 +1,43 @@
+name: codex44-recursos
+services:
+  db:
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+    container_name: codex44-db
+    environment:
+      POSTGRES_USER: codex44
+      POSTGRES_PASSWORD: codex44-solo-prueba
+      POSTGRES_DB: codex44-anual
+    volumes:
+      - codex44-datos:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits: {memory: 1g, cpus: '1.5', pids: 256}
+  herramienta:
+    image: feruga-escaneo-respaldo:latest
+    entrypoint: [node]
+    command: [-e, 'setInterval(()=>{},1000)']
+    environment:
+      DATABASE_URL: postgres://codex44:codex44-solo-prueba@db:5432/codex44-anual
+      MODO: desarrollo
+      PGHOST: db
+      PGUSER: codex44
+      PGPASSWORD: codex44-solo-prueba
+      PGDATABASE: codex44-anual
+    volumes:
+      - ../qa:/app/qa
+      - ../db:/app/db:ro
+      - ../consola:/app/consola:ro
+      - ../src:/app/src:ro
+      - ../operacion:/app/operacion:ro
+      - codex44-trabajo:/trabajo
+    deploy:
+      resources:
+        limits: {memory: 768m, cpus: '1.0', pids: 128}
+volumes:
+  codex44-datos:
+    name: codex44-datos
+  codex44-trabajo:
+    name: codex44-trabajo
+networks:
+  default:
+    name: codex44-red

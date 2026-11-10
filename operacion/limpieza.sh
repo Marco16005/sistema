@@ -15,7 +15,8 @@ limpiar_publicaciones() (
     fi
   fi
   docker image inspect "$herramientas_limpieza" >/dev/null || falla "No hay herramientas locales para limpiar."
-  plan_limpieza=$(docker run --rm --pull never --network none --user "$(id -u):$(id -g)" \
+  # shellcheck disable=SC2086  # los topes, una opción por palabra
+  plan_limpieza=$(docker run --rm --pull never $TOPES_DE_AYUDA --network none --user "$(id -u):$(id -g)" \
     -v "$PWD:/codigo:ro" -v "$PWD/$PUBLICACIONES:/publicaciones:ro" -w /codigo \
     --entrypoint node "$herramientas_limpieza" operacion/limpieza.ts /publicaciones "$proyecto_limpieza" "$commit_limpieza") \
     || falla "No se pudo calcular qué conservar: no se borró nada."
@@ -61,6 +62,7 @@ herramienta $herramientas_limpieza"
   else echo "Etiquetas retiradas: $borradas."; fi
   # En el contenedor, / está en el disco donde Docker guarda sus datos, también con un daemon remoto.
   echo "Espacio disponible en el sistema de archivos de Docker:"
-  docker run --rm --pull never --network none --user "$(id -u):$(id -g)" --read-only \
+  # shellcheck disable=SC2086  # los topes, una opción por palabra
+  docker run --rm --pull never $TOPES_DE_AYUDA --network none --user "$(id -u):$(id -g)" --read-only \
     --entrypoint df "$herramientas_limpieza" -h /
 )

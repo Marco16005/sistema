@@ -1,0 +1,5 @@
+services:
+  herramienta:
+    deploy:
+      resources:
+        limits: {memory: 512m, cpus: '1.0', pids: 64}

@@ -1,0 +1,3 @@
+services:
+  herramienta:
+    memswap_limit: 768m

@@ -1,0 +1,13 @@
+import { readFile,writeFile } from 'node:fs/promises';
+import { respaldar } from '../operacion/respaldar.ts';
+import { destinoRclone,claveDeSello } from '../operacion/destino.ts';
+import { sinComprobar } from '../operacion/diario.ts';
+import { identidadDe } from '../operacion/llave.ts';
+const llave=await readFile('/trabajo/llave.txt','utf8');
+const sello=claveDeSello(llave);const llavePublica=identidadDe(llave).publica;
+const destino=destinoRclone('codex44:codex44-respaldo/hora',{}, {sello});
+const diario=destinoRclone('codex44:codex44-respaldo/diario',{}, {sello});
+const vigia={inicio:async()=>console.log('VIGIA inicio'),bien:async()=>console.log('VIGIA bien'),fallo:async(_c,q)=>console.log('VIGIA fallo',q)};
+const r=await respaldar({base:process.env.DATABASE_URL!,llavePublica,destino,vigia,decir:console.log,diario:{destino:diario,zona:'America/Mexico_City',comprobados:sinComprobar(),vigia}});
+await writeFile('/trabajo/manifiesto.json',JSON.stringify(r));
+console.log('RESULTADO',JSON.stringify(r));

@@ -23,7 +23,7 @@
 // en otro depósito— (operacion/diario.ts). Si eso falla, el respaldo de la hora sigue valiendo y ya
 // avisó su éxito: el diario avisa por su propia señal, y se reintenta en la corrida siguiente.
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -250,6 +250,27 @@ async function terminarSesion(base: string, sesion: string, decir: (linea: strin
   }
 }
 
+/** El principio del nombre de las carpetas temporales del respaldo y del diario (respaldar, diario.ts). */
+const TEMPORAL = "feruga-respaldo-";
+
+/**
+ * Quita las carpetas temporales del respaldo que haya en esa raíz: las de una corrida que murió a
+ * medias. Si el sistema mata al servicio por falta de memoria, no corre ningún «finally»: el volcado
+ * —sin cifrar todavía— y el cifrado se quedan en el contenedor, y al reiniciarse siguen ahí; con cada
+ * caída se acumularían (Codex, R44-04). Se llama al arrancar el servicio, cuando en su contenedor no
+ * corre nada más; lo que se corre suelto («ahora», «lista») va en otro contenedor, con su propio /tmp.
+ * Solo carpetas con ese nombre: lo demás no es suyo. Devuelve los nombres de lo que quitó.
+ */
+export async function limpiarTemporales(raiz = tmpdir()): Promise<string[]> {
+  const quitadas: string[] = [];
+  for (const e of await readdir(raiz, { withFileTypes: true })) {
+    if (!e.isDirectory() || !e.name.startsWith(TEMPORAL)) continue;
+    await rm(join(raiz, e.name), { recursive: true, force: true });
+    quitadas.push(e.name);
+  }
+  return quitadas;
+}
+
 export async function respaldar(r: Respaldo): Promise<Hecho> {
   // Sin la clave del sello no se toma un respaldo que después nadie podría acreditar.
   const clave = selloDelDestino(r.destino);
@@ -285,7 +306,7 @@ export async function respaldar(r: Respaldo): Promise<Hecho> {
     await avisar((v) => v.inicio(corrida));
 
     paso = "volcar la base";
-    carpeta = await mkdtemp(join(tmpdir(), "feruga-respaldo-"));
+    carpeta = await mkdtemp(join(tmpdir(), TEMPORAL));
     const claro = join(carpeta, "respaldo.dump");
     const cifrado = `${claro}.age`;
     const pgDump = (await correr("pg_dump", ["--version"], { plazo: 10_000 })).trim();
@@ -525,6 +546,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         // Y si el vigilante se enteró, también aparte: quien publica lo anota, y el respaldo vale igual.
         console.log(`vigia: ${respaldo.vigia ? (avisado ? "avisado" : "sin avisar") : "no hay"}`);
       } else {
+        // Lo que haya dejado una corrida que murió a medias (por ejemplo, por falta de memoria): al
+        // arrancar, en este contenedor no corre nada más.
+        const quitadas = await limpiarTemporales();
+        if (quitadas.length > 0) console.error(`Se quitaron ${quitadas.length} carpetas temporales que dejó una corrida interrumpida.`);
         console.log(`Respaldos a las ${env.RESPALDO_HORARIO} (${zona}).`);
         // Cuando se le pide que se detenga —al publicar una versión, al apagar el servidor— no corta
         // el respaldo que tenga a medias: lo termina, y entonces sale. Si está esperando su hora, sale enseguida.

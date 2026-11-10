@@ -1,0 +1,23 @@
+services:
+  s3:
+    image: feruga-almacen:latest
+    container_name: codex44-s3
+    environment:
+      MINIO_ROOT_USER: codex44
+      MINIO_ROOT_PASSWORD: codex44-solo-prueba
+    volumes:
+      - codex44-s3:/datos
+    deploy:
+      resources:
+        limits: {memory: 512m, cpus: '0.5', pids: 128}
+  herramienta:
+    environment:
+      RCLONE_CONFIG_CODEX44_TYPE: s3
+      RCLONE_CONFIG_CODEX44_PROVIDER: Minio
+      RCLONE_CONFIG_CODEX44_ENDPOINT: http://s3:9000
+      RCLONE_CONFIG_CODEX44_ACCESS_KEY_ID: codex44
+      RCLONE_CONFIG_CODEX44_SECRET_ACCESS_KEY: codex44-solo-prueba
+      RCLONE_CONFIG_CODEX44_FORCE_PATH_STYLE: 'true'
+volumes:
+  codex44-s3:
+    name: codex44-s3

@@ -118,6 +118,19 @@ docker inspect $(operacion ps -q) | nodo -e '
     if (fuera.length > 0) { console.error(fuera.join("\n")); process.exit(1); }
   });
 ' "${DETRAS:+detras}" || falla "algo del ensayo quedó publicado de más"
+# Y cada servicio de la operación corre con sus topes de memoria, CPU y procesos: en un servidor
+# compartido, lo que se desbocara no deja sin nada a la otra aplicación (Docker Bench, 10 de noviembre).
+# Sin memoria de intercambio aparte: la de intercambio es la misma que el tope (Codex, R44-02).
+for servicio in db web proxy respaldo; do
+  topes=$(docker inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}} {{.HostConfig.MemorySwap}}' "$(operacion ps -q "$servicio")")
+  # shellcheck disable=SC2086  # cuatro números, uno por palabra
+  set -- $topes
+  case "$topes" in "0 "* | *" 0 "* | *"nil"* | "") falla "$servicio corre sin todos sus topes (memoria, CPU, procesos: ${topes})" ;; *) ;; esac
+  [ "${4:-}" = "$1" ] || falla "$servicio puede usar memoria de intercambio aparte de su tope (memoria ${1}, con intercambio ${4:-})"
+done
+# Y lo que se corre suelto también: el contenedor de un «run» tiene su tope (el de la comprobación, 768 MB).
+tope_suelto=$(operacion run --rm -T --entrypoint cat comprobacion /sys/fs/cgroup/memory.max 2>/dev/null)
+[ "$tope_suelto" = 805306368 ] || falla "lo que se corre suelto no tiene su tope de memoria (dice ${tope_suelto})"
 
 paso "El sitio atiende por HTTPS, y solo con un certificado en el que se confía"
 atiende >/dev/null 2>&1 || falla "el sitio no atiende por HTTPS"

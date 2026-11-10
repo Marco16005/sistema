@@ -1,0 +1,10 @@
+import pg from 'pg';
+import { asegurarRol } from '../db/rol.ts';
+import { altaDePersona,codigoDeEquipo } from '../consola/acciones.ts';
+import { writeFile } from 'node:fs/promises';
+const db=new pg.Client({connectionString:process.env.DATABASE_URL});await db.connect();
+await asegurarRol(db,'codex44_web','codex44-solo-prueba');
+const persona=(await db.query("SELECT id FROM usuario WHERE nombre='Codex44 QA'")).rows[0]??await altaDePersona(db,{nombre:'Codex44 QA',rol:'responsable',autoriza:true,clave:'481516'});
+const codigo=await codigoDeEquipo(db,'codex44-browser');
+await writeFile('/trabajo/web-acceso.json',JSON.stringify({persona:persona.id,clave:'481516',codigo}));
+console.log('ROL Y ACCESO PROPIOS LISTOS');await db.end();

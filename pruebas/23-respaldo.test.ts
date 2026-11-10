@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -23,7 +23,7 @@ import type { Destino, Manifiesto } from "../operacion/destino.ts";
 import { ESQUEMA_ESPERADO } from "../src/servidor/esquema.ts";
 import { leerHorario, siguiente, toca, ultimoDebido } from "../operacion/horario.ts";
 import { diaDelPatio, sinComprobar } from "../operacion/diario.ts";
-import { diarioAlArrancar, eleccionesEnLaBase, respaldar, servicio, vigiaHttp } from "../operacion/respaldar.ts";
+import { diarioAlArrancar, eleccionesEnLaBase, limpiarTemporales, respaldar, servicio, vigiaHttp } from "../operacion/respaldar.ts";
 import type { Diario } from "../operacion/respaldar.ts";
 import { CANDADO_DE_RESTAURACION, restaurar, restaurarDelDestino } from "../operacion/restaurar.ts";
 
@@ -1983,3 +1983,27 @@ test("por la consola, con depósito diario: respaldar ahora deja también el dia
       assert.match(queNoEsta.queja, /No hay un respaldo con ese nombre/);
     });
   }));
+
+test("al arrancar, el servicio quita lo que dejó en sus carpetas temporales una corrida que murió a medias (Codex, R44-04)", async () => {
+  // Si el sistema mata al servicio por falta de memoria, no corre ningún «finally»: el volcado —antes
+  // de cifrarlo, sin cifrar— y el cifrado se quedan, y al reiniciar el contenedor siguen ahí. Con
+  // cada caída se acumularían hasta llenar el disco.
+  const raiz = await mkdtemp(join(tmpdir(), "temporales-"));
+  try {
+    for (const carpeta of ["feruga-respaldo-aB3dEf", "feruga-respaldo-Zz9Yy8"]) {
+      await mkdir(join(raiz, carpeta));
+      await writeFile(join(raiz, carpeta, "respaldo.dump"), "volcado sin cifrar");
+    }
+    // Lo que no es suyo se queda: lo de restaurar, lo de otros, y un archivo suelto con un nombre parecido.
+    await mkdir(join(raiz, "feruga-restaurar-qW1eRt"));
+    await mkdir(join(raiz, "otra-cosa"));
+    await writeFile(join(raiz, "feruga-respaldo-suelto"), "no es carpeta");
+    const quitadas = await limpiarTemporales(raiz);
+    assert.deepEqual(quitadas.sort(), ["feruga-respaldo-Zz9Yy8", "feruga-respaldo-aB3dEf"]);
+    assert.deepEqual((await readdir(raiz)).sort(), ["feruga-respaldo-suelto", "feruga-restaurar-qW1eRt", "otra-cosa"]);
+    // Sin nada que quitar, no quita nada.
+    assert.deepEqual(await limpiarTemporales(raiz), []);
+  } finally {
+    await rm(raiz, { recursive: true, force: true });
+  }
+});

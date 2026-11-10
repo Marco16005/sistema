@@ -1,0 +1,13 @@
+import pg from 'pg';
+import { migrar } from '../db/migrar.ts';
+import { sembrarDemo } from './codex44-demo365.ts';
+const url=process.env.DATABASE_URL!;
+const db=new pg.Client({connectionString:url});await db.connect();
+await migrar(db);
+console.log('MIGRACIONES', (await db.query('select count(*) from migracion')).rows);
+console.log('VACIA', (await db.query('select pg_database_size(current_database()) bytes')).rows);
+const r=await sembrarDemo({url,dias:365,semilla:44,decir:console.log});
+console.log('DEMO',{dias:r.dias,cuentas:r.cuentas});
+console.log('TAMANOS', (await db.query(`select relname,n_live_tup,pg_total_relation_size(relid) bytes from pg_stat_user_tables order by pg_total_relation_size(relid) desc limit 15`)).rows);
+console.log('FILAS', (await db.query('select (select count(*) from operacion) operaciones,(select count(*) from operacion_linea) lineas,(select count(*) from bitacora) bitacora,pg_database_size(current_database()) bytes')).rows);
+await db.end();

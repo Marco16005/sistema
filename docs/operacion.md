@@ -160,6 +160,24 @@ Cuando el servidor ya tiene otra aplicación y su proxy tiene los puertos 80 y 4
   red general de Docker; y, antes de tocar nada, que la red exista y sea interna. Lo mismo al
   levantar, al retomar una publicación interrumpida y al volver a un respaldo.
 
+**Cada servicio de feruga tiene tope** de memoria, de CPU y de procesos (`deploy.resources.limits`
+en `docker-compose.operacion.yml`), sin memoria de intercambio aparte: la base 1 GB y un procesador
+y medio, la aplicación 768 MB y uno y medio, el respaldo y la comprobación 768 MB y uno, y lo demás
+menos. Los contenedores de ayuda de los guiones, 256 MB y medio procesador. Todo junto, en el peor
+caso, son unos 4.5 GB de memoria: si algo de feruga se desbocara, a la otra aplicación le queda
+memoria con qué atender. Codex los midió con un año de datos de prueba: lo más que usó cada uno fue
+menos de la mitad de su tope (`docs/revisiones/2026-11-10-codex-topes-de-recursos-44.md`).
+
+Lo que los topes no hacen:
+- **No reservan CPU.** Ninguno, él solo, toma los dos procesadores, pero juntos sí pueden ocuparlos;
+  entonces el sistema reparte entre todos los que piden, y la otra aplicación va más lenta, no se cae.
+- **No cubren la construcción de una versión** (`publicar.sh` construye las imágenes en el
+  servidor): mientras dura, la otra aplicación va más lenta. Se publica en horas tranquilas.
+
+Si un servicio llega a su tope de memoria, el sistema lo detiene y Docker lo vuelve a arrancar; eso
+queda en sus registros (`sh operacion/compose.sh logs`). El servicio de respaldos, al arrancar, quita
+lo que una corrida interrumpida así haya dejado en sus carpetas temporales.
+
 Lo que se acepta al compartir: **el otro proxy tiene el certificado y ve el tráfico de feruga
 descifrado** (también la credencial con que el comprobador pregunta la versión y la marca de la base,
 que no abre nada más). **Si el otro proxy se cae o se configura mal, feruga queda fuera** aunque esté

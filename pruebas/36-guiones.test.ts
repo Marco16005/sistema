@@ -615,7 +615,11 @@ test("limpiar conserva vigente y anterior, retira solo el alias propio antiguo, 
     assert.ok(!llamadas.some((l) => /buildx|prune|DockerRootDir/.test(l)), "tocó el constructor o consultó el directorio de Docker");
     const disco = llamadas.find((l) => l.includes("--entrypoint df "))!;
     assert.ok(disco.endsWith(" -h /"));
-    assert.ok(disco.includes("--pull never --network none"));
+    assert.ok(disco.includes("--pull never ") && disco.includes(" --network none "), disco);
+    // Como todo contenedor de ayuda, con sus topes (Codex, R44-03); y el que calcula qué conservar, también.
+    for (const ayuda of [disco, llamadas.find((l) => l.includes("operacion/limpieza.ts"))!]) {
+      assert.ok(ayuda.includes(" --memory 256m --memory-swap 256m --cpus 0.5 --pids-limit 64 "), ayuda);
+    }
     assert.doesNotMatch(disco, /--mount| -v |--volume/, "montó un directorio para medir el disco");
     const segunda = await i.guion("limpiar.sh");
     assert.equal(segunda.codigo, 0, segunda.queja);

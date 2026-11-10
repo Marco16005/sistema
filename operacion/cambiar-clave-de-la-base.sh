@@ -80,14 +80,16 @@ del_env=$(sed -n 's/^BD_CLAVE=//p' "$entorno")
 # La clave va en el entorno del cliente de Docker, no en sus argumentos.
 entra_con() {
   [ -n "$1" ] || return 1
-  [ "$(PGPASSWORD="$1" docker run --rm -i --log-driver none --network "${proyecto}_fondo" -e PGPASSWORD \
+  # shellcheck disable=SC2086  # los topes, una opción por palabra
+  [ "$(PGPASSWORD="$1" docker run --rm -i $TOPES_DE_AYUDA --log-driver none --network "${proyecto}_fondo" -e PGPASSWORD \
     --entrypoint psql "$HERRAMIENTAS" -X -q -t -A -h db -U feruga -d postgres -c 'SELECT 1' </dev/null 2>/dev/null)" = 1 ]
 }
 # poner_en_la_base <clave>: el dueño de la base queda con esa clave. Va como verificador SCRAM,
 # calculado en las herramientas (la clave les llega por la entrada estándar), y entra a la base por la
 # entrada estándar de psql, en una sesión que no anota sus sentencias de ninguna manera.
 poner_en_la_base() {
-  verificador=$(printf '%s' "$1" | docker run --rm -i --log-driver none --network none --entrypoint node "$HERRAMIENTAS" operacion/scram.ts) || return 1
+  # shellcheck disable=SC2086  # los topes, una opción por palabra
+  verificador=$(printf '%s' "$1" | docker run --rm -i $TOPES_DE_AYUDA --log-driver none --network none --entrypoint node "$HERRAMIENTAS" operacion/scram.ts) || return 1
   case "$verificador" in 'SCRAM-SHA-256$'*) ;; *) return 1 ;; esac
   printf "SET log_statement = 'none';\nSET log_min_duration_statement = -1;\nSET log_min_duration_sample = -1;\nSET log_min_error_statement = panic;\nALTER ROLE feruga PASSWORD '%s';\n" "$verificador" \
     | docker exec -i "$base" psql -X -q -v ON_ERROR_STOP=1 -U feruga -d postgres >/dev/null 2>&1

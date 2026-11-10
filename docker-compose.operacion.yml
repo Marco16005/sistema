@@ -20,6 +20,18 @@ x-respaldo: &respaldo
     - no-new-privileges:true
   cap_drop:
     - ALL
+  # Topes, para no dejar sin memoria a lo demás del servidor (Docker Bench, 10 de noviembre: ahí vive
+  # también otra aplicación). Respaldar y restaurar vuelcan la base, cifran y suben o bajan. Sin
+  # memoria de intercambio aparte (memswap_limit igual al tope): por omisión Docker deja usar otro
+  # tanto en disco (Codex, R44-02). Los topes de CPU no son una reserva: juntos, los servicios sí
+  # pueden ocupar los dos procesadores (R44-01); lo que de verdad protege a la otra es la memoria.
+  deploy:
+    resources:
+      limits:
+        memory: 768m
+        cpus: "1.0"
+        pids: 128
+  memswap_limit: 768m
   # Pregunta por el sitio (por el proxy) y usa la base: está en las dos redes.
   networks:
     - frente
@@ -99,6 +111,14 @@ services:
     # Sin ganar privilegios. Sus capacidades se quedan: la imagen oficial cambia de usuario al arrancar.
     security_opt:
       - no-new-privileges:true
+    # Topes (como el respaldo, arriba). Un proceso por conexión: de ahí los procesos.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.5"
+          pids: 256
+    memswap_limit: 1g
     depends_on:
       comprobacion:
         condition: service_completed_successfully
@@ -116,6 +136,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Topes (como el respaldo, arriba).
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+          pids: 64
+    memswap_limit: 512m
 
   consola:
     build: !reset null
@@ -129,6 +157,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Topes (como el respaldo, arriba).
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+          pids: 64
+    memswap_limit: 512m
 
   web:
     build: !reset null
@@ -145,6 +181,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Topes (como el respaldo, arriba).
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+          cpus: "1.5"
+          pids: 128
+    memswap_limit: 768m
     environment:
       # La publicación que contesta. La salud se lo dice solo al comprobador de la instalación.
       VERSION: "${VERSION:?Falta VERSION. En operación la pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
@@ -176,6 +220,14 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+    # Topes (como el respaldo, arriba).
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "1.0"
+          pids: 128
+    memswap_limit: 256m
     environment:
       DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
     ports:

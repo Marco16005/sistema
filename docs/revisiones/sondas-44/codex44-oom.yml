@@ -1,0 +1,8 @@
+services:
+  herramienta:
+    memswap_limit: 128m
+    environment:
+      RCLONE_BWLIMIT: 64k
+    deploy:
+      resources:
+        limits: {memory: 128m, cpus: '1.0', pids: 128}
