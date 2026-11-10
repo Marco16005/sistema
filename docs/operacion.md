@@ -160,8 +160,9 @@ Cuando el servidor ya tiene otra aplicación y su proxy tiene los puertos 80 y 4
   red general de Docker; y, antes de tocar nada, que la red exista y sea interna. Lo mismo al
   levantar, al retomar una publicación interrumpida y al volver a un respaldo.
 
-**Cada servicio de feruga tiene tope** de memoria, de CPU y de procesos (`deploy.resources.limits`
-en `docker-compose.operacion.yml`), sin memoria de intercambio aparte: la base 1 GB y un procesador
+**Cada servicio de feruga tiene tope** de memoria, de CPU y de procesos (`mem_limit`,
+`memswap_limit`, `cpus` y `pids_limit` en `docker-compose.operacion.yml`), sin memoria de
+intercambio aparte: la base 1 GB y un procesador
 y medio, la aplicación 768 MB y uno y medio, el respaldo y la comprobación 768 MB y uno, y lo demás
 menos. Los contenedores de ayuda de los guiones, 256 MB y medio procesador. Todo junto, en el peor
 caso, son unos 4.5 GB de memoria: si algo de feruga se desbocara, a la otra aplicación le queda
@@ -500,6 +501,20 @@ el entorno y la red, y que el migrador nuevo diga que puede con la base que hay)
 operación; **tomar un respaldo y anotar su nombre**; migrar; levantar la versión nueva cerrada y
 comprobarla por HTTPS; abrir. Antes de cerrar no altera lo que atiende; entre cerrar y abrir, el
 negocio está cerrado pase lo que pase; y una vez que decide abrir, no retrocede.
+
+**Si la versión cambia el servidor de la base** —un parche de seguridad de PostgreSQL (otra huella
+de la imagen en `docker/db.Dockerfile`) o su configuración en `docker-compose.operacion.yml`—,
+publicar lo dice al preparar, y lo cambia con el negocio cerrado, después de tomar el respaldo y
+antes de migrar: recrea el contenedor de la base sobre los mismos datos, y comprueba que la base
+es la misma. Se puede porque dentro de una misma versión mayor de PostgreSQL (la 17) los datos se
+leen y se escriben igual con cualquier versión menor, hacia adelante y hacia atrás; por eso, si se
+interrumpe, recuperar y volver al respaldo regresan la base a su servidor de antes. Antes de poner
+la huella de un parche, se leen las notas de esa versión menor (https://www.postgresql.org/docs/release/):
+a veces piden algo a mano, como reconstruir un índice. Publicar se niega si cambia **la versión
+mayor** (de la 17 a la 18: cambia el formato de los datos) o **el sistema de la imagen** (de Alpine
+a Debian: otras bibliotecas, y con ellas otro orden de las letras, que puede dejar mal los
+índices). Eso necesita su propio procedimiento —respaldo y restauración en un servidor nuevo—, que
+está por escribirse (`docs/planes/2026-11-10-cambiar-el-servidor-de-la-base.md`).
 
 **Si se interrumpe** (se cayó la conexión, se apagó la máquina), nada más se publica ni se levanta
 hasta recuperarla, **con la carpeta en el mismo commit** que se estaba publicando (no se hace

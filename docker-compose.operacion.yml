@@ -25,13 +25,12 @@ x-respaldo: &respaldo
   # memoria de intercambio aparte (memswap_limit igual al tope): por omisión Docker deja usar otro
   # tanto en disco (Codex, R44-02). Los topes de CPU no son una reserva: juntos, los servicios sí
   # pueden ocupar los dos procesadores (R44-01); lo que de verdad protege a la otra es la memoria.
-  deploy:
-    resources:
-      limits:
-        memory: 768m
-        cpus: "1.0"
-        pids: 128
+  # Van con las claves del servicio y no con «deploy»: al guardar la configuración, Compose le
+  # agrega a cada «deploy» un «placement» vacío, y en el servidor cada orden avisaba que es de Swarm.
+  mem_limit: 768m
   memswap_limit: 768m
+  cpus: "1.0"
+  pids_limit: 128
   # Pregunta por el sitio (por el proxy) y usa la base: está en las dos redes.
   networks:
     - frente
@@ -112,13 +111,14 @@ services:
     security_opt:
       - no-new-privileges:true
     # Topes (como el respaldo, arriba). Un proceso por conexión: de ahí los procesos.
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.5"
-          pids: 256
+    mem_limit: 1g
     memswap_limit: 1g
+    cpus: "1.5"
+    pids_limit: 256
+    # Al cambiar su servidor (otra imagen de la misma versión mayor, u otra configuración) se recrea
+    # su contenedor: con plazo, PostgreSQL se apaga limpio —deshace lo abierto y guarda a disco—
+    # antes de que se le corte (docs/planes/2026-11-10-cambiar-el-servidor-de-la-base.md).
+    stop_grace_period: 2m
     depends_on:
       comprobacion:
         condition: service_completed_successfully
@@ -137,13 +137,10 @@ services:
     cap_drop:
       - ALL
     # Topes (como el respaldo, arriba).
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-          pids: 64
+    mem_limit: 512m
     memswap_limit: 512m
+    cpus: "1.0"
+    pids_limit: 64
 
   consola:
     build: !reset null
@@ -158,13 +155,10 @@ services:
     cap_drop:
       - ALL
     # Topes (como el respaldo, arriba).
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-          pids: 64
+    mem_limit: 512m
     memswap_limit: 512m
+    cpus: "1.0"
+    pids_limit: 64
 
   web:
     build: !reset null
@@ -182,13 +176,10 @@ services:
     cap_drop:
       - ALL
     # Topes (como el respaldo, arriba).
-    deploy:
-      resources:
-        limits:
-          memory: 768m
-          cpus: "1.5"
-          pids: 128
+    mem_limit: 768m
     memswap_limit: 768m
+    cpus: "1.5"
+    pids_limit: 128
     environment:
       # La publicación que contesta. La salud se lo dice solo al comprobador de la instalación.
       VERSION: "${VERSION:?Falta VERSION. En operación la pone la publicación, usa sh operacion/compose.sh en vez de docker compose}"
@@ -221,13 +212,10 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     # Topes (como el respaldo, arriba).
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-          cpus: "1.0"
-          pids: 128
+    mem_limit: 256m
     memswap_limit: 256m
+    cpus: "1.0"
+    pids_limit: 128
     environment:
       DOMINIO: "${DOMINIO:?Falta DOMINIO en .env}"
     ports:

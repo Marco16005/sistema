@@ -14,12 +14,15 @@
 # publicación (publicaciones/<publicación>/manifiesto.json) que se va a dar:
 #   1. Preparar, sin tocar nada: el commit, sin cambios sueltos; construir sus imágenes, del
 #      commit; comprobar el entorno y qué sale a la red; que lo que corre sea lo que dejó la última
-#      publicación; y que el migrador de esta versión, sin aplicar nada, diga que puede con la base
+#      publicación; si cambia el servidor de la base, que sea de la misma versión mayor y el mismo
+#      sistema; y que el migrador de esta versión, sin aplicar nada, diga que puede con la base
 #      que hay.
 #   2. Escribir el manifiesto.
 #   3. Cerrar: mantenimiento, detener la aplicación y el servicio de respaldo, y esperar a que no
 #      quede ninguna sesión de la aplicación en la base.
 #   4. Respaldar, comprobado, y anotar su nombre exacto. Sin eso no se migra.
+#   4 bis. Solo si la versión cambia el servidor de la base: recrear su contenedor sobre los mismos
+#      datos, y comprobar que la base es la misma.
 #   5. Migrar. Antes de arrancar se anota que la migración empezó.
 #   6. Levantar la versión nueva con la operación cerrada, y comprobarla por HTTPS a través del
 #      proxy: lista, cerrada, esta versión, esta base, cada contenedor con la imagen del
@@ -116,6 +119,8 @@ pub=""
 # Su configuración resuelta —la candidata— y la del conjunto que corría. Vacía la segunda: es la primera publicación.
 conf=""
 conf_ant=""
+# «si» cuando esta versión cambia el servidor de la base (la misma versión mayor): paso 4 bis.
+cambia_la_base=""
 
 # De aquí en adelante un fallo deja la publicación sin cerrar: se dice, y cómo retomarla.
 retomar="sh operacion/publicar.sh --recuperar"
@@ -222,6 +227,21 @@ migrar_la_base() {
     en_la_base "$conf" cerrar "$pub" "Primera publicación" || sin_cerrar "No se pudo cerrar la operación de la base recién creada."
     punto primera:despues
   fi
+}
+
+# El servidor de la base de esta versión, de la misma versión mayor (docs/planes/2026-11-10-
+# cambiar-el-servidor-de-la-base.md): se recrea su contenedor sobre el mismo volumen —el viejo se
+# apaga limpio—, con la operación cerrada y ya respaldada, y se comprueba que la base es la misma.
+cambiar_el_servidor_de_la_base() {
+  paso "4 bis. Cambiar el servidor de la base (la misma versión mayor), con la operación cerrada"
+  punto base:antes
+  arrancar "$conf" db || sin_cerrar "El servidor nuevo de la base no levantó. La operación quedó cerrada, y no se migró."
+  marca=$(en_la_base "$conf" estado marca) || sin_cerrar "Con el servidor nuevo, la base no dijo su marca. La operación quedó cerrada, y no se migró."
+  esperada=$(marca_de_la_base) || sin_cerrar "No se pudo leer el manifiesto. La operación quedó cerrada, y no se migró."
+  [ -n "$marca" ] && [ "$marca" = "$esperada" ] \
+    || sin_cerrar "Con el servidor nuevo, la base no es la misma (dice «${marca}», y es «${esperada}»). La operación quedó cerrada, y no se migró."
+  echo "El servidor de la base es el de esta versión, y la base es la misma."
+  punto base:despues
 }
 
 # levantar_cerrada <cuál> <configuración> <versión>: levanta ese conjunto con la operación cerrada, y lo comprueba.
@@ -341,11 +361,18 @@ publicar() {
     [ "$estado" != no-contesta ] || falla "La base no contesta. No se tocó nada."
     corre "$vigente" candidato "$conf_ant" db web proxy respaldo \
       || falla "Lo que corre no es lo que dejó la última publicación ($vigente). No se publica encima: primero se averigua por qué. No se tocó nada."
-    codigo=0
-    misma_huella "$conf" "$conf_ant" db || codigo=$?
-    [ "$codigo" -ne 2 ] || falla "No se pudo comparar el servidor de la base de datos de esta versión con el que corre. No se tocó nada."
-    [ "$codigo" -eq 0 ] \
-      || falla "Esta versión cambia el servidor de la base de datos (su imagen o su configuración). Eso no se hace publicando: tiene su propio procedimiento. No se tocó nada."
+    # Si cambia el servidor de la base —otra imagen u otra configuración— y se puede: la misma versión
+    # mayor de PostgreSQL y el mismo sistema de la imagen. Se cambia con la operación cerrada, después
+    # del respaldo (paso 4 bis). Si no se puede, o no se sabe, se detiene aquí, sin tocar nada.
+    imagen_ant=$(manifiesto variables vigente | sed -n 's/^IMAGEN_DB=//p')
+    [ -n "$imagen_ant" ] || falla "No se pudo leer con qué imagen corre la base. No se tocó nada."
+    # shellcheck disable=SC2086  # una variable por palabra
+    imagen_nueva=$(printf '%s\n' $variables | sed -n 's/^IMAGEN_DB=//p')
+    mayor=$(cambio_de_la_base "$conf" "$conf_ant" "$imagen_nueva" "$imagen_ant") || exit 1
+    if [ -n "$mayor" ]; then
+      cambia_la_base=si
+      echo "Esta versión cambia el servidor de la base (la misma versión mayor, PostgreSQL ${mayor}, y el mismo sistema): se cambia con la operación cerrada, después del respaldo."
+    fi
     # El migrador de esta versión revisa, sin aplicar: lo ya aplicado está aquí con el mismo contenido, y lo pendiente va después.
     docker compose -f "$conf" run --rm --no-deps -T migracion node db/migrar.ts --revisar </dev/null \
       || falla "El migrador de esta versión no puede con la base que hay. No se tocó nada."
@@ -362,6 +389,7 @@ publicar() {
   if [ -n "$conf_ant" ]; then
     cerrar_y_drenar
     respaldar_antes
+    [ -z "$cambia_la_base" ] || cambiar_el_servidor_de_la_base
   fi
   migrar_la_base
   levantar_cerrada candidato "$conf" "$pub"
@@ -436,9 +464,29 @@ recuperar() {
   fi
   echo "Se retoma la publicación $pub."
 
+  # Si esta publicación cambia el servidor de la base, el que toca: el nuevo si ya empezó la
+  # migración —solo empieza con él arriba—, el de antes si no. En tres tiempos (Codex, R45-01): que
+  # corra antes de preguntarle nada; esperar lo que quedó; y entonces, que sea el que toca.
+  base_que_toca=""
+  if [ -n "$conf_ant" ]; then
+    codigo=0
+    misma_huella "$conf" "$conf_ant" db || codigo=$?
+    [ "$codigo" -ne 2 ] || falla "No se pudo comparar el servidor de la base de esta publicación con el de la anterior. No se tocó nada."
+    if [ "$codigo" -eq 1 ]; then
+      migro=$(manifiesto dato "$pub" marcas.empezoLaMigracion) || falla "No se pudo leer el manifiesto de la publicación $pub. No se tocó nada."
+      if [ -n "$migro" ]; then base_que_toca=$conf; else base_que_toca=$conf_ant; fi
+      asegurar_que_la_base_corra "$conf" "$base_que_toca"
+    fi
+  fi
+
   # Que aquel guion haya muerto no dice nada de lo que dejó corriendo: primero se espera a eso.
   esperar_al_migrador "$conf"
   esperar_lo_que_quedo "$conf"
+  if [ -n "$base_que_toca" ]; then
+    punto recuperar-base:antes
+    arrancar "$base_que_toca" db || sin_cerrar "No se pudo dejar la base con el servidor que le toca."
+    punto recuperar-base:despues
+  fi
   estado=$(estado_de_la_base "$conf")
   codigo=0
   decision=$(manifiesto decidir "$pub" "$estado") || codigo=$?

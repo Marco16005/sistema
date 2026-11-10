@@ -117,6 +117,16 @@ porque es pesado: `sh seguridad/sonar.sh` (un servidor desechable; pide unos 3.5
     procesador. La construcción de las imágenes queda fuera: la guía pide publicar en horas tranquilas;
   - *una corrida del respaldo que muere sin terminar dejaba sus temporales* (R44-04), entre ellos el
     volcado sin cifrar, y con cada caída se acumulaban: el servicio los quita al arrancar.
+- **Publicar una versión que cambia el servidor de la base** (10 de noviembre;
+  `docs/planes/2026-11-10-cambiar-el-servidor-de-la-base.md`): antes publicar se negaba siempre, y
+  sin otro camino un parche de seguridad de PostgreSQL no se podía aplicar sin reinstalar. Ahora se
+  acepta con la misma versión mayor y el mismo sistema de la imagen, con el negocio cerrado y
+  después del respaldo; recuperar y volver al respaldo regresan al servidor de antes. Codex revisó
+  el plan y el código (encargo 45, `docs/revisiones/2026-11-10-codex-cambiar-el-servidor-de-la-base-45.md`),
+  y lo que encontró se arregló con su prueba: que la base corra antes de preguntarle nada (R45-01)
+  y que conteste (R45-02); el mismo sistema de la imagen, no solo la misma mayor (R45-03); el orden
+  de recrear después de esperar todo lo que quedó, vigilado por una prueba (R45-04); los
+  comentarios (R45-05); y que no poder preguntar a Docker no se tome por «no corre» (R45-06).
 
 ### Lo que Codex encontró bien en el sitio en marcha (encargo 40)
 

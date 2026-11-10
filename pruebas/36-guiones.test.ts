@@ -908,3 +908,172 @@ esac`;
     const revisadas = llamadas.filter((l) => l.includes("comprobacion redes-de-fuera"));
     assert.ok(revisadas.some((l) => l.includes("publicaciones/pub2/conjunto.json")), "no revisó el conjunto que se publicaba");
   }));
+
+test("la versión mayor del servidor de la base se lee de su imagen; si no se puede, no se inventa (cambiar el servidor de la base)", () =>
+  conInstalacion(async (i) => {
+    const mayor = () => i.sh('m=$(mayor_de_la_base sha256:abc) || { echo "falla"; exit 0; }\necho "mayor=$m"');
+    await i.docker(`case "$*" in "image inspect"*) printf 'PATH=/usr/bin\\nPG_MAJOR=17\\nPG_VERSION=17.11-1.pgdg13+1\\n' ;; esac`);
+    assert.equal((await mayor()).salida, "mayor=17");
+    // Sin PG_MAJOR —otra imagen cualquiera—, o si Docker no contesta: no se sabe, y eso no es «la misma».
+    await i.docker(`case "$*" in "image inspect"*) printf 'PATH=/usr/bin\\n' ;; esac`);
+    assert.equal((await mayor()).salida, "falla");
+    await i.docker('case "$*" in "image inspect"*) exit 1 ;; esac');
+    assert.equal((await mayor()).salida, "falla");
+    // Algo que no es un número tampoco.
+    await i.docker(`case "$*" in "image inspect"*) printf 'PG_MAJOR=17; rm -rf /\\n' ;; esac`);
+    assert.equal((await mayor()).salida, "falla");
+  }));
+
+test("si la base corre se pregunta por su servicio en el conjunto; no poder preguntar no es ni «corre» ni «no corre» (Codex, R45-06)", () =>
+  conInstalacion(async (i) => {
+    const corre = () => i.sh('codigo=0\nla_base_corre conjunto.json || codigo=$?\necho "codigo=$codigo"');
+    await i.docker('case "$*" in *"ps -q --status running db") echo abc123 ;; esac');
+    assert.equal((await corre()).salida, "codigo=0");
+    await i.docker('case "$*" in *"ps -q --status running db") ;; esac');
+    assert.equal((await corre()).salida, "codigo=1");
+    await i.docker('case "$*" in *"ps -q --status running db") exit 1 ;; esac');
+    assert.equal((await corre()).salida, "codigo=2");
+    assert.ok((await i.llamadas()).every((l) => l.endsWith("compose -f conjunto.json ps -q --status running db")));
+  }));
+
+test("al publicar, un cambio del servidor de la base se acepta solo con la misma versión mayor y el mismo sistema de la imagen; si no se sabe, tampoco (Codex, R45-03)", () =>
+  conInstalacion(async (i) => {
+    const decide = () => i.sh('m=$(cambio_de_la_base nueva.json vieja.json img-n img-a) || exit 1\necho "cambio=$m"');
+    const docker = (o: { huella?: string; mayorN?: string; mayorA?: string; sistemaN?: string; sistemaA?: string }) => i.docker(`case "$*" in
+  *"nueva.json config --hash db") echo "db ${o.huella ?? "otra"}" ;;
+  *"vieja.json config --hash db") echo "db una" ;;
+  *"image inspect"*" img-n") ${o.mayorN === undefined ? "exit 1" : `printf 'PG_MAJOR=${o.mayorN}\\n'`} ;;
+  *"image inspect"*" img-a") ${o.mayorA === undefined ? "exit 1" : `printf 'PG_MAJOR=${o.mayorA}\\n'`} ;;
+  *"cat img-n /etc/os-release") ${o.sistemaN === undefined ? "exit 1" : `printf 'NAME=x\\nID=${o.sistemaN}\\n'`} ;;
+  *"cat img-a /etc/os-release") ${o.sistemaA === undefined ? "exit 1" : `printf 'NAME=x\\nID=${o.sistemaA}\\n'`} ;;
+esac`);
+    // El mismo servidor: no dice nada, y ni siquiera mira las imágenes.
+    await docker({ huella: "una" });
+    assert.deepEqual([(await decide()).codigo, (await decide()).salida], [0, "cambio="]);
+    assert.ok(!(await i.llamadas()).some((l) => l.includes("image inspect")));
+    // Otro, de la misma mayor y el mismo sistema: se puede, y dice cuál.
+    await docker({ mayorN: "17", mayorA: "17", sistemaN: "alpine", sistemaA: "alpine" });
+    assert.deepEqual([(await decide()).codigo, (await decide()).salida], [0, "cambio=17"]);
+    // Otra mayor; otro sistema; y cada cosa que no se pudo leer: se niega, diciendo por qué.
+    const casos: Array<[Parameters<typeof docker>[0], RegExp]> = [
+      [{ mayorN: "18", mayorA: "17", sistemaN: "alpine", sistemaA: "alpine" }, /de PostgreSQL 17 a 18: otra versión mayor/],
+      [{ mayorN: "17", mayorA: "17", sistemaN: "debian", sistemaA: "alpine" }, /de alpine a debian/],
+      [{ mayorA: "17", sistemaN: "alpine", sistemaA: "alpine" }, /no dice PG_MAJOR/],
+      [{ mayorN: "17", sistemaN: "alpine", sistemaA: "alpine" }, /no dice PG_MAJOR/],
+      [{ mayorN: "17", mayorA: "17", sistemaA: "alpine" }, /sobre qué sistema está hecha/],
+      [{ mayorN: "17", mayorA: "17", sistemaN: "alpine" }, /sobre qué sistema está hecha/],
+    ];
+    for (const [o, dice] of casos) {
+      await docker(o);
+      const fin = await decide();
+      assert.equal(fin.codigo, 1, JSON.stringify(o));
+      assert.match(fin.queja, dice, JSON.stringify(o));
+      assert.match(fin.queja, /No se tocó nada/, JSON.stringify(o));
+    }
+    // Si no se pudo comparar la configuración, tampoco se sigue.
+    await i.docker('case "$*" in *"config --hash db") exit 1 ;; esac');
+    assert.match((await decide()).queja, /No se pudo comparar el servidor de la base/);
+  }));
+
+test("que la base corra y conteste antes de preguntarle nada: se arranca si no corre, se espera si no contesta, y nunca se toca si no se sabe (Codex, R45-01, R45-02 y R45-06)", () =>
+  conInstalacion(async (i) => {
+    const asegura = () => i.sh("asegurar_que_la_base_corra actual.json toca.json\necho listo", { ESPERA_DE_LA_BASE: "2" });
+    const arranques = async () => (await i.llamadas()).filter((l) => / up -d --wait --no-deps db$/.test(l));
+    const docker = (corre: string, contesta: string, vivos = "") => i.docker(`case "$*" in
+  *"ps -q --status running db") ${corre} ;;
+  *"operacion.ts estado") ${contesta} ;;
+  *"config") echo "name: prueba" ;;
+  *"--filter label=com.docker.compose.oneoff=True") echo "${vivos}" ;;
+esac`);
+    // No corre: se arranca con la que toca, sin preguntarle antes nada.
+    await docker("", "exit 1");
+    let fin = await asegura();
+    assert.equal(fin.salida.split("\n").at(-1), "listo", fin.queja);
+    assert.deepEqual((await arranques()).map((l) => l.includes("toca.json")), [true]);
+    assert.ok(!(await i.llamadas()).some((l) => l.includes("operacion.ts estado")), "le preguntó a la base antes de arrancarla");
+    // Corre y contesta: no se toca.
+    await rm(join(i.carpeta, "docker.llamadas"));
+    await docker("echo abc", 'echo \'{"base":"feruga"}\'');
+    fin = await asegura();
+    assert.equal(fin.codigo, 0, fin.queja);
+    assert.deepEqual(await arranques(), []);
+    // No se pudo preguntar si corre: no se toca, y se detiene.
+    await rm(join(i.carpeta, "docker.llamadas"));
+    await docker("exit 1", "exit 1");
+    fin = await asegura();
+    assert.equal(fin.codigo, 1);
+    assert.match(fin.queja, /No se pudo preguntar si la base está corriendo/);
+    assert.deepEqual(await arranques(), []);
+    // Corre y no contesta, y algo de una operación interrumpida sigue corriendo: no se le cambia el servidor debajo.
+    await rm(join(i.carpeta, "docker.llamadas"));
+    await docker("echo abc", "exit 1", "def456");
+    fin = await asegura();
+    assert.equal(fin.codigo, 1);
+    assert.match(fin.queja, /no se le cambia el servidor debajo/);
+    assert.deepEqual(await arranques(), []);
+    // Corre y no contesta, y nada la usa: después de esperarla, se le pone la que toca.
+    await rm(join(i.carpeta, "docker.llamadas"));
+    await i.docker(`case "$*" in
+  *"ps -q --status running db") echo abc ;;
+  *"operacion.ts estado") if [ -e "$INSTALACION/ya" ]; then echo '{"base":"feruga"}'; else exit 1; fi ;;
+  *" up -d --wait --no-deps db") : > "$INSTALACION/ya" ;;
+  *"config") echo "name: prueba" ;;
+esac`);
+    fin = await asegura();
+    assert.equal(fin.codigo, 0, fin.queja);
+    assert.match(fin.salida, /La base corre pero no contesta, y nada la usa/);
+    assert.deepEqual((await arranques()).map((l) => l.includes("toca.json")), [true]);
+    const ll = await i.llamadas();
+    assert.ok(ll.filter((l) => l.includes("operacion.ts estado")).length >= 2, "no le dio tiempo antes de cambiarle el servidor");
+  }));
+
+test("recuperar una publicación que cambia el servidor de la base deja el que toca: que corra antes de preguntar, esperar, y entonces recrearlo (Codex, R45-01)", () =>
+  conInstalacion(async (i) => {
+    await i.git('case "$*" in rev-parse*) echo abc123def4567890 ;; esac');
+    for (const pub of ["pub1", "pub2"]) {
+      await mkdir(join(i.carpeta, "publicaciones", pub), { recursive: true });
+      await writeFile(join(i.carpeta, "publicaciones", pub, "conjunto.json"), "{}");
+    }
+    const caso = (migro: string, corre: string) => `case "$*" in
+  "image inspect "*) exit 0 ;;
+  *"publicacion.ts /publicaciones pendiente") echo pub2 ;;
+  *"publicacion.ts /publicaciones dato pub2 commit") echo abc123def4567890 ;;
+  *"publicacion.ts /publicaciones dato pub2 anterior.configuracion") echo pub1/conjunto.json ;;
+  *"publicacion.ts /publicaciones dato pub2 marcas.empezoLaMigracion") echo "${migro}" ;;
+  *"pub2/conjunto.json config --hash db") echo "db nueva" ;;
+  *"pub1/conjunto.json config --hash db") echo "db vieja" ;;
+  *"conjunto.json config") echo "name: prueba" ;;
+  *"ps -q --status running db") echo "${corre}" ;;
+  *"operacion.ts estado") echo '{"base":"no hay"}' ;;
+esac`;
+    const arranques = async () => (await i.llamadas()).filter((l) => / up -d --wait --no-deps db$/.test(l));
+    const antesDeEsperar = async () => {
+      const ll = await i.llamadas();
+      const espera = ll.findIndex((l) => / ps -q --filter label=com\.docker\.compose\.project=prueba --filter label=com\.docker\.compose\.service=migracion/.test(l));
+      return ll.slice(0, espera).filter((l) => / up -d --wait --no-deps db$/.test(l));
+    };
+    // No se migró: el de antes. Corre: no se toca hasta después de esperar al migrador Y a lo demás que
+    // quedó (una restauración, un respaldo); entonces se recrea con el de antes (Codex, R45-04).
+    await i.docker(caso("", "abc123"));
+    await i.guion("publicar.sh", ["--recuperar"]);
+    assert.deepEqual(await antesDeEsperar(), [], "recreó la base antes de esperar lo que quedó");
+    {
+      const ll = await i.llamadas();
+      const ultimaEspera = ll.map((l, k) => (/--filter label=com\.docker\.compose\.service=respaldo --filter label=com\.docker\.compose\.oneoff=True/.test(l) ? k : -1)).filter((k) => k >= 0).at(-1) ?? -1;
+      const recrea = ll.findIndex((l) => / up -d --wait --no-deps db$/.test(l));
+      assert.ok(ultimaEspera >= 0 && recrea > ultimaEspera, "recreó la base antes de esperar a lo demás que quedó corriendo");
+    }
+    assert.ok((await arranques()).at(-1)?.includes("publicaciones/pub1/conjunto.json"), `no dejó el servidor de antes: ${(await arranques()).join(" | ")}`);
+    // Ya se migró: el nuevo.
+    await rm(join(i.carpeta, "docker.llamadas"));
+    await i.docker(caso("2026-11-10T19:00:00Z", "abc123"));
+    await i.guion("publicar.sh", ["--recuperar"]);
+    assert.ok((await arranques()).at(-1)?.includes("publicaciones/pub2/conjunto.json"), `no dejó el servidor nuevo: ${(await arranques()).join(" | ")}`);
+    // No corre (murió a media recreación): se arranca antes de preguntarle nada, ya con el que toca.
+    await rm(join(i.carpeta, "docker.llamadas"));
+    await i.docker(caso("", ""));
+    await i.guion("publicar.sh", ["--recuperar"]);
+    const primeras = await antesDeEsperar();
+    assert.equal(primeras.length, 1, "no arrancó la base antes de esperar");
+    assert.ok(primeras[0]!.includes("publicaciones/pub1/conjunto.json"));
+  }));

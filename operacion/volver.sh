@@ -82,6 +82,16 @@ $hay
 FIN
 }
 
+# Si la publicación cambió el servidor de la base, se le regresa el de la versión anterior: se
+# recrea su contenedor sobre el mismo volumen (la misma versión mayor: los datos sirven igual). Se
+# llama donde ya se sabe que volver es lo que toca; si ya corre así, no hace nada.
+servidor_de_antes() {
+  [ -n "$cambia_la_base" ] || return 0
+  punto vuelta-base:antes
+  arrancar "$conf_ant" db || falla "No se pudo dejar la base con el servidor de la versión anterior. El negocio sigue cerrado. Corregido lo que haya sido, vuelve a correr esto."
+  punto vuelta-base:despues
+}
+
 volver() {
   # La llave privada entra por la entrada estándar, desde un archivo. No se teclea ni se pasa como argumento.
   [ ! -t 0 ] || falla "La llave privada entra por la entrada estándar, desde un archivo: sh operacion/volver.sh < llave-privada.txt"
@@ -108,6 +118,17 @@ volver() {
   [ -n "$version" ] && [ -n "$marca_de_antes" ] && [ -n "$numero" ] || falla "$no_se_leyo"
   apartada="${BASE}_fallida_$numero"
   echo "Se vuelve al respaldo previo de la publicación $pub: $respaldo"
+
+  # Si esa publicación cambió el servidor de la base, se vuelve también al de antes. En tres tiempos
+  # (Codex, R45-01): que la base corra antes de preguntarle nada —si el guion murió a media
+  # recreación, se arranca, ya con el de antes—; esperar lo que quedó; y recrearla con el de antes
+  # solo donde ya se sabe que volver es lo que toca (al restaurar y al levantar).
+  codigo=0
+  misma_huella "$conf" "$conf_ant" db || codigo=$?
+  [ "$codigo" -ne 2 ] || falla "No se pudo comparar el servidor de la base de esa publicación con el de la anterior. No se tocó nada."
+  cambia_la_base=""
+  [ "$codigo" -eq 0 ] || cambia_la_base=si
+  [ -z "$cambia_la_base" ] || asegurar_que_la_base_corra "$conf" "$conf_ant"
 
   # Que el guion de esa publicación haya muerto —o un intento anterior de volver— no dice nada de lo
   # que dejó corriendo. Antes de mover una base, se espera a su migrador y a lo demás: un migrador
@@ -145,6 +166,7 @@ volver() {
   fi
 
   if [ "$hay_suya" = no ] && [ "$hay_apartada" = si ]; then
+    servidor_de_antes
     paso "3. Restaurar el respaldo previo, con el programa de la versión anterior"
     manifiesto vuelta "$pub" restaurar antes || falla "No se pudo anotar el paso."
     # La llave entra por la entrada estándar del programa que restaura, y por ningún otro lado.
@@ -159,6 +181,7 @@ volver() {
     marca=$la_suya
     manifiesto vuelta "$pub" restaurar despues "$marca" || falla "La base quedó restaurada, y no se pudo anotar. Vuelve a correr esto: sigue desde ahí."
 
+    servidor_de_antes
     paso "4. Levantar la versión anterior, y comprobar que contesta sobre la base restaurada, cerrada"
     manifiesto vuelta "$pub" levantar antes || falla "No se pudo anotar el paso."
     arrancar "$conf_ant" web || falla "La aplicación de la versión anterior no levantó. La base ya está restaurada; vuelve a correr esto."

@@ -316,6 +316,103 @@ arrancar() {
   docker compose -f "$pasos_conf" up -d --wait --no-deps "$@"
 }
 
+# mayor_de_la_base <imagen>: la versión mayor de PostgreSQL de esa imagen de la base, como la dice la
+# imagen oficial (PG_MAJOR). Si no se puede leer, o no es un número, falla: eso no es «la misma».
+# Dentro de una misma versión mayor, PostgreSQL lee y escribe el mismo formato en disco, hacia
+# adelante y hacia atrás; entre mayores, no (docs/planes/2026-11-10-cambiar-el-servidor-de-la-base.md).
+mayor_de_la_base() {
+  pasos_entorno=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null) || return 1
+  pasos_mayor=$(printf '%s\n' "$pasos_entorno" | sed -n 's/^PG_MAJOR=//p' | head -1)
+  case "$pasos_mayor" in '' | *[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$pasos_mayor"
+}
+
+# la_base_corre <configuración>: si el contenedor de la base de ese conjunto está corriendo.
+#   0: corre · 1: no corre · 2: no se pudo preguntar —eso no es «no corre» (Codex, R45-06)—
+la_base_corre() {
+  pasos_ids=$(docker compose -f "$1" ps -q --status running db 2>/dev/null) || return 2
+  [ -n "$pasos_ids" ] || return 1
+}
+
+# sistema_de_la_base <imagen>: sobre qué sistema está hecha esa imagen de la base (el ID de su
+# /etc/os-release: alpine, debian…). Si no se puede leer, falla.
+sistema_de_la_base() {
+  # shellcheck disable=SC2086  # los topes, una opción por palabra
+  pasos_os=$(docker run --rm $TOPES_DE_AYUDA --network none --entrypoint cat "$1" /etc/os-release 2>/dev/null) || return 1
+  pasos_id=$(printf '%s\n' "$pasos_os" | sed -n 's/^ID=//p' | tr -d '"' | head -1)
+  case "$pasos_id" in '' | *[!a-z0-9._-]*) return 1 ;; esac
+  printf '%s\n' "$pasos_id"
+}
+
+# cambio_de_la_base <configuración> <la de lo publicado> <imagen de la base nueva> <la de lo publicado>:
+# si esta versión cambia el servidor de la base, y si eso se puede publicar. Se llama así:
+#   mayor=$(cambio_de_la_base …) || exit 1
+# No dice nada si no cambia. Si cambia y se puede, dice la versión mayor: la misma de PostgreSQL y el
+# mismo sistema de la imagen. Otra mayor cambia el formato de los datos; otro sistema trae otras
+# bibliotecas, y con ellas otro orden de las letras, que puede dejar mal los índices (Codex, R45-03).
+# Si no se puede, o no se sabe, se detiene, diciendo por qué.
+cambio_de_la_base() {
+  pasos_codigo=0
+  misma_huella "$1" "$2" db || pasos_codigo=$?
+  [ "$pasos_codigo" -ne 2 ] || falla "No se pudo comparar el servidor de la base de datos de esta versión con el que corre. No se tocó nada."
+  [ "$pasos_codigo" -eq 1 ] || return 0
+  pasos_mayor_nueva=$(mayor_de_la_base "$3") || pasos_mayor_nueva=""
+  pasos_mayor_ant=$(mayor_de_la_base "$4") || pasos_mayor_ant=""
+  if [ -z "$pasos_mayor_nueva" ] || [ -z "$pasos_mayor_ant" ]; then
+    falla "Esta versión cambia el servidor de la base de datos, y no se pudo saber de qué versión mayor de PostgreSQL es su imagen (no dice PG_MAJOR). No se publica a ciegas. No se tocó nada."
+  fi
+  [ "$pasos_mayor_nueva" = "$pasos_mayor_ant" ] \
+    || falla "Esta versión cambia el servidor de la base de datos de PostgreSQL ${pasos_mayor_ant} a ${pasos_mayor_nueva}: otra versión mayor cambia el formato de los datos, y eso no se hace publicando. Necesita su propio procedimiento (respaldo y restauración en un servidor nuevo), que está por escribirse. No se tocó nada."
+  pasos_sistema_nuevo=$(sistema_de_la_base "$3") || pasos_sistema_nuevo=""
+  pasos_sistema_ant=$(sistema_de_la_base "$4") || pasos_sistema_ant=""
+  if [ -z "$pasos_sistema_nuevo" ] || [ -z "$pasos_sistema_ant" ]; then
+    falla "Esta versión cambia el servidor de la base de datos, y no se pudo saber sobre qué sistema está hecha su imagen. No se publica a ciegas. No se tocó nada."
+  fi
+  [ "$pasos_sistema_nuevo" = "$pasos_sistema_ant" ] \
+    || falla "Esta versión cambia el sistema sobre el que está hecho el servidor de la base (de ${pasos_sistema_ant} a ${pasos_sistema_nuevo}): trae otras bibliotecas, y con ellas otro orden de las letras, que puede dejar mal los índices. Eso no se hace publicando. No se tocó nada."
+  printf '%s\n' "$pasos_mayor_nueva"
+}
+
+# asegurar_que_la_base_corra <configuración> <la que toca>: el primer tiempo de recuperar y de volver
+# cuando la publicación cambia el servidor de la base (Codex, R45-01, R45-02 y R45-06). Que la base
+# corra y conteste antes de que nadie le pregunte nada:
+#   · no corre: se arranca, con la que toca (detenida, nada la usa);
+#   · corre y contesta: no se toca (cambiarla, si hace falta, va después de esperar lo que quedó);
+#   · corre y no contesta: se le da tiempo (puede estar arrancando); si sigue sin contestar y no queda
+#     nada de una operación interrumpida que pudiera usarla, se le pone la que toca;
+#   · no se pudo preguntar: se detiene. Eso no es «no corre», y arrancarla podría cortarle la base a
+#     quien la esté usando.
+asegurar_que_la_base_corra() {
+  pasos_codigo=0
+  la_base_corre "$1" || pasos_codigo=$?
+  case "$pasos_codigo" in
+    2) falla "No se pudo preguntar si la base está corriendo. No se tocó nada; vuelve a correr esto." ;;
+    1)
+      echo "La base no está corriendo: se arranca, con el servidor que le toca, antes de preguntarle nada."
+      arrancar "$2" db || falla "No se pudo arrancar la base. Corregido lo que haya sido, vuelve a correr esto."
+      return 0
+      ;;
+    *) ;;
+  esac
+  pasos_k=0
+  while [ "$(estado_de_la_base "$1")" = no-contesta ]; do
+    pasos_k=$((pasos_k + 1))
+    if [ "$pasos_k" -ge "${ESPERA_DE_LA_BASE:-30}" ]; then
+      for pasos_servicio in migracion comprobacion respaldo; do
+        pasos_vivos=$(de_un_run_vivos "$1" "$pasos_servicio") || falla "No se pudo preguntar qué quedó corriendo de una operación interrumpida. No se sigue."
+        [ -z "$pasos_vivos" ] \
+          || falla "La base no contesta, y sigue corriendo algo de una operación interrumpida que podría usarla ($pasos_servicio): no se le cambia el servidor debajo. Mira qué es (docker ps) y vuelve a correr esto."
+      done
+      echo "La base corre pero no contesta, y nada la usa: se le pone el servidor que le toca."
+      arrancar "$2" db || falla "No se pudo poner el servidor que le toca a la base. Corregido lo que haya sido, vuelve a correr esto."
+      [ "$(estado_de_la_base "$1")" != no-contesta ] \
+        || falla "Con el servidor que le toca, la base sigue sin contestar. No se sigue: hace falta que una persona vea qué pasa (sh operacion/compose.sh logs db)."
+      return 0
+    fi
+    sleep 2
+  done
+}
+
 # detener <configuración> <servicio…>
 detener() {
   pasos_conf=$1

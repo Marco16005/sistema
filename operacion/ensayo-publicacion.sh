@@ -601,6 +601,100 @@ atiende_con "$ultima" "publicada sobre la base restaurada"
 [ "$(enlabase "SELECT to_regclass('ensayo_$numero') IS NOT NULL")" = t ] || falla "la versión publicada sobre la base restaurada no aplicó su migración"
 [ "$(asentado)" = "$habia" ] || falla "publicar sobre la base restaurada cambió lo asentado"
 
+# ── una versión que cambia el servidor de la base (la misma versión mayor) ──
+# (docs/planes/2026-11-10-cambiar-el-servidor-de-la-base.md)
+
+# El tope de memoria del contenedor de la base que corre: dice con qué configuración corre.
+memoria_de_la_base() { docker inspect -f '{{.HostConfig.Memory}}' "$(operacion ps -q db)"; }
+# otra_base <de> <a>: una versión que solo cambia la configuración del servidor de la base (su tope de memoria).
+otra_base() {
+  (umask 022; sed -i.sin -e "s/^    mem_limit: $1\$/    mem_limit: $2/" -e "s/^    memswap_limit: $1\$/    memswap_limit: $2/" docker-compose.operacion.yml && rm docker-compose.operacion.yml.sin)
+  [ "$(grep -c "^    mem\(swap\)*_limit: $2\$" docker-compose.operacion.yml)" = 2 ] || falla "no se pudo cambiar el tope de la base de $1 a $2: el caso no se probaría"
+}
+# vuelve_con_su_servidor <dónde>: recuperar restableció la versión anterior, con el servidor de la base de antes.
+vuelve_con_su_servidor() {
+  recuperar || { dicho; diagnostico; falla "muerta en «$1»: no se pudo recuperar"; }
+  dijo "No se publicó: $pub" || { dicho; falla "muerta en «$1»: recuperar no dijo que no se publicó"; }
+  [ "$(memoria_de_la_base)" = "$memoria_antes" ] || falla "muerta en «$1»: la base no volvió a su servidor de antes"
+  atiende_con "$ultima" "muerta en «$1» y recuperada"
+  [ "$(asentado)" = "$habia" ] || falla "muerta en «$1»: recuperar cambió lo asentado"
+}
+
+paso "Una versión que cambia el servidor de la base (la misma versión mayor): muere antes y después de cambiarlo, y recuperar vuelve a la anterior con su servidor"
+memoria_antes=$(memoria_de_la_base)
+[ "$memoria_antes" = 1073741824 ] || falla "la base no corre con su tope de 1 GB (${memoria_antes}): el caso no se probaría"
+otra_base 1g 960m
+confirmar "Otra configuración del servidor de la base"
+interrumpida base:antes
+[ "$(memoria_de_la_base)" = "$memoria_antes" ] || falla "muerta antes de cambiar el servidor de la base, ya estaba cambiado"
+vuelve_con_su_servidor base:antes
+interrumpida base:despues
+[ "$(memoria_de_la_base)" = 1006632960 ] || falla "muerta recién cambiado el servidor de la base, no estaba cambiado: el caso no se probó"
+# Y recuperar muere a su vez, después de esperar y antes de poner el servidor que toca: retomarlo termina.
+if recuperar MORIR_EN=recuperar-base:antes; then dicho; falla "se pidió que recuperar muriera antes de poner el servidor que toca, y terminó"; fi
+dijo "el guion muere en «recuperar-base:antes»" || { dicho; diagnostico; falla "recuperar falló antes de llegar a poner el servidor que toca"; }
+vuelve_con_su_servidor "base:despues, y recuperar en recuperar-base:antes"
+
+paso "Muere a media recreación del servidor de la base, con el contenedor detenido: recuperar lo arranca antes de preguntarle nada"
+interrumpida base:despues
+por_fuera stop db >/dev/null 2>&1 || falla "no se pudo detener la base para preparar el caso"
+vuelve_con_su_servidor "base:despues, con la base detenida"
+dijo "La base no está corriendo: se arranca" || { dicho; falla "recuperar no dijo que arrancó la base detenida"; }
+
+paso "Muere a media vuelta a la anterior, ya decidido volver a abrirla: retomar recuperar termina con la anterior y su servidor"
+interrumpida base:despues
+if recuperar MORIR_EN=decidir:base; then dicho; falla "se pidió que recuperar muriera ya decidido volver a abrir la anterior, y terminó"; fi
+dijo "el guion muere en «decidir:base»" || { dicho; diagnostico; falla "recuperar falló antes de decidir volver a abrir la anterior"; }
+[ "$(memoria_de_la_base)" = "$memoria_antes" ] || falla "ya decidido volver a abrir la anterior, la base no tenía su servidor de antes"
+vuelve_con_su_servidor "base:despues, y recuperar en decidir:base"
+
+paso "La versión que cambia el servidor de la base se publica: muere ya decidido abrir, y recuperar termina con el servidor nuevo; el contenedor es otro, y la base es la misma"
+base_antes=$(operacion ps -q db)
+interrumpida decidir:base
+dijo "Esta versión cambia el servidor de la base (la misma versión mayor" || { dicho; falla "publicar no dijo que esta versión cambia el servidor de la base"; }
+dijo "la base es la misma" || { dicho; falla "publicar no comprobó que la base es la misma"; }
+[ "$(memoria_de_la_base)" = 1006632960 ] || falla "murió ya decidido abrir, y la base no tenía el servidor nuevo: el caso no se probó"
+recuperar || { dicho; diagnostico; falla "ya decidido abrir con otro servidor de base, no se pudo recuperar"; }
+dijo "Publicada: $pub" || { dicho; falla "ya decidido abrir con otro servidor de base, recuperar no terminó la publicación"; }
+ultima=$pub
+[ "$(operacion ps -q db)" != "$base_antes" ] || falla "la base sigue en el mismo contenedor: su servidor no cambió"
+[ "$(memoria_de_la_base)" = 1006632960 ] || falla "la base no corre con la configuración nueva"
+atiende_con "$ultima" "publicada con otro servidor de base"
+[ "$(asentado)" = "$habia" ] || falla "cambiar el servidor de la base cambió lo asentado"
+
+paso "Con el servidor nuevo, una migración falla: el negocio se queda cerrado, y volver al respaldo regresa también el servidor de antes, aunque muera a medias"
+memoria_antes=$(memoria_de_la_base)
+vigente=$(manifiesto vigente)
+otra_base 960m 1g
+numero=$((numero + 1))
+(umask 022; printf 'SELECT * FROM no_existe_%s;\n' "$numero" > "db/migraciones/${numero}_falla.sql")
+confirmar "Otro servidor de base, y una migración que falla"
+if publicar; then dicho; falla "publicó con una migración que falla"; fi
+dijo "La migración falló" || { dicho; diagnostico; falla "la publicación no falló en la migración"; }
+pub=$(manifiesto pendiente)
+[ -n "$pub" ] || falla "falló la migración y no quedó la publicación sin cerrar"
+[ "$(memoria_de_la_base)" = 1073741824 ] || falla "falló la migración sin el servidor nuevo de la base: el caso no se probó"
+[ "$(en_la_base)" = "false|$pub" ] || falla "falló la migración y la operación no quedó cerrada"
+codigo=0
+recuperar || codigo=$?
+[ "$codigo" = 2 ] || { dicho; falla "con la migración fallida, recuperar salió con $codigo y no con 2"; }
+[ "$(memoria_de_la_base)" = 1073741824 ] || falla "recuperar quitó el servidor nuevo de la base, y ya se había migrado con él"
+if volver MORIR_EN=vuelta-base:despues <"$trabajo/llave.txt"; then dicho; falla "se pidió que volver muriera recién puesto el servidor de antes, y terminó"; fi
+dijo "el guion muere en «vuelta-base:despues»" || { dicho; diagnostico; falla "volver falló antes de poner el servidor de antes"; }
+[ "$(memoria_de_la_base)" = "$memoria_antes" ] || falla "volver murió recién puesto el servidor de antes, y no estaba puesto"
+por_fuera stop db >/dev/null 2>&1 || falla "no se pudo detener la base para preparar el caso"
+volver <"$trabajo/llave.txt" || { dicho; diagnostico; falla "no se pudo terminar de volver al respaldo, con la base detenida"; }
+dijo "La base no está corriendo: se arranca" || { dicho; falla "volver no dijo que arrancó la base detenida"; }
+[ "$(manifiesto dato "$pub" cierre.como)" = restaurada ] || falla "el manifiesto no quedó cerrado como restaurada"
+[ "$(memoria_de_la_base)" = "$memoria_antes" ] || falla "después de volver, la base no corre con el servidor de antes"
+marca=$(enlabase "SELECT id FROM vida")
+sh operacion/volver.sh --abrir >"$trabajo/salida" 2>&1 || { dicho; diagnostico; falla "no se pudo abrir después de volver al respaldo"; }
+atiende_con "$vigente" "después de volver al respaldo con otro servidor de base"
+[ "$(asentado)" = "$habia" ] || falla "volver con otro servidor de base cambió lo asentado"
+# La carpeta vuelve al commit de lo vigente: lo que sigue toma respaldos de esa publicación, y los compara con él.
+git checkout -q --detach "$(manifiesto vigente commit)"
+ultima=$vigente
+
 # ── se perdió la máquina ───────────────────────────────────────────────────
 
 paso "Se perdió la máquina: en otra, sin nada local, se instala desde el diario como estaba antes de que pisaran sus objetos"
@@ -710,7 +804,7 @@ atiende_con "$pub" "instalada desde un respaldo"
 [ "$(docker inspect -f '{{.Image}}' "$(operacion ps -q web)")" = "$(docker image ls -q --no-trunc "$PROYECTO-web:$pub")" ] || falla "la aplicación no corre con la imagen construida para esta instalación"
 # Lo asentado está, idéntico; y la restauración quedó registrada.
 [ "$(asentado)" = "$habia" ] || falla "lo asentado no es lo que traía el respaldo"
-[ "$(enlabase "SELECT count(*) FROM restauracion")" = 3 ] || falla "la restauración no quedó registrada (debía haber tres: las dos de volver al respaldo, y esta)"
+[ "$(enlabase "SELECT count(*) FROM restauracion")" = 4 ] || falla "la restauración no quedó registrada (debía haber cuatro: las tres de volver al respaldo —la última, con otro servidor de base—, y esta)"
 # El siguiente respaldo dice ya la publicación de esta instalación.
 operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS respaldo ahora >"$trabajo/respaldo.salida" 2>&1 || { cat "$trabajo/respaldo.salida" >&2; falla "no se pudo respaldar en la instalación nueva"; }
 [ "$(version_de | cut -d' ' -f2)" = "$pub" ] || falla "el respaldo de la instalación nueva no dice su publicación"
