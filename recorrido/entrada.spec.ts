@@ -13,6 +13,20 @@ test("la aplicación está en pie", async ({ request }) => {
   expect(await r.json()).toEqual({ bien: true, abierta: true });
 });
 
+test("cada página trae su ícono, y el sitio lo sirve: el de la pestaña y el de la pantalla de inicio", async ({ request }) => {
+  const html = await (await request.get("/")).text();
+  // Los atributos, en el orden que los ponga Next: solo importa a qué apunta cada enlace.
+  const icono = /<link rel="icon" href="(\/icon\.svg[^"]*)"[^>]*type="image\/svg\+xml"/.exec(html)?.[1];
+  const deInicio = /<link rel="apple-touch-icon" href="(\/apple-icon\.png[^"]*)"/.exec(html)?.[1];
+  expect(icono, "la página no enlaza su ícono").toBeTruthy();
+  expect(deInicio, "la página no enlaza su ícono de pantalla de inicio").toBeTruthy();
+  for (const [camino, tipo] of [[icono!, "image/svg+xml"], [deInicio!.replace(/&amp;/g, "&"), "image/png"]] as const) {
+    const r = await request.get(camino);
+    expect(r.status(), camino).toBe(200);
+    expect(r.headers()["content-type"], camino).toBe(tipo);
+  }
+});
+
 test("un equipo sin dar de alta no pasa", async ({ request }) => {
   const r = await request.get("/api/sesion");
   expect(r.status()).toBe(401);
