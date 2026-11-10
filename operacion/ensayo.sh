@@ -489,7 +489,10 @@ candado_libre || falla "cambiar la clave no soltó el candado"
 dice --abierta "--version=$pub" "--base=$marca" || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave, el sitio no contesta como debe"; }
 # Lo que entra como el dueño de la base ya lo hace con la nueva: un respaldo a mano, la consola.
 operacion run --rm --no-deps -T -e NODE_EXTRA_CA_CERTS respaldo ahora >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave no se pudo respaldar"; }
-operacion run --rm --no-deps -T consola persona lista >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave la consola no entra"; }
+# La consola, como la escribe la guía: sin --no-deps. En operación lo pone compose.sh; sin él, Compose
+# arrancaba también al migrador, que a secas se niega, y la consola no corría (servidor, 10 de noviembre).
+operacion run --rm -T consola persona lista >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "después de cambiar la clave la consola no entra"; }
+operacion run --rm -T consola arranque >"$trabajo/salida" 2>&1 || { cat "$trabajo/salida" >&2; falla "el arranque, como lo escribe la guía, no corrió"; }
 # Una versión nueva se publica: la base no cuenta como «otro servidor de la base» por la clave.
 echo "Después de cambiar la clave de la base." > operacion/ensayo/despues-de-la-clave.txt
 confirmar "Una versión después de cambiar la clave de la base"

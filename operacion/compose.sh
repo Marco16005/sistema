@@ -4,7 +4,7 @@
 #   sh operacion/compose.sh ps
 #   sh operacion/compose.sh logs --tail 50 web
 #   sh operacion/compose.sh run --rm consola persona alta "Luis" mostrador
-#   sh operacion/compose.sh run --rm --no-deps respaldo lista
+#   sh operacion/compose.sh run --rm --no-deps respaldo lista    (--no-deps lo pone él siempre)
 #
 # En operación `docker compose` a secas no arranca: le faltan las imágenes, que las pone cada
 # publicación. Este guion le pasa la configuración resuelta del conjunto vigente, con cada imagen
@@ -77,6 +77,14 @@ configuracion=$(manifiesto vigente configuracion) || falla "No se pudo leer la c
 [ -n "$configuracion" ] || falla "Todavía no se ha publicado nada en esta instalación. La primera vez es: sh operacion/publicar.sh"
 if [ "$clase" = consulta ]; then
   exec docker compose -f "$PUBLICACIONES/$configuracion" "$@"
+fi
+# Lo suelto corre solo, sin arrancar nada más: lo que atiende lo arrancan publicar y levantar, que
+# comprueban antes. Sin esto, Compose arranca también las dependencias de lo que se corre —la
+# consola y el respaldo dependen del migrador, que a secas se niega—, y lo pedido no corre (lo
+# encontró el servidor el 10 de noviembre, con la consola y con probar-avisos).
+if [ "$1" = run ]; then
+  shift
+  set -- run --no-deps "$@"
 fi
 # Como hijo, no en lugar de este guion: al terminar se suelta el candado, y queda dicho que se soltó.
 codigo=0

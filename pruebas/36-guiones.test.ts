@@ -431,7 +431,9 @@ test("el Compose de lo publicado: consultar pasa siempre; correr algo suelto pid
     // Correr algo suelto: con el candado tomado mientras corre, y suelto al terminar.
     const consola = await i.guion("compose.sh", ["run", "--rm", "consola", "persona", "lista"]);
     assert.equal(consola.codigo, 0, consola.queja);
-    assert.equal((await i.llamadas()).at(-1), "con candado compose -f publicaciones/pub1/conjunto.json run --rm consola persona lista");
+    // Y solo eso: sin arrancar sus dependencias. En operación el migrador no corre a secas, y con él
+    // de dependencia la consola no arrancaba (lo encontró el servidor el 10 de noviembre).
+    assert.equal((await i.llamadas()).at(-1), "con candado compose -f publicaciones/pub1/conjunto.json run --no-deps --rm consola persona lista");
     assert.equal(await readFile(join(i.carpeta, ".operacion.candado"), "utf8"), "");
     // Lo que corrió falla: se dice con su mismo código, y el candado se suelta igual.
     await i.docker(VIGENTE('"compose -f publicaciones/pub1/conjunto.json run"*) exit 7 ;;'));
@@ -475,7 +477,9 @@ test("el Compose de lo publicado: consultar pasa siempre; correr algo suelto pid
     ]) {
       const fin = await i.guion("compose.sh", orden);
       assert.equal(fin.codigo, 0, `rechazó «${orden.join(" ")}»: ${fin.queja}`);
-      assert.ok((await i.llamadas()).at(-1)!.endsWith(orden.join(" ")));
+      // Lo que se corre suelto va con --no-deps, siempre: si no, arrancaría sus dependencias.
+      const esperada = orden[0] === "run" ? ["run", "--no-deps", ...orden.slice(1)] : orden;
+      assert.ok((await i.llamadas()).at(-1)!.endsWith(esperada.join(" ")), `«${orden.join(" ")}» no salió como «${esperada.join(" ")}»`);
     }
   }));
 
